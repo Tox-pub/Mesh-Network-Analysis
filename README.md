@@ -55,14 +55,16 @@ Project-Root/
 ## Initialization: 
 
 ### 1. Clone Repo
+
 ```bash
 git clone [https://github.com/YourUsername/MeSH-Network-Analysis.git](https://github.com/YourUsername/MeSH-Network-Analysis.git)
 cd MeSH-Network-Analysis
 ```
     
 ### 2. Install Dependencies
-    Ensure correct versions of packages installed
- ```bash
+Ensure correct versions of packages installed
+
+```bash
 pip install -r requirements.txt
 ```
     
@@ -71,12 +73,12 @@ pip install -r requirements.txt
 ## Quick Start: Running the Reference Analysis
 *Goal: Reproduce the "Dermatitis, Allergic Contact" network described in the publication.*
 
-**1.  **Open `scripts/python/config.py` and configure user defined settings.
-**2.  **Ensure the reference dataset flag is set to **True**:
+### 1.  Open `scripts/python/config.py` and configure user defined settings.
+### 2.  Ensure the reference dataset flag is set to **True**:
 ```python
 USE_REFERENCE_DATA = True
 ```
-**3.  **Run the pipeline:
+### 3.  Run the pipeline:
 ```bash
 python run_pipeline.py
 ```
@@ -94,17 +96,18 @@ Open `scripts/python/config.py` and update the following:
 * `SEARCH_TERM = "Your Search Query [Mesh]"`
 * `ENTREZ_EMAIL` and `ENTREZ_API_KEY` (Required for PubMed access `https://www.ncbi.nlm.nih.gov/myncbi/`).
 
-### 2. Execution (Steps 1-3)
+### 2. Execution
 You can choose to run the pipeline at this step. or run the scripts in order of execution independently. It will process raw data, build the network, and export the initial results.
 ```bash
 python run_pipeline.py
 ```
-
-### 2: Script Descriptions
-
 * **Step 1:** Checks MeSH raw data.
-* **Step 2:** Scrapes PubMed, builds the network, and runs GLF/SA optimization (Computationally intensive).
-* **Step 3:** Exports the final network to an Excel file in `results/`.
+* **Step 2:** Scrapes PubMed, builds the network, runs subgraph optimization, calculates ARS and CRS (Computationally intensive step).
+* **Step 3:** Exports final network files, databases, Excels to `results/`, `processed/`, and `raw/`.
+
+---
+
+## Script Descriptions
 
 ### `run_pipeline.py`
 A master pipeline orchestrator set up for convenience. It checks your configuration and executes the following scripts in the correct order, handling error checking and timing.
