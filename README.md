@@ -55,31 +55,31 @@ Project-Root/
 ## Initialization: 
 
 ### 1. Clone Repo
-    ```bash
-    git clone [https://github.com/YourUsername/MeSH-Network-Analysis.git](https://github.com/YourUsername/MeSH-Network-Analysis.git)
+```bash
+git clone [https://github.com/YourUsername/MeSH-Network-Analysis.git](https://github.com/YourUsername/MeSH-Network-Analysis.git)
 cd MeSH-Network-Analysis
-    ```
+```
     
 ### 2. Install Dependencies
     Ensure correct versions of packages installed
-    ```bash
-    pip install -r requirements.txt
-    ```
+ ```bash
+pip install -r requirements.txt
+```
     
 ---
 
 ## Quick Start: Running the Reference Analysis
 *Goal: Reproduce the "Dermatitis, Allergic Contact" network described in the publication.*
 
-1.  Open `scripts/python/config.py`.
-2.  Ensure the reference flag is set to **True**:
-    ```python
-    USE_REFERENCE_DATA = True
-    ```
-3.  Run the pipeline:
-    ```bash
-    python run_pipeline.py
-    ```
+**1.  **Open `scripts/python/config.py` and configure user defined settings.
+**2.  **Ensure the reference dataset flag is set to **True**:
+```python
+USE_REFERENCE_DATA = True
+```
+**3.  **Run the pipeline:
+```bash
+python run_pipeline.py
+```
     *The pipeline will detect the existing processed files in `data/reference_processed/` and automatically skip heavy computation steps, jumping directly to figure generation.*
 
 ---
@@ -193,6 +193,7 @@ This script relies on `20250301_marc_full2025.bin` and `d2025.bin` to create the
 ### Manual Biological Strata Assignment
 **Critical** The pipeline cannot automatically determine if a MeSH term represents a "Molecular", "Cellular", or "Tissue" level event. You must provide this context.
  *Manually annotating thousands of MeSH terms by hand was not in the scope of the project, but if you really want this let me know.*
+
 **Instructions:**
 1.  Go to the `results/` folder and open the newly generated Excel file:
     * `[FILE_PREFIX]_final_network_with_relevance_export.xlsx`
