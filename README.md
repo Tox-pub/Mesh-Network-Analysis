@@ -1,4 +1,4 @@
-# MeSH Network Analysis for AOP Discovery
+# MeSH Network Analysis to Identify Biological Link Plausibility
 
 ## Overview
 This repository contains a computational pipeline designed to reconstruct **Adverse Outcome Pathways (AOPs)** using **Medical Subject Headings (MeSH)** co-occurrence networks.
