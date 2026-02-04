@@ -3,12 +3,12 @@
 ## Overview
 This repository contains a computational pipeline designed to reconstruct **Adverse Outcome Pathways (AOPs)** using **Medical Subject Headings (MeSH)** co-occurrence networks.
 
-By analyzing the co-occurrence of MeSH terms across thousands of PubMed articles, this tool builds a weighted network graph that connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (diseases) through biological intermediates. The pipeline utilizes graph theory, optimization algorithms (GLF & Simulated Annealing), and a novel **Contextual Relevance Score (CRS)** to filter noise and identify the most biologically relevant pathways.
+By analyzing the co-occurrence of MeSH terms across millions of PubMed articles, this tool builds a weighted network graph that connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. The pipeline utilizes graph theory, optimization algorithms, Global Likelihood Filter (GLF) & Simulated Annealing (SA), and a novel **Article Relevance Score (ARS)** and **Contextual Relevance Score (CRS)** to filter noise and identify the most biologically relevant pathways contained within the network of interest.
 
 **Key Capabilities:**
 * **Automated Data Mining:** Fetches and processes PubMed PMIDs, citations, and associated MeSH terms via Entrez API.
 * **Network Construction:** Builds rank-normalized co-occurrence networks from MeSH terms.
-* **Optimization:** Uses Global Likelihood Filter (GLF) and Simulated Annealing (SA) to extract optimal subgraphs and form a Consensus Model (CM).
+* **Optimization:** Uses GLF and SA to extract optimal subgraphs and form a Consensus Model (CM).
 * **Contextual Scoring:** Calculates the Article Relevancy Scores (ARS) and Contextual Relevancy Scores (CRS) to rank nodes/edges to determine their impact on the final network within the context of global corpus.
 * **Visualization:** Generates publication-ready figures (Sankey diagrams, t-SNE, Alluvial flows).
 
