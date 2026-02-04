@@ -45,7 +45,7 @@ Project-Root/
 │   ├── reference_raw/                # Read-only inputs for the "Dermatitis" reference case
 │   │   └── [Reference DBs and Annotation files]
 │   │
-│   └── reference_processed/          # "Golden Copy" outputs for the reference case
+│   └── reference_processed/          # Outputs for the reference case
 │       └── [Pre-computed Networks, JSONs, and CSVs]
 │
 ├── requirements.txt                  # Python dependencies
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 ---
 
 ## Quick Start: Running the Reference Analysis
-*Goal: Reproduce the "Dermatitis, Allergic Contact" network described in the publication.*
+*This will reproduce the "Dermatitis, Allergic Contact" network described in the publication.*
 
 ### 1.  Open `scripts/python/config.py` and configure user defined settings.
 ### 2.  Ensure the reference dataset flag is set to **True**:
@@ -87,20 +87,21 @@ python run_pipeline.py
 
 ## Running a New Analysis (Fresh Network Analysis)
 
-To analyze a **new search term** (e.g., "Liver Cirrhosis"), follow this 4-step workflow:
+To analyze a **new search term** (e.g., "Liver Cirrhosis"), follow this workflow:
 
 ### 1. Configuration
 Open `scripts/python/config.py` and update the following:
 * `USE_REFERENCE_DATA = False`
-* `SEARCH_TERM = "Your Search Query [Mesh]"`
-* `ENTREZ_EMAIL` and `ENTREZ_API_KEY` (Required for PubMed access `https://www.ncbi.nlm.nih.gov/myncbi/`).
+* `SEARCH_TERM = "Your Search Query"`
+* `ENTREZ_EMAIL` and `ENTREZ_API_KEY` (Required for PubMed access `https://www.ncbi.nlm.nih.gov/myncbi/`)
+* Adjust all other configurations settings to your liking
 
 ### 2. Execution
-You can choose to run the pipeline at this step. or run the scripts in order of execution independently. It will process raw data, build the network, and export the initial results.
+You can choose to run the pipeline at this step or run the scripts in order of execution independently. It will process raw data, build the network, and export the initial results.
 ```bash
 python run_pipeline.py
 ```
-* **Step 1:** Checks MeSH raw data.
+* **Step 1:** Checks MeSH raw data organization and creates stop word list if not present.
 * **Step 2:** Scrapes PubMed, builds the network, runs subgraph optimization, calculates ARS and CRS (Computationally intensive step).
 * **Step 3:** Exports final network files, databases, Excels to `results/`, `processed/`, and `raw/`.
 
