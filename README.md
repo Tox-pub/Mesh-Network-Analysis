@@ -57,8 +57,7 @@ Project-Root/
 ### 1. Clone Repo
 
 ```bash
-git clone [https://github.com/YourUsername/MeSH-Network-Analysis.git](https://github.com/YourUsername/MeSH-Network-Analysis.git)
-cd MeSH-Network-Analysis
+git clone [https://github.com/Tox-pub/MeSH-Network-Analysis.git]
 ```
     
 ### 2. Install Dependencies
@@ -82,7 +81,7 @@ USE_REFERENCE_DATA = True
 ```bash
 python run_pipeline.py
 ```
-    *The pipeline will detect the existing processed files in `data/reference_processed/` and automatically skip heavy computation steps, jumping directly to figure generation.*
+*The pipeline will detect the existing processed files in `data/reference_processed/` and automatically skip heavy computation steps, jumping directly to figure generation.*
 
 ---
 
