@@ -1,7 +1,7 @@
 # MeSH Network Analysis to Identify Biological Link Plausibility
 
 ## Overview
-This repository contains a computational pipeline designed to reconstruct **Adverse Outcome Pathways (AOPs)** using **Medical Subject Headings (MeSH)** co-occurrence networks.
+This repository contains a computational pipeline designed to mimic **Adverse Outcome Pathways (AOPs)** biological flows and networks using **Medical Subject Headings (MeSH)** co-occurrence networks.
 
 By analyzing the co-occurrence of MeSH terms across millions of PubMed articles, this tool builds a weighted network graph that connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. The pipeline utilizes graph theory, optimization algorithms, Global Likelihood Filter (GLF) & Simulated Annealing (SA), and a novel **Article Relevance Score (ARS)** and **Contextual Relevance Score (CRS)** to filter noise and identify the most biologically relevant pathways contained within the network of interest.
 
