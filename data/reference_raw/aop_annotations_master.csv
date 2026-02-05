@@ -1,0 +1,176 @@
+mesh_term,aop_level
+Abatacept,Stressor
+Acute Disease,Adverse Outcome
+Adaptive Immunity,Organ
+"Air Pollutants, Occupational",Stressor
+Allergens,Stressor
+Amino Acid Sequence,Molecular
+Anaphylaxis,Adverse Outcome
+Anti-Inflammatory Agents,Stressor
+"Antibodies, Anti-Idiotypic",Molecular
+"Antibodies, Monoclonal",Molecular
+"Antibodies, Monoclonal, Humanized",Molecular
+Antibody Specificity,Molecular
+Antigen Presentation,Cellular
+"Antigens, CD",Cellular
+"Antigens, Differentiation",Cellular
+"Antigens, Differentiation, T-Lymphocyte",Cellular
+"Antigens, Plant",Stressor
+Antioxidants,Molecular
+Apoptosis,Cellular
+Asthma,Adverse Outcome
+Azo Compounds,Stressor
+B-Lymphocytes,Cellular
+B7-1 Antigen,Molecular
+B7-2 Antigen,Molecular
+Base Sequence,Molecular
+Basophils,Cellular
+Bronchial Hyperreactivity,Organ
+CD4-Positive T-Lymphocytes,Cellular
+CD8-Positive T-Lymphocytes,Cellular
+"Carcinoma, Basal Cell",Tissue
+"Carcinoma, Squamous Cell",Tissue
+Cell Degranulation,Cellular
+Cell Differentiation,Cellular
+Cell Line,Uncategorized
+Cell Movement,Cellular
+Cell Proliferation,Cellular
+Cell Survival,Cellular
+"Cells, Cultured",Uncategorized
+Chromium,Stressor
+Chronic Disease,Adverse Outcome
+Cobalt,Stressor
+Coloring Agents,Stressor
+Cosmetics,Stressor
+Cross Reactions,Molecular
+Cyclosporine,Stressor
+Cytokines,Molecular
+DNA Primers,Molecular
+Dendritic Cells,Cellular
+Dermatitis,Adverse Outcome
+"Dermatitis, Allergic Contact",Adverse Outcome
+"Dermatitis, Atopic",Adverse Outcome
+"Dermatitis, Contact",Adverse Outcome
+"Dermatitis, Irritant",Adverse Outcome
+"Dermatitis, Occupational",Adverse Outcome
+Dermatologic Agents,Stressor
+"Disease Models, Animal",Uncategorized
+"Dose-Response Relationship, Drug",Uncategorized
+"Dose-Response Relationship, Radiation",Uncategorized
+Drug Hypersensitivity,Adverse Outcome
+Dust,Stressor
+Eczema,Adverse Outcome
+Eosinophils,Cellular
+Epidermal Cells,Cellular
+Epidermis,Tissue
+Epoxy Resins,Stressor
+Erythema,Organ
+Facial Dermatoses,Adverse Outcome
+Fibroblasts,Cellular
+Filaggrin Proteins,Molecular
+Food Hypersensitivity,Adverse Outcome
+Forkhead Transcription Factors,Molecular
+Gene Expression,Molecular
+Gene Expression Regulation,Molecular
+Hair Dyes,Stressor
+Hand Dermatoses,Adverse Outcome
+Haptens,Molecular
+Histamine,Molecular
+Histamine Release,Cellular
+Hypersensitivity,Adverse Outcome
+"Hypersensitivity, Delayed",Adverse Outcome
+"Hypersensitivity, Immediate",Adverse Outcome
+Immune Tolerance,Organ
+"Immunity, Cellular",Cellular
+"Immunity, Innate",Organ
+Immunoconjugates,Stressor
+Immunoglobulin E,Molecular
+Immunoglobulin G,Molecular
+Immunoglobulin M,Molecular
+Immunosuppressive Agents,Stressor
+Inflammation,Tissue
+Inflammation Mediators,Molecular
+Interferon-gamma,Molecular
+Interleukin-1,Molecular
+Interleukin-10,Molecular
+Interleukin-12,Molecular
+Interleukin-13,Molecular
+Interleukin-17,Molecular
+Interleukin-2,Molecular
+Interleukin-4,Molecular
+Interleukin-6,Molecular
+Intermediate Filament Proteins,Molecular
+Irritants,Stressor
+Keratinocytes,Cellular
+Langerhans Cells,Cellular
+Latex,Stressor
+Latex Hypersensitivity,Adverse Outcome
+"Lectins, C-Type",Molecular
+Lipopolysaccharides,Stressor
+Lung,Organ
+Lymph Nodes,Organ
+Lymphocyte Activation,Cellular
+Macrophages,Cellular
+Mannose-Binding Lectins,Molecular
+Mast Cells,Cellular
+Melanoma,Adverse Outcome
+Membrane Glycoproteins,Molecular
+Monocytes,Cellular
+Mutation,Molecular
+Mycosis Fungoides,Stressor
+NF-kappa B,Molecular
+"Neoplasms, Radiation-Induced",Tissue
+Nickel,Stressor
+No-Observed-Adverse-Effect Level,Uncategorized
+Occupational Diseases,Adverse Outcome
+Odorants,Stressor
+Ointments,Stressor
+Ovalbumin,Molecular
+Oxidative Stress,Cellular
+Perfume,Stressor
+Permeability,Tissue
+Phenylenediamines,Stressor
+Phosphorylation,Molecular
+Photosensitivity Disorders,Adverse Outcome
+Plant Extracts,Stressor
+Plant Proteins,Stressor
+Pollen,Stressor
+"Preservatives, Pharmaceutical",Stressor
+Psoriasis,Adverse Outcome
+"RNA, Messenger",Molecular
+Reactive Oxygen Species,Molecular
+"Receptors, Antigen, T-Cell",Molecular
+"Receptors, IgE",Molecular
+Respiratory Hypersensitivity,Organ
+Rhinitis,Organ
+"Rhinitis, Allergic, Perennial",Adverse Outcome
+"Rhinitis, Allergic, Seasonal",Adverse Outcome
+Sensitivity and Specificity,Uncategorized
+"Sequence Homology, Amino Acid",Molecular
+Signal Transduction,Cellular
+Skin,Organ
+Skin Absorption,Tissue
+Skin Diseases,Adverse Outcome
+Skin Neoplasms,Tissue
+Skin Physiological Phenomena,Organ
+Sodium Dodecyl Sulfate,Stressor
+Spleen,Organ
+Stainless Steel,Stressor
+Sunlight,Stressor
+Sunscreening Agents,Stressor
+T-Lymphocyte Subsets,Cellular
+T-Lymphocytes,Cellular
+"T-Lymphocytes, Regulatory",Cellular
+Tacrolimus,Stressor
+Th1 Cells,Cellular
+Th17 Cells,Cellular
+Th2 Cells,Cellular
+Thiazoles,Stressor
+Thymic Stromal Lymphopoietin,Molecular
+Time Factors,Cellular
+Transfection,Uncategorized
+Tumor Necrosis Factor-alpha,Molecular
+Ultraviolet Rays,Stressor
+Urticaria,Adverse Outcome
+"Water Loss, Insensible",Tissue
+Wound Healing,Tissue
