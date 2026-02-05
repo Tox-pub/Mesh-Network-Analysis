@@ -61,12 +61,25 @@ git clone [https://github.com/Tox-pub/MeSH-Network-Analysis.git]
 ```
     
 ### 2. Install Dependencies
-Ensure correct versions of packages installed
+Ensure correct versions of packages installed.
 
 ```bash
 pip install -r requirements.txt
 ```
-    
+### 3. Unzip and Setup Stop Words
+While `mesh_stop_words.py` is already populated with stop words, if you want to generate your own stop words with `mesh_data_processor.py`:
+* Unzip `20250301_marc_full2025.7z` and `d2025.7z` in both the `data/raw/` and `data/reference_raw/` file folders.
+```
+pip install py7zr
+
+python -c "import py7zr, os; files=['data/raw/20250301_marc_full2025.7z', 'data/raw/d2025.7z', 'data/reference_raw/20250301_marc_full2025.7z', 'data/reference_raw/d2025.7z']; [py7zr.SevenZipFile(f, 'r').extractall(os.path.dirname(f)) for f in files if os.path.exists(f)]"
+```
+- or - 
+* Download updated files from `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/meshmarc/` and `https://nlmpubs.nlm.nih.gov/projects/mesh/.asciimesh/` to get the latest ascii and marc BIN files.
+* Place the updated files into `data/raw/` and `data/reference_raw/` file folders.
+* Edit config.py with the new file names so the `mesh_data_processor.py` knows where to look.
+* Execute `run_pipeline.py` or `mesh_data_processor.py`.
+
 ---
 
 ## Quick Start: Running the Reference Analysis
