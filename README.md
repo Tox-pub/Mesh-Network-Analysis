@@ -17,7 +17,7 @@ By analyzing the co-occurrence of MeSH terms across millions of PubMed articles,
 ## Project Structure
 
 ```text
-Project-Root/
+Mesh-Network_Analysis/
 │
 ├── scripts/
 │   └── python/
@@ -34,22 +34,22 @@ Project-Root/
 │   └── logs/                         # Execution logs and error reports
 │
 ├── data/
-│   ├── raw/                          # Input location for NEW analyses
+│   ├── raw/                           # Input location for NEW analyses
 │   │   ├── aop_annotations_master.csv # (Manual Input) Users fill this after Step 3
 │   │   ├── master_mesh_database.db    # Local SQL database of PMIDs (Large file)
-│   │   ├── d2025.bin                  # Raw MeSH ASCII descriptors (from NLM)
-│   │   └── 20250301_marc_full2025.bin # Raw MeSH MARC binary (from NLM)
+│   │   ├── d2025.bin                  # Raw MeSH ASCII descriptors (from NLM) (.7z format, must be unzipped)
+│   │   └── 20250301_marc_full2025.bin # Raw MeSH MARC binary (from NLM) (.7z format, must be unzipped)
 │   │
-│   ├── processed/                    # Output location for NEW analyses (Auto-generated)
+│   ├── processed/                     # Output location for NEW analyses (Auto-generated)
 │   │
-│   ├── reference_raw/                # Read-only inputs for the "Dermatitis" reference case
-│   │   └── [Reference DBs and Annotation files]
+│   ├── reference_raw/                 # Read-only inputs for the "Allergic Contact Dermatitis" reference case
+│   │   └── [Reference DBs and Annotation files] (.7z format, must be unzipped)
 │   │
-│   └── reference_processed/          # Outputs for the reference case
+│   └── reference_processed/           # Outputs for the reference case
 │       └── [Pre-computed Networks, JSONs, and CSVs]
 │
-├── requirements.txt                  # Python dependencies
-└── README.md                         # This file
+├── requirements.txt                   # Python dependencies
+└── README.md                          # This file
 ```
 ---
 ## Initialization: 
@@ -67,17 +67,18 @@ Ensure correct versions of packages installed.
 pip install -r requirements.txt
 ```
 ### 3. Unzip and Setup Stop Words
+*Due to Github repo file size limits*
 While `mesh_stop_words.py` is already populated with stop words, if you want to generate your own stop words with `mesh_data_processor.py`:
-* Unzip `20250301_marc_full2025.7z` and `d2025.7z` in both the `data/raw/` and `data/reference_raw/` file folders.
+* **Unzip** `20250301_marc_full2025.7z` and `d2025.7z` in both the `data/raw/` and `data/reference_raw/` file folders.
 ```
 pip install py7zr
 
 python -c "import py7zr, os; files=['data/raw/20250301_marc_full2025.7z', 'data/raw/d2025.7z', 'data/reference_raw/20250301_marc_full2025.7z', 'data/reference_raw/d2025.7z']; [py7zr.SevenZipFile(f, 'r').extractall(os.path.dirname(f)) for f in files if os.path.exists(f)]"
 ```
 - or - 
-* Download updated files from `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/meshmarc/` and `https://nlmpubs.nlm.nih.gov/projects/mesh/.asciimesh/` to get the latest ascii and marc BIN files.
+* Download updated files from `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/meshmarc/` and `https://nlmpubs.nlm.nih.gov/projects/mesh/.asciimesh/` to get the latest ASCII and MARC BIN files.
 * Place the updated files into `data/raw/` and `data/reference_raw/` file folders.
-* Edit config.py with the new file names so the `mesh_data_processor.py` knows where to look.
+* Edit `config.py` with the new file names so the `mesh_data_processor.py` knows where to look.
 * Execute `run_pipeline.py` or `mesh_data_processor.py`.
 
 ---
@@ -233,7 +234,7 @@ This script relies on `20250301_marc_full2025.bin` and `d2025.bin` to create the
 
 * **`master_mesh_database.db`**: This SQLite database stores fetched PMIDs to prevent re-downloading millions of citations. It can grow large (>6GB). If you delete it, the script will rebuild it, but the first run will be significantly slower.
 * **Node2Vec**: The dendrogram generation in `figures.py` requires the `node2vec` library. If not installed, that specific figure is skipped gracefully.
-* **Memory Usage**: Step 2 (Network Construction) can be memory intensive for broad search terms (>50,000 articles). Ensure you have at least 16GB RAM for large datasets.
+* **Memory Usage**: Step 2 (Network Construction) can be memory intensive for broad search terms (>10^6 articles) or multiple generations. Ensure you have at least 16GB RAM for large datasets.
 
 ---
 
