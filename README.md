@@ -67,8 +67,10 @@ Ensure correct versions of packages installed.
 pip install -r requirements.txt
 ```
 ### 3. Unzip and Setup Stop Words
-*Due to Github repo file size limits*
+*Due to Github repo file size limits, select raw files have been 7z **zipped** and all DATABASE (.db) files are **not included** in repo due to thier file size. They are available upon request via Dropbox or similar file share method designated by author.*
+
 While `mesh_stop_words.py` is already populated with stop words, if you want to generate your own stop words with `mesh_data_processor.py`:
+
 * **Unzip** `20250301_marc_full2025.7z` and `d2025.7z` in both the `data/raw/` and `data/reference_raw/` file folders.
 ```
 pip install py7zr
