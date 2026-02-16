@@ -243,6 +243,7 @@ This script relies on `20250301_marc_full2025.bin` and `d2025.bin` to create the
 ## Citation
 If you use this code or methodology, please cite:
 > *[To be updated after publication]*
+> [![DOI](https://zenodo.org/badge/1145152319.svg)](https://doi.org/10.5281/zenodo.18662959)
 
 ## License
 [MIT License]
