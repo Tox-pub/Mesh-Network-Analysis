@@ -54,7 +54,7 @@ import requests
 from Bio import Entrez, Medline
 from scipy import stats
 from scipy.stats import binom
-from tqdm.notebook import tqdm # Notebook progress bars
+from tqdm import tqdm # Notebook progress bars
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -208,7 +208,12 @@ def _entrez_search_with_retry(db, term, retmax, **kwargs):
             handle.close()
             return results
         except HTTPError as e:
-            if e.code in [429, 500, 502, 503, 504]: # Common temp server errors
+            if e.code == 400:
+                print(f"\n[!] WARNING: NCBI server returned HTTP Error 400 (Bad Request).")
+                print(f"    Entrez email and API key may be invalid or missing.")
+                print(f"    Please check 'scripts/python/config.py' and verify your credentials.\n")
+                raise
+            elif e.code in [429, 500, 502, 503, 504]: # Common temp server errors
                 wait_time = 2 ** attempt
                 print(f"  - NCBI server returned error {e.code}. Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)

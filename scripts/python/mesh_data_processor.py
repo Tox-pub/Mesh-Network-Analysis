@@ -29,7 +29,9 @@ if current_dir not in sys.path:
 try:
     import config
 except ImportError:
-    print("ERROR: Could not import 'config.py'. Ensure this script is in 'scripts/python/'")
+    print("\n[!] WARNING: Could not import 'config.py'.")
+    print("    Ensure you are running the script from a directory that can access 'scripts/python/config.py'.")
+    print("    Check your current working directory and try running via 'python scripts/python/run_pipeline.py'.\n")
     sys.exit(1)
 
 # <<< Constants >>>
@@ -62,7 +64,9 @@ def extract_unique_mesh_terms_from_marc(marc_file_path, output_file_path):
     print(f"Reading from: {marc_file_path}")
 
     if not os.path.exists(marc_file_path):
-        print(f"ERROR: MARC file not found at {marc_file_path}")
+        print(f"\n[!] WARNING: MARC file not found at '{marc_file_path}'")
+        print(f"    You can download the latest MeSH files from: https://nlmpubs.nlm.nih.gov/projects/mesh/")
+        print(f"    See 'README.md' and 'scripts/python/config.py' for detailed update instructions.\n")
         return False
 
     try:
@@ -118,7 +122,9 @@ def generate_stopwords_file(mesh_ascii_path, output_py_path):
     print(f"Reading from: {mesh_ascii_path}")
 
     if not os.path.exists(mesh_ascii_path):
-        print(f"ERROR: MeSH ASCII file not found at {mesh_ascii_path}")
+        print(f"\n[!] WARNING: MeSH ASCII file not found at '{mesh_ascii_path}'")
+        print(f"    You can download the latest MeSH files from: https://nlmpubs.nlm.nih.gov/projects/mesh/")
+        print(f"    See 'README.md' and 'scripts/python/config.py' for detailed update instructions.\n")
         return None
 
     mesh_term_to_categories = defaultdict(set)

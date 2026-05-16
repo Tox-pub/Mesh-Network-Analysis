@@ -19,6 +19,11 @@ import subprocess
 import sys
 import time
 
+if sys.version_info < (3, 8):
+    print("\n[!] WARNING: You are running an older version of Python.")
+    print("    This pipeline requires Python 3.8 or higher. Some features may not work as expected.")
+    print(f"    Current version: {sys.version.split()[0]}\n")
+
 def run_script(script_path, description):
     """
     Runs a python script using subprocess and checks for errors.

@@ -165,6 +165,11 @@ def convert_network_json_to_excel(target_file_key='final_network'):
 
     input_path = config.FILES[target_file_key]
 
+    if not os.path.exists(input_path):
+        print(f"\n[!] WARNING: Source JSON '{input_path}' not found.")
+        print(f"    Did step 2 'master_mesh_network.py' complete successfully?\n")
+        return
+
     # Force the output to live in the results folder
     filename = os.path.basename(input_path).replace('.json', '_export.xlsx')
     output_path = os.path.join(config.RESULTS_DIR, filename)

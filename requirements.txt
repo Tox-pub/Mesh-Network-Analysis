@@ -4,7 +4,7 @@ kaleido==0.2.1
 matplotlib>=3.10.0
 networkx>=2.8.8
 node2vec>=0.4.6
-numpy<2.0.0
+numpy>=1.24.0,<2.0.0
 openpyxl>=3.1.5
 pandas>=2.2.2
 plotly>=5.24.1

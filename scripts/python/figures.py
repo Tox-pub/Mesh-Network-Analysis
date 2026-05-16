@@ -194,7 +194,9 @@ def load_and_prepare_data(json_path, annotation_path):
             node_df = node_df.reset_index().merge(aop_df, on='mesh_term', how='left').set_index('mesh_term')
 
         except Exception as e:
-            print(f"WARNING: Could not read annotation file: {e}")
+            print(f"\n[!] WARNING: Could not read annotation file '{annotation_path}': {e}")
+            print(f"    Ensure you have manually assigned biological strata in this file as per")
+            print(f"    the README instructions to generate all figures correctly.\n")
             node_df['aop_level'] = 'Uncategorized'
 
         node_df['aop_level'] = pd.Categorical(node_df['aop_level'], categories=AOP_ORDER, ordered=True)
@@ -767,7 +769,10 @@ def plot_scatter_panels(node_df):
     plt.close()
 
 def plot_dendrogram(G, node_df):
-    if Node2Vec is None: return
+    if Node2Vec is None:
+        print("\n[!] WARNING: 'node2vec' is not installed or failed to import.")
+        print("    Skipping Dendrogram generation. Run 'pip install node2vec' to enable this figure.\n")
+        return
     print("\n<<< Generating Node2Vec Dendrogram >>>")
 
     n2v = Node2Vec(G, dimensions=64, walk_length=30, num_walks=200, workers=4, quiet=True)
