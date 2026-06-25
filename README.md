@@ -33,20 +33,24 @@ Mesh-Network-Analysis-Main-Library/
 │   └── *_export.xlsx                   # Exported full network tables
 │
 ├── src/
-│   └── mesh_aop/                       # Core Python package modules
-│       ├── __init__.py
-│       ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
-│       ├── cli.py                      # Orchestrator and CLI entry point
-│       ├── config_parser.py            # Two-tier configuration engine
-│       ├── data_ops.py                 # SQLite and NCBI Entrez querying
-│       ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
-│       ├── network.py                  # NetworkX assembly, filtering, and centrality
-│       ├── relevance.py                # Contextual Relevance Scoring (Semantic Re-ranking)
-│       ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
-│       ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
-│       └── wizard.py                   # Interactive configuration module
+│   ├── mesh_aop/                       # Core Python package modules
+│   │   ├── __init__.py
+│   │   ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
+│   │   ├── check_env.py                # System environment & dependency verification
+│   │   ├── cli.py                      # Orchestrator and CLI entry point
+│   │   ├── config_parser.py            # Two-tier configuration engine
+│   │   ├── data_ops.py                 # SQLite and NCBI Entrez querying
+│   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
+│   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
+│   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
+│   │   ├── relevance.py                # Contextual Relevance Scoring (Semantic Re-ranking)
+│   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
+│   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
+│   │   ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
+│   │   └── wizard.py                   # Interactive configuration module
+│   └── mesh_aop_notebooks/             # Jupyter notebook equivalents of each module
+│       └── *.ipynb                     # One notebook per module for interactive exploration
 │
-├── check_env.py                        # System environment & dependency verification script
 ├── environment.yml                     # Mamba/Conda cross-platform dependency resolution
 ├── mesh_config.json                    # Auto-generated user configuration file
 ├── pyproject.toml                      # Modern Python package specification
@@ -95,7 +99,7 @@ python3 -m venv mesh_env
 source mesh_env/bin/activate  # On Windows use: mesh_env\Scripts\activate
 
 # Run the Environment Checker (Automatically initiates 'pip install -e .')
-python check_env.py --auto
+mesh-check-env --auto
 
 ```
 
@@ -116,7 +120,7 @@ mamba env create -f environment.yml
 mamba activate mesh_aop_network
 
 # Run the verification script to ensure successful installation and provision OS-level rendering libraries
-python check_env.py --auto
+mesh-check-env --auto
 
 ```
 
@@ -126,6 +130,7 @@ Regardless of the installation method chosen, verify the package is correctly li
 
 ```bash
 mesh-pipeline --help
+mesh-pipeline --version
 
 ```
 
@@ -134,6 +139,16 @@ mesh-pipeline --help
 ## Execution Guide
 
 The pipeline is entirely modular and controlled via a terminal interface. Configuration is handled by an interactive command-line wizard, allowing users to modify runtime parameters safely without touching source code.
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--step <name>` | Which pipeline segment to run (`all`, `process`, `data_ops`, `network`, `secondary`, `viz`). Defaults to `all`. |
+| `--interactive` | Launches the interactive wizard before execution. |
+| `--config <path>` | Path to a custom config JSON. Defaults to `mesh_config.json` in the current directory. |
+| `--readme` | Opens this documentation file in your default OS viewer. |
+| `-v` / `--version` | Prints the installed package version and exits. |
 
 ### Running the Complete Pipeline
 
@@ -181,9 +196,10 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 * **MeSH Search Term:** The primary indexing term used to retrieve the base (P0) cohort of articles from PubMed (e.g., `Dermatitis, Allergic Contact [Mesh]`).
 * **Start / End Date:** Constrains the temporal boundaries of the initial P0 PubMed search.
 * **Citation Generations:** Controls the depth of the citation scrape.
-* `0`: Only the base parental generation (P0) articles.
-* `1`: P0 articles + all articles they cite + all articles that cite them (G1).
-* *Warning:* Values $\ge 1$ result in exponential data growth.
+  * `0`: Only the base parental generation (P0) articles.
+  * `1`: P0 articles + all articles they cite + all articles that cite them (G1).
+  * *Warning:* Values $\ge 1$ result in exponential data growth.
+* **Update MeSH Support Files:** If `True`, forces re-extraction of the MeSH term list and stop-word set from the XML file even if cached outputs already exist.
 
 
 
@@ -193,17 +209,34 @@ The wizard actively probes your local Master SQLite Database for corruption, com
   * **[!] WARNING:** If set to `False`, the pipeline skips this heavy graph math to prevent RAM exhaustion on massive networks. You will receive a "Bare Bones" network based purely on co-occurrence. Advanced downstream metrics, including Article Relevance Scores (ARS) and Contextual Relevance Scores (CRS), **cannot and will not be calculated**.
 * **Betweenness K-Samples:** Heuristic sampling limit for Centrality calculation. Lower values increase speed but reduce precision.
 * **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Contextual Relevance Scoring, allowing the simulation of historical network states.
+* **Random Seed:** Integer seed passed to NetworkX and scikit-learn for reproducible t-SNE projections and community detection. Default: `42`.
+* **Eigenvector Max Iterations / Tolerance:** Power-iteration convergence controls for Eigenvector centrality. Increase `eigenvector_max_iter` (default `1000`) if convergence warnings appear on very large or sparse graphs.
 
 ### 6. Network & Simulation Parameters
 
 * **Lambda Value:** The distance penalty decay factor applied to generational node weighting ($W = e^{-\lambda d}$).
+* **Node Weight Factors:** A four-component weighting dictionary that controls how a node's composite importance score is assembled prior to GLF/SA filtering. The four keys and their defaults are:
+
+  | Key | Default | Role |
+  |-----|---------|------|
+  | `centrality` | `0.45` | Combined betweenness + eigenvector centrality contribution |
+  | `article_rank` | `0.15` | PageRank-style article influence |
+  | `rank_median_cit` | `0.20` | Median incoming citations across linked articles |
+  | `rank_total_cit` | `0.20` | Total incoming citation volume |
+
+  The four values must sum to `1.0`.
+
 * **Target Edges:** The hard threshold for the final consensus subgraph size. The optimization algorithms will prune the graph until exactly this number of edges remains.
 * **GLF / SA Iterations:** Monte Carlo search and thermal cooling steps for the optimization heuristics.
+* **SA Temperature Start:** The initial thermal energy of the Simulated Annealing system (default `5000.0`). Higher values allow larger disruptive jumps early in the search.
+* **SA Cooling Rate:** The multiplicative decay applied to temperature each iteration (default `0.999995`). Values closer to `1.0` cool more slowly and explore more widely at the cost of run time.
 
 ### 7. Secondary Analysis Parameters
 
 Executes highly targeted queries against the finalized network to extract specific publications for manual review.
 
+* **Export Top Articles:** If `True` (default), always exports the highest-scoring network-wide articles at the end of Step 3 without requiring `--step secondary`.
+* **Export Limit:** Maximum number of articles returned per query (default `500`).
 * **Exclude Review Articles:** Filters out broad review articles to isolate primary literature.
 * **Target Nodes:** Evaluates the literature density of specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
 * **Target Edges:** Evaluates literature specifically linking two concepts. Format with a dash-space-dash: `NodeA - NodeB; NodeC - NodeD`.
@@ -220,7 +253,7 @@ Executes highly targeted queries against the finalized network to extract specif
   * **Mechanism:** Calculates the strict harmonic mean of the normalized ARS and the normalized Citation Score.
   * **Behavior:** Penalizing. The final output skews heavily toward the lower of the two input values. An article must possess both high topological relevance and high community impact to achieve a high score.
   * **Formula:** $2 \times \frac{ARS \times Cit}{ARS + Cit}$
-* **ARS Weight:** The weight for **`Linear`** sorting metric of the ARS scores per article (0-1.0) with the other percentage made up by incoming citations (*article popularity*).
+* **ARS Weight (`linear_weight_ars`):** The weight for **`Linear`** sorting metric of the ARS scores per article (0–1.0), with the remaining weight applied to incoming citations (*article popularity*). Default `0.5`.
 
 ---
 
@@ -277,6 +310,101 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
 
 
+
+---
+
+## Jupyter Notebook Interface
+
+Every module in `src/mesh_aop/` has a corresponding Jupyter notebook in `src/mesh_aop_notebooks/`. These notebooks mirror the source modules cell-by-cell and are intended for:
+
+* **Interactive exploration** — step through the pipeline one cell at a time and inspect intermediate data structures.
+* **Prototyping** — experiment with individual functions (e.g., tweak GLF parameters and re-run only the filtering step) without triggering the full CLI orchestration.
+* **Debugging** — isolate a specific module and inspect its inputs and outputs in a notebook environment.
+
+Each notebook contains its own `mesh_config.json` and `environment.yml` references so it can be run independently from the `src/mesh_aop_notebooks/` directory if needed.
+
+---
+
+## Programmatic API Usage
+
+The package exposes a clean Python API through its `__init__.py`. All pipeline functions can be imported and called directly without using the CLI, which is useful for embedding the analysis within a larger workflow or Jupyter-based research pipeline.
+
+```python
+from mesh_aop import (
+    MeshConfig,
+    process_raw_mesh_data,
+    run_initial_data_collection,
+    run_network_construction,
+    run_consensus_filtering_and_lcc,
+    run_community_detection,
+    run_contextual_relevance_scoring,
+    get_top_network_articles,
+    plot_sankey_alluvial,
+)
+
+# Load config (merges factory defaults with your local mesh_config.json)
+config = MeshConfig(config_path="mesh_config.json")
+
+# Step 1 – Extract MeSH terms from XML
+process_raw_mesh_data(
+    xml_file=config.files['mesh_xml'],
+    output_csv=config.files['mesh_terms_csv'],
+    output_py=config.files['mesh_stopwords_py'],
+)
+
+# Step 2 – Collect articles from NCBI Entrez
+run_initial_data_collection(
+    search_term_param=config.get('search_parameters', 'search_term'),
+    start_date_str=config.get('search_parameters', 'start_date'),
+    end_date_str=config.get('search_parameters', 'end_date'),
+    generations_n_param=config.get('search_parameters', 'generations_n'),
+    db_path=config.files['pmids_db'],
+    entrez_email=config.get('credentials', 'entrez_email'),
+    entrez_api_key=config.get('credentials', 'entrez_api_key'),
+)
+
+# Step 3 – Build and filter the network
+run_network_construction(db_path_param=config.files['cleaned_db'],
+                         output_json_path=config.files['full_network'], ...)
+run_consensus_filtering_and_lcc(...)
+run_community_detection(network_file_path=config.files['consensus_lcc'], ...)
+run_contextual_relevance_scoring(...)
+```
+
+The full list of exported symbols is defined in `src/mesh_aop/__init__.py`.
+
+---
+
+## Troubleshooting
+
+### `community` / `python-louvain` Namespace Collision
+
+The `python-louvain` package installs itself under the name `community`, which conflicts with an unrelated package also named `community` on PyPI. If you see `ImportError: cannot import name 'community_louvain' from 'community'`, run:
+
+```bash
+pip uninstall community python-louvain -y
+pip install python-louvain
+```
+
+The `mesh-check-env --auto` script detects and resolves this automatically.
+
+### RAM Exhaustion on Large Networks
+
+Networks with `generations_n >= 2` can load several million records into RAM during centrality calculation. If the process is killed by the OS:
+
+1. Set `calculate_full_centrality: false` in `mesh_config.json` to skip Eigenvector and Betweenness calculations.
+2. Reduce `betweenness_k_samples` (default `1000`) to lower the heuristic sampling budget.
+3. Reduce `target_num_edges` so GLF/SA operate on a smaller subgraph.
+
+Note that disabling full centrality prevents CRS scores from being calculated (see the Analysis Parameters section above).
+
+### SQLite Lock Errors on Network-Attached Storage
+
+The `baseline_manager` uses a verified safe-transfer architecture specifically to handle write failures on NAS and cloud-synced directories (OneDrive, Dropbox, etc.). If you still encounter lock errors, ensure no other process (e.g., a cloud-sync agent) has the `.db` file open, then re-run `mesh-pipeline --step process`.
+
+### Convergence Warnings for Eigenvector Centrality
+
+On sparse or disconnected graphs, the power-iteration solver may not converge within the default 1000 iterations. Increase `eigenvector_max_iter` in `mesh_config.json` or lower `eigenvector_tol` to relax the stopping criterion.
 
 ---
 
