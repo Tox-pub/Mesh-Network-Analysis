@@ -1,0 +1,3 @@
+[console_scripts]
+mesh-check-env = mesh_aop.check_env:main
+mesh-pipeline = mesh_aop.cli:main
