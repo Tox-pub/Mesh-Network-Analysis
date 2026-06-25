@@ -42,6 +42,7 @@ from .data_ops import (
 from .network import run_network_construction, run_consensus_filtering_and_lcc, run_community_detection
 from .relevance import run_contextual_relevance_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles
+from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
 from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
@@ -232,7 +233,7 @@ def main():
     parser.add_argument('--readme', action='store_true',
                         help="Open the comprehensive README.md documentation in the default system viewer.")
 
-    parser.add_argument('--step', choices=['all', 'process', 'data_ops', 'network', 'secondary', 'viz'], default='all',
+    parser.add_argument('--step', choices=['all', 'process', 'data_ops', 'network', 'secondary', 'viz', 'benchmark'], default='all',
                         help=(
                             "Specify which segment of the pipeline to execute:\n"
                             "  all        : Run the entire pipeline sequentially (Default).\n"
@@ -240,7 +241,8 @@ def main():
                             "  data_ops   : Step 2 - Collect Entrez data and build SQLite PMIDs database.\n"
                             "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate CRS.\n"
                             "  secondary  : Step 3.5 - Execute targeted node/edge queries and metadata hydration.\n"
-                            "  viz        : Step 4 - Generate biological plots, joint distributions, and HTML networks."
+                            "  viz        : Step 4 - Generate biological plots, joint distributions, and HTML networks.\n"
+                            "  benchmark  : Step 5 - Validate ground-truth citations and benchmark ranking performance."
                         ))
 
     parser.add_argument('--config', default='mesh_config.json',
@@ -529,6 +531,55 @@ def main():
             plot_dumbell_plot(node_df, str(config.figures_dir), config.prefix)
             plot_scatter_panels(node_df, str(config.figures_dir), config.prefix)
             plot_dendrogram(G, node_df, str(config.figures_dir), config.prefix)
+
+        # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
+        if args.step == 'benchmark':
+            print("\n>>> STARTING: Step 5 - Ground-Truth Validation & Benchmarking")
+
+            bench_params = config.params.get('benchmark', {})
+            configured_gt = bench_params.get('ground_truth_csv', '')
+
+            # Resolve the ground-truth file from the ACTIVE raw directory. This is
+            # data/reference_raw/ when 'Use Reference Data' is True, and data/raw/
+            # when False -- so users supply their own PMID list by dropping a file
+            # named e.g. 'ground_truth_pmids.csv' into data/raw/.
+            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt)
+            if not gt_path:
+                print("\n" + "<"*30 + ">"*30)
+                print("[CRITICAL ERROR] No ground-truth file found for Benchmarking")
+                print("<"*30 + ">"*30)
+                print(f"  Searched in: {config.active_raw_dir}")
+                if configured_gt:
+                    print(f"  Configured filename '{configured_gt}' was not present there.")
+                else:
+                    print("  Place a ground-truth file there using one of these names:")
+                    for name in KNOWN_GT_FILENAMES:
+                        print(f"    - {name}")
+                print("\n  Accepted formats: a CSV/TSV with a 'PMID' column (optionally a")
+                print("  reference/citation column for date validation), a single column of")
+                print("  PMIDs, or a plain .txt list with one PMID per line.")
+                sys.exit(1)
+
+            nc_filename = bench_params.get('negative_control_csv', '')
+            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename) if nc_filename else None
+
+            _ensure_prerequisites({
+                "Relevance Database": config.files['relevance_db']
+            }, "Step 5 (Benchmarking)")
+
+            print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
+
+            run_benchmark(
+                resolved_csv_path=gt_path,
+                relevance_db_path=str(config.files['relevance_db']),
+                output_dir=str(config.results_dir),
+                file_prefix=f"{config.prefix}_benchmark",
+                primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
+                negative_control_csv=nc_path,
+                random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                n_boot=bench_params.get('n_boot', 2000),
+                n_perm=bench_params.get('n_perm', 2000)
+            )
 
     except Exception as e:
         print("\n" + "<"*30 + ">"*30)

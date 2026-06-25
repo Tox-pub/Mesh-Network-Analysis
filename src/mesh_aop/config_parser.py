@@ -83,6 +83,13 @@ class MeshConfig:
                 "sa_iterations": 5000000,
                 "sa_temp_start": 5000.0,
                 "sa_cooling_rate": 0.999995
+            },
+            "benchmark": {
+                "ground_truth_csv": "",
+                "negative_control_csv": "",
+                "primary_node": "Dermatitis, Allergic Contact",
+                "n_boot": 2000,
+                "n_perm": 2000
             }
         }
 

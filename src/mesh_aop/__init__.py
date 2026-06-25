@@ -51,6 +51,14 @@ from .secondary_analysis import (
     convert_network_json_to_excel
 )
 
+# --- 6b. Validation & Benchmarking ---
+from .benchmark import (
+    run_benchmark,
+    validate_ground_truth,
+    resolve_ground_truth_path,
+    normalize_pmid
+)
+
 # --- 7. Visualization ---
 from .viz import (
     analyze_dispersion,
@@ -82,6 +90,10 @@ __all__ = [
     "analyze_edge_relevancy",
     "get_top_network_articles",
     "convert_network_json_to_excel",
+    "run_benchmark",
+    "validate_ground_truth",
+    "resolve_ground_truth_path",
+    "normalize_pmid",
     "analyze_dispersion",
     "plot_cooccurrance_distribution",
     "run_optimization_comparison",

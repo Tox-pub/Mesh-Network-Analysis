@@ -36,6 +36,7 @@ Mesh-Network-Analysis-Main-Library/
 │   ├── mesh_aop/                       # Core Python package modules
 │   │   ├── __init__.py
 │   │   ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
+│   │   ├── benchmark.py                # Ground-truth validation & performance benchmarking
 │   │   ├── check_env.py                # System environment & dependency verification
 │   │   ├── cli.py                      # Orchestrator and CLI entry point
 │   │   ├── config_parser.py            # Two-tier configuration engine
@@ -144,7 +145,7 @@ The pipeline is entirely modular and controlled via a terminal interface. Config
 
 | Flag | Description |
 |------|-------------|
-| `--step <name>` | Which pipeline segment to run (`all`, `process`, `data_ops`, `network`, `secondary`, `viz`). Defaults to `all`. |
+| `--step <name>` | Which pipeline segment to run (`all`, `process`, `data_ops`, `network`, `secondary`, `viz`, `benchmark`). Defaults to `all`. |
 | `--interactive` | Launches the interactive wizard before execution. |
 | `--config <path>` | Path to a custom config JSON. Defaults to `mesh_config.json` in the current directory. |
 | `--readme` | Opens this documentation file in your default OS viewer. |
@@ -168,6 +169,7 @@ If upstream dependencies are already built, specific modules can be executed in 
 * **Step 3:** `mesh-pipeline --step network --interactive` (Topology & Filtering)
 * **Step 3.5:** `mesh-pipeline --step secondary --interactive` (Targeted Export Analysis)
 * **Step 4:** `mesh-pipeline --step viz --interactive` (Biological Figure Generation)
+* **Step 5:** `mesh-pipeline --step benchmark` (Ground-Truth Validation & Performance Benchmarking)
 
 ---
 
@@ -255,6 +257,15 @@ Executes highly targeted queries against the finalized network to extract specif
   * **Formula:** $2 \times \frac{ARS \times Cit}{ARS + Cit}$
 * **ARS Weight (`linear_weight_ars`):** The weight for **`Linear`** sorting metric of the ARS scores per article (0–1.0), with the remaining weight applied to incoming citations (*article popularity*). Default `0.5`.
 
+### 8. Benchmark Parameters
+
+Controls the optional `--step benchmark` evaluation (see the **Validation & Benchmarking** section below). Configured under the `benchmark` block of `mesh_config.json`.
+
+* **`ground_truth_csv`:** Filename of your ground-truth PMID set inside the active raw directory. Leave **empty** (default) to auto-detect a recognized filename; set it to pin a specific file.
+* **`negative_control_csv`:** Optional filename of an *unrelated* ground-truth set used as a specificity check (it should score near random). Empty disables the control.
+* **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
+* **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations for confidence intervals and the random-ranking null. Defaults `2000` each; lower for speed, raise for tighter intervals.
+
 ---
 
 ## The AOP Annotation Workflow (Biological Strata)
@@ -310,6 +321,60 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
 
 
+
+---
+
+## Validation & Benchmarking
+
+The `--step benchmark` module evaluates how well the network's per-article relevance scores recover an external, curated set of "ground-truth" PMIDs (e.g. the bibliography of an authoritative OECD Adverse Outcome Pathway document). It is designed for the realistic situation here — a few dozen known-relevant papers hidden in a multi-million article candidate pool — and follows three principles: **validate the ground truth first, use metrics robust to incomplete relevance judgments, and quantify uncertainty against baselines.**
+
+```bash
+mesh-pipeline --step benchmark
+```
+
+### Supplying Your Own Ground Truth
+
+The benchmark reads its ground-truth file from the **active raw directory**, which follows the `Use Reference Data` flag:
+
+* `Use Reference Data = True`  → reads from `data/reference_raw/` (the bundled OECD set).
+* `Use Reference Data = False` → reads from **`data/raw/`** — drop your own file here.
+
+To benchmark against your own citations, save a file into `data/raw/` using one of these recognized names (searched in order; no config edit required):
+
+```text
+ground_truth_pmids.csv
+ground_truth_pmids.txt
+ground_truth.csv
+ground_truth.txt
+```
+
+Alternatively, pin an explicit filename via the `benchmark.ground_truth_csv` config key.
+
+**Accepted formats** (auto-detected, with delimiter and encoding sniffing):
+
+* A CSV/TSV with a **`PMID`** column (aliases such as `pmids`, `pubmed_id`, `id` are recognized) and an optional reference/citation column.
+* The bundled `Raw_Reference;PMID` semicolon-delimited format.
+* A **single column of PMIDs**, with or without a header.
+* A plain **`.txt` list** with one PMID per line.
+
+If no ground-truth file is found, the step prints the exact directory it searched, the accepted filenames, and the accepted formats.
+
+### What It Reports
+
+1. **Ground-truth validation.** PMIDs are digit-normalized (fixing the common `19033392.0` float-coercion mismatch), de-duplicated, and split into resolved vs. unresolved (`NOT_FOUND`). Each resolved PMID is sanity-checked for plausibility: an *absolute ceiling* test rejects PMIDs too large to exist yet, and a *chronological* test flags post-1990 papers whose PMID is implausibly large for the cited year (a hallmark of citation→PMID mis-resolution). **Flagged rows are quarantined to a review CSV — never deleted automatically.** When a reference/citation column is present the year check is active; for bare PMID lists only the absolute-ceiling test applies.
+2. **Coverage vs. ranking (kept separate).** *Retrievability ceiling* — how many ground-truth PMIDs are even present in the candidate pool — is reported independently of *ranking quality*, so a low score is correctly attributed to either missing coverage or poor ranking rather than conflated.
+3. **Ranking metrics suited to extreme imbalance & incomplete judgments.** Primary metrics depend only on the positions of known positives and never assume unjudged articles are negatives: **Recall@K, MAP, R-precision, NDCG, Enrichment Factor (top 1 %/5 %)** and **BEDROC** (early recognition). ROC-AUC and PR-AUC are reported but explicitly demoted to secondary diagnostics, because under ~10⁻⁵ prevalence ROC-AUC is over-optimistic and PR-AUC is biased low by treating unjudged articles as negatives.
+4. **Uncertainty and baselines.** Every headline metric carries a **bootstrap confidence interval**, and a **permutation null** reports lift-over-random with an empirical p-value. A structural baseline (number of bridged network nodes) and an optional **negative-control** ground-truth set (which should score near random) guard against the network merely surfacing generically popular papers.
+
+### Outputs
+
+Written to `results/`:
+
+* `*_benchmark_results.json` — all metrics, confidence intervals, lift, and coverage figures, with the run's seed and configuration for reproducibility.
+* `*_benchmark_quarantined_pmids.csv` — ground-truth rows flagged as implausible, for manual adjudication.
+* `*_benchmark_enrichment.png` — cumulative recall (enrichment) curve: ground-truth recovery vs. fraction of the pool screened.
+
+> **Note on incomplete judgments:** the non-ground-truth articles are *unjudged*, not confirmed negatives. This is why recall- and rank-based metrics (which only need positive positions) are the headline numbers, while precision/PR-AUC are interpreted with caution. For the most rigorous citation→PMID verification, cross-check publication years online via NCBI Entrez (not enabled by default, as it requires network access).
 
 ---
 
