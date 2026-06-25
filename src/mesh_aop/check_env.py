@@ -20,6 +20,14 @@ except ImportError:
     print("[!] CRITICAL ERROR: tomllib not found. Python 3.11+ is strictly required.")
     sys.exit(1)
 
+# packaging ships with pip/setuptools; used to verify that installed versions
+# actually satisfy the pyproject specifiers. Degrade gracefully if it's absent.
+try:
+    from packaging.requirements import Requirement
+    _HAS_PACKAGING = True
+except ImportError:
+    _HAS_PACKAGING = False
+
 def check_environment(toml_path="pyproject.toml", auto_install=False):
     """
     Checks Python version and utilizes importlib.metadata to verify dependencies safely
@@ -31,11 +39,20 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
 
     # 1. CHECK PYTHON VERSION
     current_py = sys.version_info
-    if current_py < (3, 11) or current_py >= (3, 13):
-        print(f"[!] WARNING: Incompatible Python version detected: {sys.version.split()[0]}")
-        print("    This pipeline is optimized for Python 3.11 or 3.12.")
-        print("    Python 3.13+ may cause compilation errors with NumPy 1.x.")
-
+    if current_py >= (3, 13):
+        print(f"[!] WARNING: Python {sys.version.split()[0]} is NOT supported by this pipeline.")
+        print("    A core dependency (node2vec) requires numpy<2.0, and numpy<2.0 has NO")
+        print("    prebuilt wheel for Python 3.13+. Installation will try to COMPILE numpy")
+        print("    from source and fail unless a C/C++ compiler (MSVC) is installed.")
+        print("    >>> Fix: install Python 3.11 or 3.12 and rebuild the virtual environment.")
+        if not auto_install:
+            try:
+                input("    Press Enter to attempt anyway (likely to fail), or Ctrl+C to exit...")
+            except KeyboardInterrupt:
+                print("\n\n[!] Exiting: Environment check cancelled by user.")
+                return False
+    elif current_py < (3, 11):
+        print(f"[!] WARNING: Python {sys.version.split()[0]} is too old; Python 3.11 or 3.12 is required.")
         if not auto_install:
             try:
                 input("    Press Enter to attempt to continue, or Ctrl+C to exit...")
@@ -62,23 +79,47 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
         print(f"[!] Notice: No dependencies found in '{toml_path}'. Skipping dependency check.")
         return True
 
-    # 3. VERIFY INDIVIDUAL DEPENDENCIES
+    # 3. VERIFY INDIVIDUAL DEPENDENCIES (presence AND version satisfaction)
     to_install = []
+    version_conflicts = []
     print(f"Analyzing {len(required_lines)} dependencies...\n")
 
     for req in required_lines:
-        # Extract base package name (e.g., "pandas>=2.0.0" -> "pandas")
-        match = re.split(r'[=><~]', req, 1)
-        pkg_name = match[0].strip()
+        # Resolve the distribution name and version specifier from the requirement.
+        specifier = None
+        if _HAS_PACKAGING:
+            try:
+                req_obj = Requirement(req)
+                pkg_name = req_obj.name
+                specifier = req_obj.specifier
+            except Exception:
+                pkg_name = re.split(r'[=><~!\[;]', req, maxsplit=1)[0].strip()
+        else:
+            pkg_name = re.split(r'[=><~!\[;]', req, maxsplit=1)[0].strip()
 
         try:
             installed_ver = version(pkg_name)
         except PackageNotFoundError:
             print(f"    [!] Missing completely: {req}")
             to_install.append(req)
+            continue
         except Exception as e:
             print(f"    [!] Error checking {pkg_name}: {e}")
             to_install.append(req)
+            continue
+
+        # Installed, but verify the version actually satisfies our constraint.
+        if specifier is not None and len(specifier) and installed_ver not in specifier:
+            print(f"    [!] VERSION CONFLICT: {pkg_name} {installed_ver} is installed, "
+                  f"but this project requires {pkg_name}{specifier}.")
+            version_conflicts.append(f"{pkg_name} {installed_ver} (needs {specifier})")
+            to_install.append(req)
+
+    if version_conflicts:
+        print(f"\n[!] {len(version_conflicts)} installed package(s) do not satisfy the project's version constraints:")
+        for c in version_conflicts:
+            print(f"        - {c}")
+        print("    These will be reinstalled to a compatible version below.")
 
     # 3.5 TRAP CHECK: COMMUNITY VS PYTHON-LOUVAIN
     try:
@@ -127,8 +168,39 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
             return False
         print("\n[+] Package and dependencies installed successfully.")
 
-    print("[+] Environment and dependencies are fully verified.")
+    # 5. CROSS-PACKAGE CONFLICT SCAN (catches conflicts from ANY installed library)
+    _report_pip_conflicts()
+
+    print("\n[+] Environment and dependencies are fully verified.")
     return True
+
+def _report_pip_conflicts():
+    """Runs `pip check` to surface dependency conflicts among ALL installed packages.
+
+    This catches the general case the user cares about: any library whose
+    installed version is incompatible with another package's requirements (the
+    same class of problem as node2vec pinning numpy<2). pip check inspects the
+    whole environment, not just this project's direct dependencies.
+    """
+    print("\n<<< Scanning for cross-package dependency conflicts (pip check) >>>")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "check"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode == 0:
+            print("    [+] No dependency conflicts detected.")
+        else:
+            print("    [!] WARNING: dependency conflicts detected among installed libraries:")
+            for line in output.splitlines():
+                if line.strip():
+                    print(f"        - {line.strip()}")
+            print("    These can cause import errors or incorrect behaviour at runtime.")
+            print("    Resolve by installing compatible versions (e.g. on Python 3.13 several")
+            print("    scientific packages have no wheels — use Python 3.11/3.12 and reinstall).")
+    except Exception as e:
+        print(f"    [!] Could not run conflict scan: {e}")
 
 def provision_kaleido_dependencies():
     """Installs required OS-level shared libraries and the headless Chrome binary."""
