@@ -33,8 +33,11 @@ try:
 except ImportError:
     raise ImportError("The 'python-louvain' library is missing. Install via pip.")
 
-# Import utilities, stats, and stop words from our package
-from .mesh_stop_words import MESH_STOP_WORDS
+# Import utilities, stats, and stop words from our package.
+# The generated stop-word file is a list; coerce to a frozenset once so the
+# per-term membership tests in the article loop are O(1) instead of O(n).
+from .mesh_stop_words import MESH_STOP_WORDS as _RAW_STOP_WORDS
+MESH_STOP_WORDS = frozenset(_RAW_STOP_WORDS)
 from .data_ops import parse_mesh_terms, get_generation_label
 from .stats import calculate_graph_stats, run_simulation
 
@@ -233,14 +236,15 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
     min_generation_for_term = defaultdict(lambda: float('inf'))
 
     print("\n<<< Processing Articles to Build Network Structure >>>")
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing Articles"):
-        article_mesh_terms_str = row.get('mesh_terms', '')
+    # itertuples is ~10-100x faster than iterrows for wide frames; access by attr.
+    for row in tqdm(df.itertuples(index=False), total=len(df), desc="Processing Articles"):
+        article_mesh_terms_str = getattr(row, 'mesh_terms', '')
         if not isinstance(article_mesh_terms_str, str):
             continue
 
-        article_centrality = row.get('generation_weight', 0.0)
-        article_norm_cited_by = row.get('normalized_cited_by', 0.0)
-        article_generation_raw = row.get('generation', None)
+        article_centrality = getattr(row, 'generation_weight', 0.0)
+        article_norm_cited_by = getattr(row, 'normalized_cited_by', 0.0)
+        article_generation_raw = getattr(row, 'generation', None)
 
         try:
             if isinstance(article_generation_raw, str):
@@ -390,6 +394,16 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
     print("\n<<< Calculating Network Centrality Measures & Communities >>>")
     G = nx.Graph()
     if edges:
+        # NOTE: edges are added without a 'weight' attribute, so the centrality
+        # calls below run UNWEIGHTED (this matches the prior behaviour: passing
+        # weight='weight' with no such attribute silently defaulted to 1.0).
+        # To weight the topology, populate per-metric attributes here, e.g.
+        #   for (u, v), d in edges.items():
+        #       G.add_edge(u, v, affinity=d['cooccurrence_count'],
+        #                        distance=1.0 / d['cooccurrence_count'])
+        # then use weight='affinity' for eigenvector and weight='distance' for
+        # betweenness (betweenness treats weight as path length, so it must be
+        # inverted). This is a modelling choice and is left disabled by default.
         G.add_edges_from(edges.keys())
 
     G_analysis_conn = G
@@ -408,24 +422,26 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
             safe_max_iter = int(eigenvector_max_iter) if eigenvector_max_iter is not None else 1000
             safe_tol = float(eigenvector_tol) if eigenvector_tol is not None else 1.0e-6
 
+            # weight=None => unweighted, stated explicitly (see note where G is built).
             print(f"  Calculating Eigenvector Centrality (Max Iterations: {safe_max_iter}, Tol: {safe_tol})...")
             try:
                 eigenvector_centrality = nx.eigenvector_centrality_numpy(
-                    G_analysis_conn, weight='weight', max_iter=safe_max_iter, tol=safe_tol
+                    G_analysis_conn, weight=None, max_iter=safe_max_iter, tol=safe_tol
                 )
             except Exception:
                 eigenvector_centrality = nx.eigenvector_centrality(
-                    G_analysis_conn, weight='weight', max_iter=safe_max_iter, tol=safe_tol
+                    G_analysis_conn, weight=None, max_iter=safe_max_iter, tol=safe_tol
                 )
 
             if run_full_centrality:
                 print("  Calculating EXACT Betweenness Centrality (This may take a while)...")
-                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight='weight')
-                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight='weight')
+                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight=None)
+                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight=None)
             else:
                 print(f"  Calculating ESTIMATED Betweenness Centrality (k={betweenness_k_samples})...")
-                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=betweenness_k_samples, normalized=True, weight='weight', seed=random_seed)
-                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=betweenness_k_samples, normalized=True, weight='weight', seed=random_seed)
+                k_eff = min(betweenness_k_samples, G_analysis_conn.number_of_nodes())
+                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=random_seed)
+                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=random_seed)
 
         else:
             degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map = {}, {}, {}, {}, {}, {}
@@ -506,7 +522,7 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
                                     history_output_path: str,
                                     target_num_edges: int, glf_iterations: int,
                                     sa_iterations: int, sa_initial_temp: float,
-                                    sa_cooling_rate: float):
+                                    sa_cooling_rate: float, random_seed: int = 42):
     """
     Performs network filtering using a consensus of GLF and SA optimizers,
     saves the trajectory history to bypass redundancy,
@@ -523,8 +539,9 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
 
     global_T, global_node_strengths = calculate_graph_stats(all_edges_data)
 
-    glf_keys, glf_score, glf_history = run_simulation('GLF', all_edges_data, global_node_strengths, global_T, target_num_edges, glf_iterations)
-    sa_keys, sa_score, sa_history = run_simulation('SA', all_edges_data, global_node_strengths, global_T, target_num_edges, sa_iterations, initial_temp=sa_initial_temp, cooling_rate=sa_cooling_rate)
+    # Distinct (but reproducible) seeds so GLF and SA explore independently.
+    glf_keys, glf_score, glf_history = run_simulation('GLF', all_edges_data, global_node_strengths, global_T, target_num_edges, glf_iterations, random_seed=random_seed)
+    sa_keys, sa_score, sa_history = run_simulation('SA', all_edges_data, global_node_strengths, global_T, target_num_edges, sa_iterations, random_seed=random_seed + 1, initial_temp=sa_initial_temp, cooling_rate=sa_cooling_rate)
 
     try:
         os.makedirs(os.path.dirname(history_output_path), exist_ok=True)

@@ -422,8 +422,10 @@ def populate_master_mesh_database(source_pmids_input, master_db_path: str, entre
     master_conn = sqlite3.connect(master_db_path)
     m_cursor = master_conn.cursor()
 
-    # UPDATED: Enforce 4-column schema
-    m_cursor.execute("CREATE TABLE IF NOT EXISTS master_mesh_annotations (pmid INTEGER, pub_date TEXT, mesh_terms TEXT, source_file TEXT)")
+    # 4-column schema. pmid is the PRIMARY KEY so INSERT OR IGNORE actually
+    # de-duplicates (no unique constraint => OR IGNORE is a silent no-op) and so
+    # pmid lookups/joins are indexed even when the baseline ETL never ran.
+    m_cursor.execute("CREATE TABLE IF NOT EXISTS master_mesh_annotations (pmid INTEGER PRIMARY KEY, pub_date TEXT, mesh_terms TEXT, source_file TEXT)")
 
     m_cursor.execute("SELECT pmid FROM master_mesh_annotations")
     master_pmids = {row[0] for row in m_cursor.fetchall()}

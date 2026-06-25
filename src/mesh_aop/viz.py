@@ -382,15 +382,29 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
             return
 
         degree_dict = dict(G.degree(weight='cooccurrence_count')) if nx.is_weighted(G, weight='cooccurrence_count') else dict(G.degree())
-        path_len = dict(nx.all_pairs_shortest_path_length(G))
         nodes = list(G.nodes())
-        matrix = pd.DataFrame(index=nodes, columns=nodes, dtype=float)
-        for u in nodes:
-            for v in nodes: matrix.loc[u, v] = path_len.get(u, {}).get(v, np.nan)
-        matrix.fillna(matrix.max().max() * 2, inplace=True)
+        N = len(nodes)
+        if N < 3:
+            print("    [!] Too few nodes for a t-SNE projection. Skipping Figure 5.")
+            return
+        node_idx = {n: i for i, n in enumerate(nodes)}
 
-        tsne = TSNE(n_components=2, perplexity=30, metric='precomputed', init='random', random_state=42)
-        emb = tsne.fit_transform(matrix.values)
+        # Build the shortest-path distance matrix directly in NumPy. The prior
+        # implementation filled an NxN DataFrame with scalar .loc assignments,
+        # which is dramatically slower than indexing a preallocated array.
+        dist = np.full((N, N), np.nan, dtype=float)
+        for u, dmap in nx.all_pairs_shortest_path_length(G):
+            iu = node_idx[u]
+            for v, d in dmap.items():
+                dist[iu, node_idx[v]] = d
+        finite_vals = dist[np.isfinite(dist)]
+        fill_value = (finite_vals.max() * 2) if finite_vals.size else 1.0
+        dist = np.where(np.isnan(dist), fill_value, dist)
+
+        # perplexity must be strictly less than n_samples; clamp for small graphs.
+        perplexity = min(30, max(2, N - 1))
+        tsne = TSNE(n_components=2, perplexity=perplexity, metric='precomputed', init='random', random_state=42)
+        emb = tsne.fit_transform(dist)
         df_tsne = pd.DataFrame(emb, index=nodes, columns=['X', 'Y']).join(node_df[['filtered_louvain_community_id', 'CRS_betweenness']])
 
         plt.figure(figsize=(12, 10))

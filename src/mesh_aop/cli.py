@@ -386,7 +386,8 @@ def main():
                     glf_iterations=config.get('simulation_parameters', 'glf_iterations'),
                     sa_iterations=config.get('simulation_parameters', 'sa_iterations'),
                     sa_initial_temp=config.get('simulation_parameters', 'sa_temp_start'),
-                    sa_cooling_rate=config.get('simulation_parameters', 'sa_cooling_rate')
+                    sa_cooling_rate=config.get('simulation_parameters', 'sa_cooling_rate'),
+                    random_seed=config.get('analysis_parameters', 'random_seed') or 42
                 )
 
             run_step_6 = True

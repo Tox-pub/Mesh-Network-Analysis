@@ -42,13 +42,23 @@ def get_log_likelihood_term(edge_data: dict, node_strengths: dict, denominator: 
     p_ij = (k_i * k_j) / denominator
     return w_ij * math.log(p_ij) - math.lgamma(w_ij + 1) if p_ij > 0 else 0.0
 
-def run_simulation(method: str, all_edges: dict, node_strengths: dict, total_T: float, target_edges: int, iterations: int, **kwargs) -> tuple:
-    """Unified runner for Graph Likelihood Filtering (GLF) or Simulated Annealing (SA)."""
+def run_simulation(method: str, all_edges: dict, node_strengths: dict, total_T: float, target_edges: int, iterations: int, random_seed: int = None, **kwargs) -> tuple:
+    """Unified runner for Graph Likelihood Filtering (GLF) or Simulated Annealing (SA).
+
+    A local Random instance seeded with `random_seed` makes the stochastic
+    search reproducible without mutating the global `random` state.
+    """
     print(f"Starting {method} Simulation ({iterations:,} iters)...")
     try:
+        rng = random.Random(random_seed)
         denominator = 2 * (total_T**2)
         keys = list(all_edges.keys())
-        current_keys = set(random.sample(keys, target_edges))
+        # Guard against requesting more edges than exist in the graph.
+        target_edges = min(target_edges, len(keys))
+        if target_edges <= 0:
+            print(f"[!] Simulation {method}: no edges available to sample.")
+            return set(), 0.0, []
+        current_keys = set(rng.sample(keys, target_edges))
 
         curr_T = sum(all_edges[k].get('cooccurrence_count', 0) for k in current_keys)
         curr_term = sum(get_log_likelihood_term(all_edges[k], node_strengths, denominator) for k in current_keys)
@@ -64,10 +74,10 @@ def run_simulation(method: str, all_edges: dict, node_strengths: dict, total_T: 
         for i in range(iterations):
             if i > 0 and i % interval == 0:
                 print(f"    {method} Progress: {int((i / iterations) * 100)}% ({i:,} / {iterations:,})")
-            on = random.choice(list(current_keys))
-            off = random.choice(keys)
+            on = rng.choice(list(current_keys))
+            off = rng.choice(keys)
             while off in current_keys:
-                off = random.choice(keys)
+                off = rng.choice(keys)
 
             w_on = all_edges[on].get('cooccurrence_count', 0)
             w_off = all_edges[off].get('cooccurrence_count', 0)
@@ -81,9 +91,9 @@ def run_simulation(method: str, all_edges: dict, node_strengths: dict, total_T: 
             accept = False
             if delta < 0:
                 accept = True
-            elif method == 'GLF' and random.random() < math.exp(-delta):
+            elif method == 'GLF' and rng.random() < math.exp(-delta):
                 accept = True
-            elif method == 'SA' and temp > 1e-9 and random.random() < math.exp(-delta / temp):
+            elif method == 'SA' and temp > 1e-9 and rng.random() < math.exp(-delta / temp):
                 accept = True
 
             if accept:

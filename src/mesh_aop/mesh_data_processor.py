@@ -123,31 +123,37 @@ def extract_all_mesh_data_from_xml(xml_file_path: str, output_csv_path: str, out
     all_mh_found = set()
 
     try:
-        context = ET.iterparse(xml_file_path, events=('end',))
+        # Keep a handle on the root so we can drop already-parsed siblings; without
+        # this, iterparse retains every emptied record and memory grows unbounded.
+        context = ET.iterparse(xml_file_path, events=('start', 'end'))
+        _, root = next(context)
         count = 0
 
         for event, elem in context:
-            if elem.tag == 'DescriptorRecord':
-                count += 1
-                if count % 2000 == 0:
-                    print(f"  Parsed {count:,} descriptor records...", end='\r')
+            if event != 'end' or elem.tag != 'DescriptorRecord':
+                continue
 
-                ui = elem.findtext('.//DescriptorUI')
-                name = elem.findtext('.//DescriptorName/String')
+            count += 1
+            if count % 2000 == 0:
+                print(f"  Parsed {count:,} descriptor records...", end='\r')
 
-                if ui and name:
-                    mesh_terms.append([name, ui])
-                    all_mh_found.add(name)
+            ui = elem.findtext('.//DescriptorUI')
+            name = elem.findtext('.//DescriptorName/String')
 
-                    tree_list = elem.find('.//TreeNumberList')
-                    if tree_list is not None:
-                        for tree_node in tree_list.findall('TreeNumber'):
-                            tree_num = tree_node.text
-                            if tree_num and tree_num[0].isalpha():
-                                top_cat = tree_num[0].upper()
-                                mesh_term_to_categories[name].add(top_cat)
+            if ui and name:
+                mesh_terms.append([name, ui])
+                all_mh_found.add(name)
 
-                elem.clear()
+                tree_list = elem.find('.//TreeNumberList')
+                if tree_list is not None:
+                    for tree_node in tree_list.findall('TreeNumber'):
+                        tree_num = tree_node.text
+                        if tree_num and tree_num[0].isalpha():
+                            top_cat = tree_num[0].upper()
+                            mesh_term_to_categories[name].add(top_cat)
+
+            elem.clear()
+            root.clear()
 
         print(f"  Parsed {count:,} total records. Analyzing hierarchies...\n")
 

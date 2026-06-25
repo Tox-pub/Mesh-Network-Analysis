@@ -141,21 +141,28 @@ def build_local_shard(local_file_chunk):
         source_filename = Path(filepath).name
         try:
             with gzip.open(filepath, 'rb') as f:
-                context = ET.iterparse(f, events=('end',))
+                # Track the root to drop parsed siblings; otherwise each ~30k-article
+                # baseline file accumulates in memory until the whole file is done.
+                context = ET.iterparse(f, events=('start', 'end'))
+                _, root = next(context)
                 for event, elem in context:
-                    if elem.tag == 'PubmedArticle':
-                        pmid_node = elem.find('.//PMID')
-                        mesh_list = elem.find('.//MeshHeadingList')
+                    if event != 'end' or elem.tag != 'PubmedArticle':
+                        continue
 
-                        if pmid_node is not None and mesh_list is not None:
-                            pmid = int(pmid_node.text)
-                            pub_date = _extract_pub_date(elem)
-                            terms = [f"{'*' if d.get('MajorTopicYN') == 'Y' else ''}{d.text}"
-                                     for d in mesh_list.findall('.//DescriptorName')]
+                    pmid_node = elem.find('.//PMID')
+                    mesh_list = elem.find('.//MeshHeadingList')
 
-                            if terms:
-                                batch.append((pmid, pub_date, ";".join(terms), source_filename))
-                        elem.clear()
+                    if pmid_node is not None and mesh_list is not None:
+                        pmid = int(pmid_node.text)
+                        pub_date = _extract_pub_date(elem)
+                        terms = [f"{'*' if d.get('MajorTopicYN') == 'Y' else ''}{d.text}"
+                                 for d in mesh_list.findall('.//DescriptorName')]
+
+                        if terms:
+                            batch.append((pmid, pub_date, ";".join(terms), source_filename))
+
+                    elem.clear()
+                    root.clear()
 
             if batch:
                 cursor.executemany("INSERT INTO shard_data (pmid, pub_date, mesh_terms, source_file) VALUES (?, ?, ?, ?)", batch)
@@ -301,8 +308,10 @@ class PubMedBaselineManager:
             conn.execute("DROP TABLE IF EXISTS master_mesh_annotations")
             conn.execute("DROP TABLE IF EXISTS parsed_files")
 
-        # Create updated 4-column schema
-        conn.execute("CREATE TABLE IF NOT EXISTS master_mesh_annotations (pmid INTEGER, pub_date TEXT, mesh_terms TEXT, source_file TEXT)")
+        # 4-column schema. pmid is the PRIMARY KEY so the INSERT OR REPLACE during
+        # sharded load de-duplicates NLM baseline overlaps automatically and pmid
+        # joins are indexed without a separate index build.
+        conn.execute("CREATE TABLE IF NOT EXISTS master_mesh_annotations (pmid INTEGER PRIMARY KEY, pub_date TEXT, mesh_terms TEXT, source_file TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS parsed_files (filename TEXT PRIMARY KEY)")
 
         cursor.execute("DROP INDEX IF EXISTS idx_pmid")
@@ -333,19 +342,22 @@ class PubMedBaselineManager:
             start_time = time.time()
             global_articles = 0
 
-            for chunk_idx, chunk in enumerate(chunks, 1):
-                local_chunk_paths = []
-                for raw_file in chunk:
-                    local_dest = self.local_xml_dir / raw_file.name
-                    shutil.copy2(raw_file, local_dest)
-                    local_chunk_paths.append(local_dest)
+            # One worker pool for the whole run; re-creating it per chunk paid
+            # process-spawn overhead on every block (dozens of times per ETL).
+            pool = multiprocessing.Pool(cores)
+            try:
+                for chunk_idx, chunk in enumerate(chunks, 1):
+                    local_chunk_paths = []
+                    for raw_file in chunk:
+                        local_dest = self.local_xml_dir / raw_file.name
+                        shutil.copy2(raw_file, local_dest)
+                        local_chunk_paths.append(local_dest)
 
-                with multiprocessing.Pool(cores) as pool:
                     sub_chunks = [local_chunk_paths[i::cores] for i in range(cores)]
                     sub_chunks = [sc for sc in sub_chunks if sc]
 
                     for shard_path_str, parsed_names, article_count in pool.imap_unordered(build_local_shard, sub_chunks):
-                        cursor.execute(f"ATTACH DATABASE '{shard_path_str}' AS temp_shard")
+                        cursor.execute("ATTACH DATABASE ? AS temp_shard", (shard_path_str,))
                         cursor.execute("BEGIN TRANSACTION;")
 
                         cursor.execute("INSERT OR REPLACE INTO master_mesh_annotations (pmid, pub_date, mesh_terms, source_file) SELECT pmid, pub_date, mesh_terms, source_file FROM temp_shard.shard_data")
@@ -358,28 +370,31 @@ class PubMedBaselineManager:
                         os.remove(shard_path_str)
                         global_articles += article_count
 
-                for local_file in local_chunk_paths:
-                    if local_file.exists():
-                        local_file.unlink()
+                    for local_file in local_chunk_paths:
+                        if local_file.exists():
+                            local_file.unlink()
 
-                cursor.execute("SELECT count(*) FROM parsed_files")
-                total_done = cursor.fetchone()[0]
-                elapsed = time.time() - start_time
-                print(f"  -> Processed Block {chunk_idx}/{len(chunks)}. (Total: {total_done}/{len(all_files)}) [+ {global_articles:,} articles] [{elapsed/60:.1f} min]")
+                    cursor.execute("SELECT count(*) FROM parsed_files")
+                    total_done = cursor.fetchone()[0]
+                    elapsed = time.time() - start_time
+                    print(f"  -> Processed Block {chunk_idx}/{len(chunks)}. (Total: {total_done}/{len(all_files)}) [+ {global_articles:,} articles] [{elapsed/60:.1f} min]")
 
-                # <<< ATOMIC CHECKPOINT >>>
-                if chunk_idx % self.checkpoint_interval == 0:
-                    print(f"  <<< Executing Routine Checkpoint ({total_done} files) >>>")
-                    conn.commit()
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                    conn.execute("PRAGMA journal_mode = DELETE;")
-                    conn.close()
+                    # <<< ATOMIC CHECKPOINT >>>
+                    if chunk_idx % self.checkpoint_interval == 0:
+                        print(f"  <<< Executing Routine Checkpoint ({total_done} files) >>>")
+                        conn.commit()
+                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                        conn.execute("PRAGMA journal_mode = DELETE;")
+                        conn.close()
 
-                    verified_safe_transfer(self.local_db_path, self.master_db_path)
+                        verified_safe_transfer(self.local_db_path, self.master_db_path)
 
-                    conn = sqlite3.connect(self.local_db_path)
-                    conn.execute("PRAGMA journal_mode = WAL;")
-                    cursor = conn.cursor()
+                        conn = sqlite3.connect(self.local_db_path)
+                        conn.execute("PRAGMA journal_mode = WAL;")
+                        cursor = conn.cursor()
+            finally:
+                pool.close()
+                pool.join()
 
         print("\n" + "<"*30 + ">"*30)
         print("<<< Phase 3: Post-Load Optimization & Indexing >>>")
