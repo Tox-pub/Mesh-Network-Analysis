@@ -1,249 +1,292 @@
-# MeSH Network Analysis to Identify Biological Link Plausibility
+# Medical Subject Headings (MeSH) Adverse Outcome Pathway (AOP) Network Pipeline
 
 ## Overview
-This repository contains a computational pipeline designed to mimic **Adverse Outcome Pathways (AOPs)** biological flows and networks using **Medical Subject Headings (MeSH)** co-occurrence networks.
 
-By analyzing the co-occurrence of MeSH terms across millions of PubMed articles, this tool builds a weighted network graph that connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. The pipeline utilizes graph theory, optimization algorithms, Global Likelihood Filter (GLF) & Simulated Annealing (SA), and a novel **Article Relevance Score (ARS)** and **Contextual Relevance Score (CRS)** to filter noise and identify the most biologically relevant pathways contained within the network of interest.
+This repository contains a comprehensive computational pipeline designed to construct, filter, and analyze knowledge graphs representing Adverse Outcome Pathways (**AOPs**) and biological flows. By leveraging the NCBI Entrez API and the complete offline NLM PubMed Baseline, the pipeline extracts primary literature associated with specific Medical Subject Headings (**MeSH**), maps multi-generational citation topologies, and calculates semantic co-occurrence networks.
 
-**Key Capabilities:**
-* **Automated Data Mining:** Fetches and processes PubMed PMIDs, citations, and associated MeSH terms via Entrez API.
-* **Network Construction:** Builds rank-normalized co-occurrence networks from MeSH terms.
-* **Optimization:** Uses GLF and SA to extract optimal subgraphs and form a Consensus Model (CM).
-* **Contextual Scoring:** Calculates the Article Relevancy Scores (ARS) and Contextual Relevancy Scores (CRS) to rank nodes/edges to determine their impact on the final network within the context of global corpus.
-* **Visualization:** Generates publication-ready figures (Sankey diagrams, t-SNE, Alluvial flows).
+The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global-Local Filtering (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Contextual Relevance Scoring (CRS) to rank nodes and edges based on their impact within the global corpus of literature.
 
 ---
 
-## Project Structure
+## Repository Structure
+
+The package assumes and enforces the following directory architecture. The required MeSH XML input file must be placed in the raw data directory prior to execution.
 
 ```text
-Mesh-Network_Analysis/
+Mesh-Network-Analysis-Main-Library/
 │
-├── scripts/
-│   └── python/
-│       ├── config.py                 # Central configuration (API keys, search terms)
-│       ├── run_pipeline.py           # Orchestrator script to run the full workflow
-│       ├── mesh_stop_words.py        # List of excluded terms (Geography, Publication types)
-│       ├── mesh_data_processor.py    # Utilities to process raw MeSH binary files
-│       ├── master_mesh_network.py    # Core script: Data fetching, network building, simulation
-│       ├── secondary_analysis.py     # Exports data to Excel & runs node/edge queries
-│       └── figures.py                # Generates all visualization figures
+├── data/                               # Data storage (auto-generated)
+│   ├── raw/                            # User-defined target inputs
+│   │   ├── desc2025.xml                # Required: MeSH XML source
+│   │   ├── aop_annotations_master.csv  # Auto-generated Master Dictionary
+│   │   ├── pubmed_baseline/            # Auto-downloaded NLM Baseline XMLs (~40GB)
+│   │   └── pubmed_updates/             # Auto-downloaded NLM Daily Update XMLs
+│   ├── processed/                      # Target pipeline databases and JSONs
+│   ├── reference_raw/                  # Curated reference inputs
+│   └── reference_processed/            # Curated reference outputs
 │
-├── results/
-│   ├── figures/                      # Final high-res TIFF/SVG/PNG output
-│   └── logs/                         # Execution logs and error reports
+├── results/                            # Output artifacts (auto-generated)
+│   ├── figures/                        # High-resolution plots (.png, .tif, .html)
+│   ├── logs/                           # System logs and failed fetch records
+│   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
+│   ├── *_relevance_*.csv               # Secondary analysis exports
+│   └── *_export.xlsx                   # Exported full network tables
 │
-├── data/
-│   ├── raw/                           # Input location for NEW analyses
-│   │   ├── aop_annotations_master.csv # (Manual Input) Users fill this after Step 3
-│   │   ├── master_mesh_database.db    # Local SQL database of PMIDs (Large file)
-│   │   ├── d2025.bin                  # Raw MeSH ASCII descriptors (from NLM) (.7z format, must be unzipped)
-│   │   └── 20250301_marc_full2025.bin # Raw MeSH MARC binary (from NLM) (.7z format, must be unzipped)
-│   │
-│   ├── processed/                     # Output location for NEW analyses (Auto-generated)
-│   │
-│   ├── reference_raw/                 # Read-only inputs for the "Allergic Contact Dermatitis" reference case
-│   │   └── [Reference DBs and Annotation files] (.7z format, must be unzipped)
-│   │
-│   └── reference_processed/           # Outputs for the reference case
-│       └── [Pre-computed Networks, JSONs, and CSVs]
+├── src/
+│   └── mesh_aop/                       # Core Python package modules
+│       ├── __init__.py
+│       ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
+│       ├── cli.py                      # Orchestrator and CLI entry point
+│       ├── config_parser.py            # Two-tier configuration engine
+│       ├── data_ops.py                 # SQLite and NCBI Entrez querying
+│       ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
+│       ├── network.py                  # NetworkX assembly, filtering, and centrality
+│       ├── relevance.py                # Contextual Relevance Scoring (Semantic Re-ranking)
+│       ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
+│       ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
+│       └── wizard.py                   # Interactive configuration module
 │
-├── requirements.txt                   # Python dependencies
-└── README.md                          # This file
+├── check_env.py                        # System environment & dependency verification script
+├── environment.yml                     # Mamba/Conda cross-platform dependency resolution
+├── mesh_config.json                    # Auto-generated user configuration file
+├── pyproject.toml                      # Modern Python package specification
+└── README.md                           # This document
+
+
 ```
----
-## Initialization: 
-
-### 1. Clone Repo
-
-```bash
-git clone [https://github.com/Tox-pub/MeSH-Network-Analysis.git]
-```
-    
-### 2. Install Dependencies
-Ensure correct versions of packages installed.
-
-```bash
-pip install -r requirements.txt
-```
-### 3. Unzip and Setup Stop Words
-*Due to Github repo file size limits, select raw files have been 7z **zipped** and all DATABASE (.db) files are **not included** in repo due to thier file size. They are available upon request via Dropbox or similar file share method designated by author.*
-
-While `mesh_stop_words.py` is already populated with stop words, if you want to generate your own stop words with `mesh_data_processor.py`:
-
-* **Unzip** `20250301_marc_full2025.7z` and `d2025.7z` in both the `data/raw/` and `data/reference_raw/` file folders.
-```
-pip install py7zr
-
-python -c "import py7zr, os; files=['data/raw/20250301_marc_full2025.7z', 'data/raw/d2025.7z', 'data/reference_raw/20250301_marc_full2025.7z', 'data/reference_raw/d2025.7z']; [py7zr.SevenZipFile(f, 'r').extractall(os.path.dirname(f)) for f in files if os.path.exists(f)]"
-```
-- or - 
-* Download updated files from `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/meshmarc/` and `https://nlmpubs.nlm.nih.gov/projects/mesh/.asciimesh/` to get the latest ASCII and MARC BIN files.
-* Place the updated files into `data/raw/` and `data/reference_raw/` file folders.
-* Edit `config.py` with the new file names so the `mesh_data_processor.py` knows where to look.
-* Execute `run_pipeline.py` or `mesh_data_processor.py`.
 
 ---
 
-## Quick Start: Running the Reference Analysis
-*This will reproduce the "Dermatitis, Allergic Contact" network described in the publication.*
+## Data Acquisition & Prerequisites
 
-### 1.  Open `scripts/python/config.py` and configure user defined settings.
-### 2.  Ensure the reference dataset flag is set to **True**:
-```python
-USE_REFERENCE_DATA = True
-```
-### 3.  Run the pipeline:
-```bash
-python run_pipeline.py
-```
-*The pipeline will detect the existing processed files in `data/reference_processed/` and automatically skip heavy computation steps, jumping directly to figure generation.*
+### 1. Acquiring the MeSH XML File
 
----
+The NLM has officially discontinued the MeSH ASCII format as of 2026. This pipeline now utilizes the computational gold-standard **MeSH XML format**.
 
-## Running a New Analysis (Fresh Network Analysis)
+* **Download:** Navigate to the NLM MeSH Data Distribution Page and download `desc2025.xml` (or the most current yearly release).
+* **Placement:** Place this file directly into your `data/raw/` directory.
 
-To analyze a **new search term** (e.g., "Liver Cirrhosis"), follow this workflow:
+### 2. Internet Connectivity Requirement
 
-### 1. Configuration
-Open `scripts/python/config.py` and update the following:
-* `USE_REFERENCE_DATA = False`
-* `SEARCH_TERM = "Your Search Query"`
-* `ENTREZ_EMAIL` and `ENTREZ_API_KEY` (Required for PubMed access `https://www.ncbi.nlm.nih.gov/myncbi/`)
-* Adjust all other configurations settings to your liking
-
-### 2. Execution
-You can choose to run the pipeline at this step or run the scripts in order of execution independently. It will process raw data, build the network, and export the initial results.
-```bash
-python run_pipeline.py
-```
-* **Step 1:** Checks MeSH raw data organization and creates stop word list if not present.
-* **Step 2:** Scrapes PubMed, builds the network, runs subgraph optimization, calculates ARS and CRS (Computationally intensive step).
-* **Step 3:** Exports final network files, databases, Excels to `results/`, `processed/`, and `raw/`.
+**Active internet connectivity is strictly required for the first execution.** The pipeline must connect to the NCBI FTP servers to download the full PubMed Baseline (thousands of `.xml.gz` files) and compile the ~30-million record local master database. Subsequent analytical runs can be performed completely offline.
 
 ---
 
-## Script Descriptions
+## Environment Setup & Installation
 
-### `run_pipeline.py`
-A master pipeline orchestrator set up for convenience. It checks your configuration and executes the following scripts in the correct order, handling error checking and timing.
+This pipeline is computationally intensive and relies heavily on numerical arrays and graph operations. Due to the complexity of the underlying C-extensions in libraries like SciPy and NumPy, we strongly recommend using Mamba/Micromamba to resolve dependencies and ensure cross-platform compatibility.
 
-### `config.py`
-This is the master operator control file. There are several options here the user should check and edit depending on their intended analysis. 
-Some notable options are as follows:
-```bash
-USE_REFERENCE_DATA
-```
-This determines if the `run_pipeline.py` and specifically `master_mesh_network.py` uses the reference dataset for search string `Dermatitis, Allergic Contact [Mesh] AND 1950/01/01[EDAT] : 2025/01/01[EDAT]`.
+### 1. System Requirements
 
-```bash
-CUSTOM_FILE_PREFIX
-```
-This will be the file header for all files generated across all scripts e.g. `{FILE_PREFIX}_full_network_data.json`. For the reference dataset `DAC` is used as the `FILE_PREFIX`.
+* **Python:** Version 3.11 or greater is required. (Python 3.13+ may cause compilation conflicts).
+* **Memory:** Minimum 16GB RAM; 32GB+ highly recommended for Step 0 (Database Compilation) and networks exceeding 1 citation generation.
+* **Storage:** 100GB+ free space (The NLM Baseline XMLs and resulting SQLite Master Database expand rapidly).
+
+### 2. Installation (Standard Pip/Venv)
+
+If Mamba is unavailable, you may use a standard Python virtual environment. This approach relies on the `pyproject.toml` file to resolve dependencies via pip.
 
 ```bash
-ENTREZ_EMAIL
-ENTREZ_API_KEY
+# Navigate to the repository root
+cd path/Mesh-Network-Analysis-Main-Library
+
+# Create and activate the virtual environment
+python3 -m venv mesh_env
+source mesh_env/bin/activate  # On Windows use: mesh_env\Scripts\activate
+
+# Run the Environment Checker (Automatically initiates 'pip install -e .')
+python check_env.py --auto
+
 ```
-Required for PubMed API access. Login is located at: `https://www.ncbi.nlm.nih.gov/myncbi/`. More information can be found at `https://www.ncbi.nlm.nih.gov/books/NBK25501/`.
+
+*Note: The environment checker specifically resolves namespace collisions between the generic `community` package and the required `python-louvain` package during pip installations.*
+
+### 2. Alternative Installation: via Mamba/Micromamba
+
+This approach uses the provided `environment.yml` to fetch pre-compiled binaries via `conda-forge`, bypassing common OS-level compilation errors.
 
 ```bash
-SEARCH_TERM
-START_DATE
-END_DATE
+# Navigate to the repository root
+cd path/Mesh-Network-Analysis-Main-Library
+
+# Create the environment and resolve dependencies
+mamba env create -f environment.yml
+
+# Activate the environment
+mamba activate mesh_aop_network
+
+# Run the verification script to ensure successful installation and provision OS-level rendering libraries
+python check_env.py --auto
+
 ```
-This is the desired MEDLINE search string it can be any string that can be put into PubMed `https://pubmed.ncbi.nlm.nih.gov/`. This is read in the script as: 
+
+### 4. Verification
+
+Regardless of the installation method chosen, verify the package is correctly linked to your PATH by calling the command line interface:
+
 ```bash
-{SEARCH_TERM} AND {START_DATE}[EDAT] : {END_DATE}[EDAT]
+mesh-pipeline --help
+
 ```
-So there is no need to add dates to the `SEARCH_TERM` argument
-
-```bash
-GENERATIONS_N
-```
-This is the number of generations the `master_mesh_network.py` pulls for incoming and outgoing citations under the premise that scientific literature will reference related works. 
-0 or 1 leads to just the articles in the initial search string returning. >=2 generations pulls more possible relevant relationships between terms but at computational cost.
-
-```bash
-UPDATE_MESH_SUPPORT_FILES
-```
-This script relies on `20250301_marc_full2025.bin` and `d2025.bin` to create the stop words in `mesh_stop_words.py`. This means post 01/01/2025 they may not contain new tree assignments or new MeSH terms created after this date. This can be easily updated by downloading the files from `https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/meshmarc/` and `https://nlmpubs.nlm.nih.gov/projects/mesh/.asciimesh/` respectively and replacing these in `Mesh-Network-Analysis/data/raw` and running `mesh_data_processor.py` or `run_pipeline.py` with: 
-    ```python
-    UPDATE_MESH_SUPPORT_FILES = True  
-    ```
-
-## Standard Execution Pipeline
-
-### 1. `mesh_data_processor.py`
-* **Usage:** Only runs if `mesh_stop_words.py` missing or `UPDATE_MESH_SUPPORT_FILES = True` in `config.py` allowing the user to update quickly. The created `mesh_terms.csv` is a manual diagnostic tool to check valid terms listed.
-    * **Input:** Raw NLM files (`.bin` MARC and ASCII).
-    * **Action:** Parses the binary MARC file to extract all unique MeSH descriptors and UIs into a CSV.
-    * Parses the ASCII descriptor file to identify tree numbers.
-    * Generates the `mesh_stop_words.py` file by filtering out terms that fall outside the biological categories of interest (e.g., Geography, Publication Types, ect.).
-
-### 2. `master_mesh_network.py`
-* **Usage:** The computational core. Gathers, parses MeSH terms. Creates network JSONs. Calculates centrality metrics, contextual relevance scores ect..
-    * **Data Collection:** Queries PubMed/Entrez for the search term defined in `config.py` and retrieves all relevant PMIDs.
-    * **Network Construction:** Builds a rank-normalized co-occurrence graph where nodes are MeSH terms and edges are weighted by frequency of co-occurrence across the article set.
-    * **Optimization:** Runs two competing optimization algorithms, Global Likelihood Filter (GLF) and Simulated Annealing (SA), to identify the most statistically significant subgraph by removing noise edges and further finding the consensus of these two models.
-    * **LCC Extraction:** Extracts the Largest Connected Component (LCC) from the optimized consensus subgraph.
-    * **Community Detection:** Applies the Louvain algorithm to identify clusters of related terms.
-     * **ARS Calculation:** Computes Article Relevance Scores (ARS) by utilizing Betweenness and Eigenvector centrality to determine the articles influence within the subgraph.
-    * **CRS Calculation:** Computes Contextual Relevance Scores (CRS) by using the cumulative ARS per node and weighting quantity of evidence in the full literature corpus.
-
-### 3. `secondary_analysis.py`
-* **Usage:** Allows for several post-computational analyses on the final filtered network created in `master_mesh_network.py`. This includes an excel file
-    * **Action:** Converts the complex JSON final network output from the master script into a Excel file (`_export.xlsx`) with separate sheets for Nodes and Edges that can be used update the biological annotations in `aop_annotations_master.csv`.
-    * **Analysis:** Can be configured to run specific queries on single Nodes or Edges to retrieve the exact PMIDs contributing to those connections, aiding in manual verification of pathways and literature identification.
-
-### 4. `figures.py`
-* **Usage:** Generates high-resolution visualizations found in the `results/figures/` folder:
-
-**[!] WARNING:** If running a new analysis you will need to **manually assign biological strata** in `aop_annotations_master.csv` using nodes from `{FILE_PREFIX}_final_network_with_relevance_export.xlsx` to get full utility out of all figure metrics.
-  * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
-  * **Figure 2:** Optimization Trajectory (GLF vs SA convergence) to validate the filtering process.
-  * **Figure 3:** Community Composition bar charts showing the biological makeup of each cluster.
-  * **Figure 5:** t-SNE projection of the network colored by Louvain community.
-  * **Figure 6:** AOP Alluvial/Sankey flow (The primary visualization connecting Stressors to Outcomes).
-  * **Figure 7/8:** Centrality comparisons (Dumbbell plots and Scatter panels) comparing CRS to raw centrality metrics.
 
 ---
 
-### Manual Biological Strata Assignment
-**Critical** The pipeline cannot automatically determine if a MeSH term represents a "Molecular", "Cellular", or "Tissue" level event. You must provide this context.
- *Manually annotating thousands of MeSH terms by hand was not in the scope of the project, but if you really want this let me know.*
+## Execution Guide
 
-**Instructions:**
-1.  Go to the `results/` folder and open the newly generated Excel file:
-    * `[FILE_PREFIX]_final_network_with_relevance_export.xlsx`
-2.  Open the **Nodes** sheet.
-3.  Review the nodes.
-4.  Open `data/raw/aop_annotations_master.csv` and copy nodes from `{FILE_PREFIX}_final_network_with_relevance_export.xlsx` to the `mesh_terms` column
-5.  Add your new terms and assign them one of the following **7 Biological Strata**:
-    * `Stressor` - Usually external stimuli that initiates a biological reaction e.g. `UV Rays`
-    * `Molecular` - Usually gene or protein level names or events 
-    * `Cellular` - Cellular level events such as `Chemotaxis`
-    * `Tissue` - Events localized to a subsection of tissue `Necrosis`
-    * `Organ` - Organ level names or events e.g. `Liver`
-    * `Adverse Outcome` - These are high level disease outcomes e.g. `Drug Hypersensitivity`. 
-    * `Uncategorized` - Does not fall into one of the above categories
-6.  Save the CSV as comma delimited.
-7.  Run the pipeline again (or just the `figures.py`) to generate the final visualizations with your new annotations applied.
+The pipeline is entirely modular and controlled via a terminal interface. Configuration is handled by an interactive command-line wizard, allowing users to modify runtime parameters safely without touching source code.
+
+### Running the Complete Pipeline
+
+To construct a network from the ground up, execute the `all` step. The `--interactive` flag invokes the wizard.
+
+```bash
+mesh-pipeline --step all --interactive
+
+```
+
+### Running Individual Modules
+
+If upstream dependencies are already built, specific modules can be executed in isolation.
+
+* **Step 0 & 1:** `mesh-pipeline --step process --interactive` (Database Compilation & MeSH processing)
+* **Step 2:** `mesh-pipeline --step data_ops --interactive` (Entrez API Collection)
+* **Step 3:** `mesh-pipeline --step network --interactive` (Topology & Filtering)
+* **Step 3.5:** `mesh-pipeline --step secondary --interactive` (Targeted Export Analysis)
+* **Step 4:** `mesh-pipeline --step viz --interactive` (Biological Figure Generation)
 
 ---
 
-## Notes & Troubleshooting
+## Configuration Wizard Parameter Glossary
 
-* **`master_mesh_database.db`**: This SQLite database stores fetched PMIDs to prevent re-downloading millions of citations. It can grow large (>6GB). If you delete it, the script will rebuild it, but the first run will be significantly slower.
-* **Node2Vec**: The dendrogram generation in `figures.py` requires the `node2vec` library. If not installed, that specific figure is skipped gracefully.
-* **Memory Usage**: Step 2 (Network Construction) can be memory intensive for broad search terms (>10^6 articles) or multiple generations. Ensure you have at least 16GB RAM for large datasets.
+The interactive wizard is categorized into discrete blocks. Below is the scientific and computational rationale for each tunable variable.
+
+### 1. Control Flags & Directories
+
+* **Use Reference Data:** If `True`, bypasses API downloading and utilizes a static, pre-curated reference dataset.
+* **Pause for Annotation (AFK Mode):** If `False` (Default), the pipeline operates in AFK Mode. It will run uninterrupted from start to finish, automatically assigning 'Unassigned' to all biological levels. If `True`, the pipeline will safely pause after Step 3 to allow the user to manually annotate the network before rendering the final biological visualizations.
+* **Custom Prefix:** The naming convention prepended to all output files (e.g., `DAC_Mesh`).
+
+### 2. Master Database Status (Step 0 ETL)
+
+The wizard actively probes your local Master SQLite Database for corruption, completion status, and age (checking if a new yearly baseline is available).
+
+* **Compile PubMed Baseline / Daily Updates:** Initiates a multi-core MapReduce extraction of the NLM XMLs into the local cache.
+
+### 3. NCBI Credentials
+
+* **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, increasing Step 2 processing time exponentially.
+
+### 4. Search Parameters
+
+* **MeSH Search Term:** The primary indexing term used to retrieve the base (P0) cohort of articles from PubMed (e.g., `Dermatitis, Allergic Contact [Mesh]`).
+* **Start / End Date:** Constrains the temporal boundaries of the initial P0 PubMed search.
+* **Citation Generations:** Controls the depth of the citation scrape.
+* `0`: Only the base parental generation (P0) articles.
+* `1`: P0 articles + all articles they cite + all articles that cite them (G1).
+* *Warning:* Values $\ge 1$ result in exponential data growth.
+
+
+
+### 5. Analysis Parameters
+
+* **Calculate Full Centrality (Boolean):** If `True` (Default), calculates Eigenvector and Betweenness centralities (using the K-Samples parameter to estimate Betweenness for speed).
+  * **[!] WARNING:** If set to `False`, the pipeline skips this heavy graph math to prevent RAM exhaustion on massive networks. You will receive a "Bare Bones" network based purely on co-occurrence. Advanced downstream metrics, including Article Relevance Scores (ARS) and Contextual Relevance Scores (CRS), **cannot and will not be calculated**.
+* **Betweenness K-Samples:** Heuristic sampling limit for Centrality calculation. Lower values increase speed but reduce precision.
+* **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Contextual Relevance Scoring, allowing the simulation of historical network states.
+
+### 6. Network & Simulation Parameters
+
+* **Lambda Value:** The distance penalty decay factor applied to generational node weighting ($W = e^{-\lambda d}$).
+* **Target Edges:** The hard threshold for the final consensus subgraph size. The optimization algorithms will prune the graph until exactly this number of edges remains.
+* **GLF / SA Iterations:** Monte Carlo search and thermal cooling steps for the optimization heuristics.
+
+### 7. Secondary Analysis Parameters
+
+Executes highly targeted queries against the finalized network to extract specific publications for manual review.
+
+* **Exclude Review Articles:** Filters out broad review articles to isolate primary literature.
+* **Target Nodes:** Evaluates the literature density of specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
+* **Target Edges:** Evaluates literature specifically linking two concepts. Format with a dash-space-dash: `NodeA - NodeB; NodeC - NodeD`.
+* **Sort Metric:** The alternative options for the `sort_metric` parameter is **`F1`** or **`Linear`**.
+
+  **1. Linear (Weighted Additive Model)**
+
+  * **Mechanism:** Calculates the arithmetic weighted average of the normalized Article Relevance Score (ARS) and the normalized Citation Score.
+  * **Behavior:** Compensatory. A high score in one metric can offset a low score in the other, governed by the user-defined `linear_weight_ars`.
+  * **Formula:** $(ARS \times w) + (Cit \times (1 - w))$
+
+  **2. F1 (Harmonic Mean)**
+
+  * **Mechanism:** Calculates the strict harmonic mean of the normalized ARS and the normalized Citation Score.
+  * **Behavior:** Penalizing. The final output skews heavily toward the lower of the two input values. An article must possess both high topological relevance and high community impact to achieve a high score.
+  * **Formula:** $2 \times \frac{ARS \times Cit}{ARS + Cit}$
+* **ARS Weight:** The weight for **`Linear`** sorting metric of the ARS scores per article (0-1.0) with the other percentage made up by incoming citations (*article popularity*).
+
+---
+
+## The AOP Annotation Workflow (Biological Strata)
+
+**Critical Concept:** The pipeline algorithms can identify the statistical relationships between MeSH terms, but they cannot automatically determine if a term represents a "Molecular", "Cellular", or "Tissue" level event. To generate accurate biological Sankey flows, human context must be provided.
+
+To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Dictionary System**.
+*Note: Because MeSH terms frequently contain commas (e.g., `Dermatitis, Allergic Contact`), standard CSV comma-delimiters will corrupt the data. All annotation files in this pipeline exclusively use semicolons (`;`).*
+
+### How to Annotate Your Network:
+
+1. **Enable Pausing:** In the Wizard, ensure `Pause for Annotation` is set to `True`.
+2. **Run the Pipeline:** Let the pipeline run. It will execute Steps 0 through 3 (Network Construction), output AOP-independent figures (like distributions and convergence trajectories), and then pause.
+3. **Open the Run Template:** Navigate to the `results/` directory and open your run-specific template: `[PREFIX]_run_annotations.csv`.
+4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata:
+* `Stressor` - External stimuli that initiate a biological reaction (e.g., `UV Rays`, `Chemicals`)
+* `Molecular` - Gene, protein, or receptor level events (e.g., `Receptors, Antigen, T-Cell`)
+* `Cellular` - Cellular level events (e.g., `Chemotaxis`, `Apoptosis`)
+* `Tissue` - Events localized to a subsection of tissue (e.g., `Necrosis`)
+* `Organ` - Organ level names or events (e.g., `Liver`, `Skin`)
+* `Adverse Outcome` - High-level disease outcomes (e.g., `Drug Hypersensitivity`)
+* `Uncategorized` - Broad biological terms that do not fall into a distinct AOP stratum.
+
+
+5. **Save the File:** Save the file, ensuring it remains **semicolon-delimited**.
+6. **Resume the Pipeline:** Run `mesh-pipeline --step viz`. The pipeline will ask if you want to sync your new annotations to the Master Dictionary for future runs, and then generate the final biological figures.
+
+---
+
+## Output Artifacts
+
+Upon successful completion of the pipeline, the following critical files are generated:
+
+### Data & Network Artifacts (`data/processed/`)
+
+* `master_mesh_database.db`: A persistent offline cache of all PubMed IDs and MeSH annotations.
+* `*_cleaned_pmids.db`: The SQLite schema containing the hierarchical linkage of your extracted articles.
+* `*_full_network_data.json`: The raw, unfiltered NetworkX graphical representation.
+* `*_consensus_lcc_network.json`: The optimized graph containing the intersection of the GLF and SA algorithms, reduced to its Largest Connected Component (LCC).
+* `*_final_network_with_relevance.json`: The fully annotated terminal graph, populated with semantic Contextual Relevance Scores (CRS) and Louvain Community classifications.
+
+### Analytical Exports (`results/`)
+
+* `*_export.xlsx`: A tabular summary of the final nodes and edges.
+* `*_Top_Network_Articles.csv`: The highest-scoring primary literature driving the network's structure.
+* **Figures (`results/figures/`)**:
+* **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
+* **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
+* **Figure 3:** Community Composition bar charts detailing biological strata makeup per cluster.
+* **Figure 4:** CRS Centrality correlations (Betweenness vs Eigenvector).
+* **Figure 5:** t-SNE projection of the network colored by Louvain community.
+* **Figure 6:** AOP Alluvial/Sankey flows (The primary visualization connecting Stressors to Outcomes). *(Note: Provided as interactive `.html` files for deep pathway inspection).*
+* **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
+
+
 
 ---
 
 ## Citation
+
 If you use this code or methodology, please cite:
+
 > *[To be updated after publication]*
-> [![DOI](https://zenodo.org/badge/1145152319.svg)](https://doi.org/10.5281/zenodo.18662959)
+> [](https://doi.org/10.5281/zenodo.18662959)
 
 ## License
+
 [MIT License]
