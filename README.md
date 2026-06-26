@@ -83,9 +83,10 @@ This pipeline is computationally intensive and relies heavily on numerical array
 
 ### 1. System Requirements
 
-* **Python:** Version 3.11 or greater is required. (Python 3.13+ may cause compilation conflicts).
+* **Python:** **3.11 or 3.12 only** (enforced by `requires-python = ">=3.11,<3.13"`). Python 3.13+ is *not* supported: `node2vec` requires `numpy<2.0`, and `numpy<2.0` has no prebuilt wheel for 3.13, so pip tries to compile NumPy from source and fails without a C/C++ compiler. See **Troubleshooting** if you only have 3.13.
 * **Memory:** Minimum 16GB RAM; 32GB+ highly recommended for Step 0 (Database Compilation) and networks exceeding 1 citation generation.
 * **Storage:** 100GB+ free space (The NLM Baseline XMLs and resulting SQLite Master Database expand rapidly).
+* **Windows path length:** Create the virtual environment at a **short path** (e.g. `C:\Users\<you>\mesh_env`), *not* inside a deeply nested or OneDrive-synced project folder. Some dependencies (e.g. `statsmodels`) ship very long filenames that overflow the Windows 260-character `MAX_PATH` limit and abort the install. See **Troubleshooting**.
 
 ### 2. Installation (Standard Pip/Venv)
 
@@ -95,16 +96,27 @@ If Mamba is unavailable, you may use a standard Python virtual environment. This
 # Navigate to the repository root
 cd path/Mesh-Network-Analysis-Main-Library
 
-# Create and activate the virtual environment
+# Create and activate the virtual environment (Linux/macOS)
 python3 -m venv mesh_env
-source mesh_env/bin/activate  # On Windows use: mesh_env\Scripts\activate
+source mesh_env/bin/activate
 
 # Run the Environment Checker (Automatically initiates 'pip install -e .')
 mesh-check-env --auto
 
 ```
 
-*Note: The environment checker specifically resolves namespace collisions between the generic `community` package and the required `python-louvain` package during pip installations.*
+**On Windows**, create the venv at a *short path outside* the project (see the `MAX_PATH` note in System Requirements), then install from the repo root:
+
+```powershell
+# Use Python 3.12 (py -3.12); the venv lives outside the deep/OneDrive project path
+py -3.12 -m venv "$env:USERPROFILE\mesh_env"
+& "$env:USERPROFILE\mesh_env\Scripts\Activate.ps1"   # if blocked: Set-ExecutionPolicy -Scope Process -Bypass -Force
+python -m pip install --upgrade pip
+pip install -e .
+python -m mesh_aop.check_env --auto
+```
+
+*Note: The environment checker specifically resolves namespace collisions between the generic `community` package and the required `python-louvain` package during pip installations. On managed Windows machines whose security policy blocks the generated `mesh-pipeline.exe` / `mesh-check-env.exe` launchers, invoke the tools as modules instead — `python -m mesh_aop.cli ...` and `python -m mesh_aop.check_env --auto`.*
 
 ### 2. Alternative Installation: via Mamba/Micromamba
 
@@ -441,6 +453,42 @@ The full list of exported symbols is defined in `src/mesh_aop/__init__.py`.
 ---
 
 ## Troubleshooting
+
+### Python 3.13: NumPy tries to compile and fails
+
+Symptom: during `pip install -e .` you see meson/`Unknown compiler` errors building NumPy, e.g. `Could not find ... vswhere.exe`, or `ResolutionImpossible` mentioning `numpy`.
+
+Cause: `node2vec` requires `numpy<2.0`, and `numpy<2.0` ships **no prebuilt wheel for Python 3.13**, so pip falls back to compiling NumPy from C source — which needs an MSVC compiler you likely don't have.
+
+Fix: use **Python 3.11 or 3.12**. On Windows, install 3.12 and recreate the venv with `py -3.12 -m venv ...`. (Any 3.12.x patch release works.)
+
+### Windows `MAX_PATH` / "No such file or directory" during install
+
+Symptom: `pip install -e .` aborts with `OSError: [Errno 2] No such file or directory: '...\statsmodels\tsa\vector_ar\tests\JMulTi_results\...txt'` and a hint about *"Windows Long Path support"*.
+
+Cause: the Windows 260-character path limit. A deeply nested project location (especially under `OneDrive - <Org>\Documents\...`) plus a venv plus `statsmodels`' long test filenames exceeds 260 characters, so the file write fails and pip rolls back the whole install.
+
+Fix (no admin needed): create the venv at a **short path outside** the project, then install from the repo root — only the deep dependency files need the short location; the editable package just links back to your source:
+
+```powershell
+py -3.12 -m venv "$env:USERPROFILE\mesh_env"     # e.g. C:\Users\you\mesh_env
+& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m pip install -e .
+```
+
+(Alternative, if you have admin rights: enable long paths via `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1` and reboot.)
+
+### "Access is denied" running `mesh-pipeline` / `mesh-check-env`
+
+Symptom: the console-script launchers fail with *Access is denied* / `ApplicationFailedException`, even though `python.exe` itself works.
+
+Cause: corporate security/EDR software on managed machines often blocks freshly-created, unsigned `.exe` launcher stubs that pip generates in the venv's `Scripts` folder.
+
+Fix: invoke the tools as modules, which bypasses the launcher exes entirely:
+
+```powershell
+python -m mesh_aop.cli --step all --interactive
+python -m mesh_aop.check_env --auto
+```
 
 ### `community` / `python-louvain` Namespace Collision
 
