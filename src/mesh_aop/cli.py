@@ -572,17 +572,27 @@ def main():
 
             print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
 
-            run_benchmark(
-                resolved_csv_path=gt_path,
-                relevance_db_path=str(config.files['relevance_db']),
-                output_dir=str(config.results_dir),
-                file_prefix=f"{config.prefix}_benchmark",
-                primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
-                negative_control_csv=nc_path,
-                random_seed=config.get('analysis_parameters', 'random_seed') or 42,
-                n_boot=bench_params.get('n_boot', 2000),
-                n_perm=bench_params.get('n_perm', 2000)
-            )
+            try:
+                run_benchmark(
+                    resolved_csv_path=gt_path,
+                    relevance_db_path=str(config.files['relevance_db']),
+                    output_dir=str(config.results_dir),
+                    file_prefix=f"{config.prefix}_benchmark",
+                    primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
+                    negative_control_csv=nc_path,
+                    random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                    n_boot=bench_params.get('n_boot', 2000),
+                    n_perm=bench_params.get('n_perm', 2000)
+                )
+            except (ValueError, KeyError) as e:
+                print("\n" + "<"*30 + ">"*30)
+                print("[BENCHMARK ERROR] The ground-truth file could not be parsed")
+                print("<"*30 + ">"*30)
+                print(f"  File: {gt_path}")
+                print(f"  Reason: {e}")
+                print("\n  Accepted formats: a CSV/TSV with a 'PMID' column, a single")
+                print("  column of PMIDs, or a plain .txt list with one PMID per line.")
+                sys.exit(1)
 
     except Exception as e:
         print("\n" + "<"*30 + ">"*30)

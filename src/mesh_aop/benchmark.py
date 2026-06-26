@@ -38,23 +38,6 @@ except Exception:
 # 1. GROUND-TRUTH VALIDATION
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# Approximate (year -> largest PMID assigned by ~end of that year) anchors.
-# PMIDs are assigned roughly chronologically, so a PMID far above the anchor for
-# a citation's year is almost certainly a resolution error. Update as PubMed grows.
-_PMID_YEAR_ANCHORS = {
-    1975: 200_000,
-    1985: 6_000_000,
-    1995: 8_500_000,
-    2000: 11_000_000,
-    2005: 16_000_000,
-    2010: 21_000_000,
-    2015: 26_500_000,
-    2020: 33_000_000,
-    2023: 38_000_000,
-    2025: 40_500_000,
-    2027: 43_000_000,
-}
-
 # Filenames recognized as a ground-truth drop-in, searched in order within the
 # active raw directory (data/raw, or data/reference_raw when using reference data).
 KNOWN_GT_FILENAMES = (
@@ -84,34 +67,6 @@ def normalize_pmid(value) -> str:
         s = s.split(".")[0]
 
     return re.sub(r"\D", "", s)
-
-
-def _max_plausible_pmid(year: int) -> float:
-    """Linear-interpolated upper bound on a plausible PMID for a given year."""
-    years = sorted(_PMID_YEAR_ANCHORS)
-
-    if year <= years[0]:
-        return _PMID_YEAR_ANCHORS[years[0]]
-    if year >= years[-1]:
-        return _PMID_YEAR_ANCHORS[years[-1]]
-
-    for lo, hi in zip(years, years[1:]):
-        if lo <= year <= hi:
-            frac = (year - lo) / (hi - lo)
-            return _PMID_YEAR_ANCHORS[lo] + frac * (_PMID_YEAR_ANCHORS[hi] - _PMID_YEAR_ANCHORS[lo])
-
-    return _PMID_YEAR_ANCHORS[years[-1]]
-
-
-def _extract_citation_year(text: str) -> int:
-    """Best-effort publication year from a citation string (smallest plausible 19xx/20xx token)."""
-    if not isinstance(text, str):
-        return None
-
-    candidates = [int(y) for y in re.findall(r"\b(19\d{2}|20\d{2})\b", text)]
-    candidates = [y for y in candidates if 1950 <= y <= datetime.now().year + 1]
-
-    return min(candidates) if candidates else None
 
 
 def _read_text_any_encoding(path: Path) -> str:
@@ -201,81 +156,67 @@ def _identify_gt_columns(df: pd.DataFrame):
     return pmid_col, ref_col
 
 
-def validate_ground_truth(path: str, grace_years: int = 3,
-                          min_year_for_check: int = 1990,
-                          pmid_col: str = None, ref_col: str = None) -> dict:
-    """Load, normalize and sanity-check a ground-truth file (format auto-detected).
+def validate_ground_truth(path: str, pmid_col: str = None, ref_col: str = None) -> dict:
+    """Load and normalize a ground-truth file, raising clear errors on missing, empty or malformed input.
 
-    Flags (never deletes) likely resolution errors for review via two tests: an
-    absolute ceiling (PMID too large to exist yet) and a chronological check
-    (post-1990 paper whose PMID far exceeds the anchor for its cited year).
+    Returns the clean PMID set, the unresolved (NOT_FOUND/blank) rows, and summary
+    counts. PMID correctness is not guessed here - that is the job of the upstream
+    citation re-query; this function only loads the file robustly and reports it.
     """
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Ground-truth file not found: {path}")
+        raise FileNotFoundError(
+            f"Ground-truth file not found: {path}\n"
+            f"    Place a file named one of {KNOWN_GT_FILENAMES} in the active raw "
+            f"directory, or set benchmark.ground_truth_csv in mesh_config.json."
+        )
 
-    df = _load_gt_dataframe(path)
+    try:
+        df = _load_gt_dataframe(path)
+    except Exception as e:
+        raise ValueError(
+            f"Could not read ground-truth file '{os.path.basename(path)}': {e}. "
+            f"Expected a CSV/TSV, a single column of PMIDs, or a .txt list."
+        ) from e
+
+    if df is None or len(df) == 0:
+        raise ValueError(f"Ground-truth file '{os.path.basename(path)}' is empty (no rows).")
+
     auto_pmid, auto_ref = _identify_gt_columns(df)
     pmid_col = pmid_col or auto_pmid
     ref_col = ref_col or auto_ref
 
     if pmid_col is None or pmid_col not in df.columns:
         raise KeyError(
-            f"Could not find a PMID column in {os.path.basename(path)}; "
-            f"columns present: {list(df.columns)}. Expected one of "
-            f"{_PMID_COL_ALIASES}, a single PMID column, or a .txt list."
+            f"No PMID column found in '{os.path.basename(path)}' (columns: {list(df.columns)}). "
+            f"Expected one of {_PMID_COL_ALIASES}, a single column of PMIDs, or a .txt list. "
+            f"If the file is delimited, check that the delimiter is ';', ',', or a tab."
         )
 
     n_raw = len(df)
     df["_pmid_norm"] = df[pmid_col].map(normalize_pmid)
     not_found = df[df["_pmid_norm"] == ""].copy()
-    resolved_rows = df[df["_pmid_norm"] != ""].copy()
+    valid_df = df[df["_pmid_norm"] != ""].copy()
 
-    # Read a publication year from the reference text where available.
-    if ref_col in resolved_rows.columns:
-        ref_series = resolved_rows[ref_col]
-    else:
-        ref_series = pd.Series("", index=resolved_rows.index)
-    resolved_rows["_cite_year"] = ref_series.map(_extract_citation_year)
-
-    # Ceiling = largest PMID plausibly assigned by now (current year, not the
-    # far-future anchor) so impossibly-large PMIDs are caught but new papers are not.
-    absolute_ceiling = _max_plausible_pmid(datetime.now().year)
-
-    def _is_suspect(row):
-        try:
-            pmid_int = int(row["_pmid_norm"])
-        except ValueError:
-            return True
-
-        # Test 1: cannot exist yet, independent of citation year.
-        if pmid_int > absolute_ceiling:
-            return True
-
-        # Test 2: chronological, only where PMIDs reliably track time.
-        year = row["_cite_year"]
-        if year is None or year < min_year_for_check:
-            return False
-        return pmid_int > _max_plausible_pmid(year + grace_years)
-
-    resolved_rows["_suspect"] = resolved_rows.apply(_is_suspect, axis=1)
-    suspect_df = resolved_rows[resolved_rows["_suspect"]].copy()
-    valid_df = resolved_rows[~resolved_rows["_suspect"]].copy()
-
-    # Deduplicate on normalized PMID (a reference list can cite the same paper twice).
+    # Deduplicate on the normalized PMID (a reference list can cite a paper twice).
     before = len(valid_df)
     valid_df = valid_df.drop_duplicates(subset="_pmid_norm")
     n_duplicate = before - len(valid_df)
 
     resolved = set(valid_df["_pmid_norm"])
+    if not resolved:
+        raise ValueError(
+            f"No usable PMIDs parsed from '{os.path.basename(path)}' "
+            f"(column '{pmid_col}', {n_raw:,} rows). Check the delimiter and that the "
+            f"PMID column actually contains numeric identifiers."
+        )
+
     return {
         "resolved": resolved,
         "valid_df": valid_df,
         "not_found": not_found,
-        "suspect_df": suspect_df,
         "n_raw": n_raw,
         "n_resolved": int((df["_pmid_norm"] != "").sum()),
         "n_not_found": len(not_found),
-        "n_suspect": len(suspect_df),
         "n_duplicate": n_duplicate,
         "n_clean": len(resolved),
     }
@@ -547,24 +488,13 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     print("\n<<< 1. GROUND-TRUTH VALIDATION >>>")
     print(f"  Raw reference rows ............ {gt['n_raw']:,}")
     print(f"  Resolved to a PMID ............ {gt['n_resolved']:,}")
-    print(f"  Unresolved (NOT_FOUND) ........ {gt['n_not_found']:,}   (retrieval ceiling loss)")
-    print(f"  Flagged temporally implausible  {gt['n_suspect']:,}   (quarantined)")
+    print(f"  Unresolved (NOT_FOUND/blank) .. {gt['n_not_found']:,}   (retrieval ceiling loss)")
     print(f"  Duplicate PMIDs removed ....... {gt['n_duplicate']:,}")
     print(f"  CLEAN positives used .......... {gt['n_clean']:,}")
 
-    # Persist the quarantine so a human can adjudicate the flagged rows.
-    if gt["n_suspect"] > 0:
-        qpath = os.path.join(output_dir, f"{file_prefix}_quarantined_pmids.csv")
-        cols = [
-            c for c in ["Raw_Reference", "PMID", "_pmid_norm", "_cite_year"]
-            if c in gt["suspect_df"].columns
-        ]
-        gt["suspect_df"][cols].to_csv(qpath, sep=";", index=False)
-        print(f"  [!] Wrote {gt['n_suspect']} suspect rows to {os.path.basename(qpath)} for manual review.")
-
     report["validation"] = {
         k: gt[k]
-        for k in ("n_raw", "n_resolved", "n_not_found", "n_suspect", "n_duplicate", "n_clean")
+        for k in ("n_raw", "n_resolved", "n_not_found", "n_duplicate", "n_clean")
     }
 
     target = gt["resolved"]
@@ -665,8 +595,15 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     # <<< 5.4 Optional negative control >>>
     if negative_control_csv and os.path.exists(negative_control_csv):
         print("\n<<< 4. NEGATIVE CONTROL (unrelated ground truth should score ~random) >>>")
-        nc = validate_ground_truth(negative_control_csv)
-        nc_target = nc["resolved"]
+        # The control is optional: a missing/malformed file warns and is skipped
+        # rather than aborting the whole benchmark.
+        try:
+            nc = validate_ground_truth(negative_control_csv)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            print(f"  [!] Skipping negative control - could not read it: {e}")
+            nc = None
+
+        nc_target = nc["resolved"] if nc else set()
         nc_labels = scores_df["pmid"].isin(nc_target).to_numpy().astype(int)
 
         if 0 < nc_labels.sum() < len(nc_labels):
