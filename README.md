@@ -90,33 +90,49 @@ This pipeline is computationally intensive and relies heavily on numerical array
 
 ### 2. Installation (Standard Pip/Venv)
 
-If Mamba is unavailable, you may use a standard Python virtual environment. This approach relies on the `pyproject.toml` file to resolve dependencies via pip.
+If Mamba is unavailable, use a standard **Python 3.11/3.12** virtual environment. This relies on `pyproject.toml` to resolve dependencies via pip. The steps differ by OS — macOS/Linux are straightforward; Windows needs two workarounds (path length and script/exe blocking).
+
+#### macOS / Linux
 
 ```bash
-# Navigate to the repository root
 cd path/Mesh-Network-Analysis-Main-Library
-
-# Create and activate the virtual environment (Linux/macOS)
-python3 -m venv mesh_env
+python3.12 -m venv mesh_env          # or python3.11
 source mesh_env/bin/activate
-
-# Run the Environment Checker (Automatically initiates 'pip install -e .')
-mesh-check-env --auto
-
+pip install --upgrade pip
+pip install -e .
+mesh-check-env --auto                 # entry-point commands work directly here
 ```
 
-**On Windows**, create the venv at a *short path outside* the project (see the `MAX_PATH` note in System Requirements), then install from the repo root:
+On macOS, if you don't have Python 3.12, install it with `brew install python@3.12` (Homebrew) or from python.org. **None of the Windows caveats below apply on macOS/Linux** — activation works, the `mesh-pipeline` / `mesh-check-env` commands run directly, and there's no path-length limit.
+
+#### Windows
+
+Two machine-level guardrails (common on corporate/managed laptops) break the Linux-style flow, so the procedure is different:
+
+* **Path length:** create the venv at a **short path outside** the project — the deep OneDrive path plus `statsmodels`' long filenames overflow the 260-character `MAX_PATH` limit and abort the install.
+* **Script/exe blocking:** `Activate.ps1` is often blocked by execution policy, and the generated `mesh-pipeline.exe` / `mesh-check-env.exe` launchers are often blocked by security software. **You don't need either** — call the venv's `python.exe` by full path and use the module form (`-m mesh_aop.cli`). `python.exe` itself is not blocked.
 
 ```powershell
-# Use Python 3.12 (py -3.12); the venv lives outside the deep/OneDrive project path
+cd "C:\path\to\Mesh-Network-Analysis-Main-Library"
+
+# Create the venv OUTSIDE the project, at a short path (Python 3.12)
 py -3.12 -m venv "$env:USERPROFILE\mesh_env"
-& "$env:USERPROFILE\mesh_env\Scripts\Activate.ps1"   # if blocked: Set-ExecutionPolicy -Scope Process -Bypass -Force
-python -m pip install --upgrade pip
-pip install -e .
-python -m mesh_aop.check_env --auto
+
+# Install using the venv's python by full path (no activation needed)
+& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m pip install --upgrade pip
+& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m pip install -e .
+& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.check_env --auto
 ```
 
-*Note: The environment checker specifically resolves namespace collisions between the generic `community` package and the required `python-louvain` package during pip installations. On managed Windows machines whose security policy blocks the generated `mesh-pipeline.exe` / `mesh-check-env.exe` launchers, invoke the tools as modules instead — `python -m mesh_aop.cli ...` and `python -m mesh_aop.check_env --auto`.*
+Run every pipeline command the same way — full path to `python.exe`, module form, which bypasses the blocked launcher:
+
+```powershell
+& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.cli --step all --interactive
+```
+
+*(Prefer typing plain `python` / `mesh-pipeline`? Run `Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force` then `& "$env:USERPROFILE\mesh_env\Scripts\Activate.ps1"` to activate. But the full-path form above needs no policy change and is unaffected by corporate lockdowns.)*
+
+*Note: The environment checker resolves the `community` / `python-louvain` namespace collision automatically — see Troubleshooting for the other Windows-specific errors.*
 
 ### 2. Alternative Installation: via Mamba/Micromamba
 
@@ -152,6 +168,12 @@ mesh-pipeline --version
 ## Execution Guide
 
 The pipeline is entirely modular and controlled via a terminal interface. Configuration is handled by an interactive command-line wizard, allowing users to modify runtime parameters safely without touching source code.
+
+> **Invocation by platform.** The examples below use the `mesh-pipeline` command, which works on **macOS/Linux** (and on Windows after activating the venv). On **Windows**, if activation or the `.exe` launcher is blocked, use the equivalent module form with the venv's Python by full path — it behaves identically:
+> ```powershell
+> & "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.cli --step all --interactive
+> ```
+> i.e. replace `mesh-pipeline` with `& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.cli` in any command. Always run from the project root so it finds `mesh_config.json` and the `data/` folders.
 
 ### CLI Flags
 
