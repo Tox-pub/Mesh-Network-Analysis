@@ -15,6 +15,7 @@ assigns Louvain communities. All stochastic steps are seeded for reproducibility
 
 import os
 import json
+import random
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
@@ -38,6 +39,22 @@ from .mesh_stop_words import MESH_STOP_WORDS as _RAW_STOP_WORDS
 MESH_STOP_WORDS = frozenset(_RAW_STOP_WORDS)
 from .data_ops import parse_mesh_terms, get_generation_label
 from .stats import calculate_graph_stats, run_simulation
+
+
+class _ListSampleRandom(random.Random):
+    """A seeded Random whose sample() tolerates set-like populations.
+
+    Works around a networkx 2.8.8 bug: edge_betweenness_centrality passes
+    G.nodes() (a set-like view) straight to random.sample(), which Python 3.11+
+    rejects with "Population must be a sequence". Wrapping non-sequence
+    populations in a list restores the pre-3.11 behaviour, leaving the already
+    list-wrapped betweenness_centrality call unchanged. Seeding keeps the
+    k-sample estimate reproducible.
+    """
+    def sample(self, population, k, *args, **kwargs):
+        if not isinstance(population, (list, tuple)):
+            population = list(population)
+        return super().sample(population, k, *args, **kwargs)
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -438,8 +455,8 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
             else:
                 print(f"  Calculating ESTIMATED Betweenness Centrality (k={betweenness_k_samples})...")
                 k_eff = min(betweenness_k_samples, G_analysis_conn.number_of_nodes())
-                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=random_seed)
-                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=random_seed)
+                betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=_ListSampleRandom(random_seed))
+                edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=_ListSampleRandom(random_seed))
 
         else:
             degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map = {}, {}, {}, {}, {}, {}
