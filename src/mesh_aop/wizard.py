@@ -214,6 +214,7 @@ def run_interactive_wizard(config, step: str) -> bool:
     db_status = "Missing"
     is_corrupt = False
     is_incomplete = False
+    is_locked = False
     pending_count = 0
     db_age_days = 0
 
@@ -248,13 +249,38 @@ def run_interactive_wizard(config, step: str) -> bool:
 
             conn.close()
 
+        except sqlite3.OperationalError as e:
+            # OperationalError subclasses DatabaseError, so it MUST be handled
+            # first: a locked/busy database is healthy-but-in-use (e.g. another
+            # run has it open, or OneDrive is mid-sync), not corrupt, and must
+            # never be deleted.
+            if any(s in str(e).lower() for s in ("locked", "busy", "in use")):
+                db_status = "IN USE / LOCKED"
+                is_locked = True
+            else:
+                db_status = "CORRUPTED"
+                is_corrupt = True
         except sqlite3.DatabaseError:
             db_status = "CORRUPTED"
             is_corrupt = True
-        except Exception:
-            pass
+        except Exception as e:
+            # Unknown failure reading the DB: surface it, but never assume the
+            # database is gone or corrupt - do not auto-delete on an error we
+            # cannot positively classify.
+            db_status = f"UNREADABLE ({type(e).__name__})"
+            is_locked = True
 
-    if db_status == "Missing" or is_corrupt:
+    if is_locked:
+        print(f"  [!] Master DB is {db_status}: {master_db_path.name if master_db_path else 'Unknown'}")
+        print("      The database exists and was NOT modified or deleted, but it could")
+        print("      not be read - most likely another pipeline run still has it open,")
+        print("      or OneDrive is mid-sync. Close any other runs, then re-run:")
+        print("          Get-Process python | Stop-Process -Force")
+        print("      Wait a few seconds for OneDrive to settle before restarting.")
+        params['_run_baseline_etl'] = False
+        params['_delete_corrupt_db'] = False
+
+    elif db_status == "Missing" or is_corrupt:
         print(f"  [!] Master DB is {db_status}: {master_db_path.name if master_db_path else 'Unknown'}")
 
         if is_corrupt:
