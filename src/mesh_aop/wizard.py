@@ -108,6 +108,77 @@ def _open_master_for_health_check(master_db_path):
     columns = [info[1] for info in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
     return conn, columns
 
+def _classify_master_db(master_db_path, downloaded_files):
+    """Inspect the master DB and classify it without ever deleting it.
+
+    Returns (status, is_corrupt, is_incomplete, is_locked, pending_count). A
+    locked/busy or otherwise unreadable database is reported as locked - never
+    corrupt - so the caller never offers to delete a healthy-but-inaccessible DB.
+    """
+    if not (master_db_path and os.path.exists(master_db_path)):
+        return "Missing", False, False, False, 0
+    try:
+        conn, columns = _open_master_for_health_check(master_db_path)
+        try:
+            if not columns:
+                return "EMPTY / CORRUPTED", True, False, False, 0
+            if 'pub_date' not in columns:
+                return "OUTDATED SCHEMA", True, False, False, 0
+            record_count = conn.execute("SELECT count(*) FROM master_mesh_annotations").fetchone()[0]
+            try:
+                parsed_count = conn.execute("SELECT count(*) FROM parsed_files").fetchone()[0]
+            except sqlite3.OperationalError:
+                parsed_count = 0
+        finally:
+            conn.close()
+
+        if downloaded_files > 0 and parsed_count < downloaded_files:
+            return (f"INCOMPLETE ({parsed_count}/{downloaded_files} files parsed, {record_count:,} records)",
+                    False, True, False, downloaded_files - parsed_count)
+        return f"Valid & Complete ({record_count:,} records)", False, False, False, 0
+
+    except sqlite3.OperationalError as e:
+        if any(s in str(e).lower() for s in ("locked", "busy", "in use")):
+            return "IN USE / LOCKED", False, False, True, 0
+        return "CORRUPTED", True, False, False, 0
+    except sqlite3.DatabaseError:
+        return "CORRUPTED", True, False, False, 0
+    except Exception as e:
+        return f"UNREADABLE ({type(e).__name__})", False, False, True, 0
+
+def _attempt_unlock_master_db(master_db_path):
+    """Best-effort recovery of a database reported locked/unreadable.
+
+    Safe to call only after other pipeline runs have been stopped. Clears the
+    stale -shm shared-memory index, lets SQLite recover any hot journal and
+    checkpoint a leftover WAL on a clean open/close, and leaves the file in
+    rollback mode. Returns True if the database can afterwards be opened
+    read-only. A lock held by a still-running process cannot be broken and
+    returns False.
+    """
+    master_db_path = str(master_db_path)
+    shm = master_db_path + "-shm"
+    if os.path.exists(shm):
+        try:
+            os.remove(shm)
+        except OSError:
+            pass
+    try:
+        conn = sqlite3.connect(master_db_path, timeout=30.0)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        conn.execute("PRAGMA journal_mode=DELETE;")
+        conn.commit()
+        conn.close()
+    except sqlite3.DatabaseError:
+        return False
+    try:
+        c = sqlite3.connect(f"file:{master_db_path}?mode=ro", uri=True, timeout=10.0)
+        ok = bool(c.execute("PRAGMA table_info(master_mesh_annotations)").fetchall())
+        c.close()
+        return ok
+    except sqlite3.DatabaseError:
+        return False
+
 def run_interactive_wizard(config, step: str) -> bool:
     """Executes block-by-block configuration wizard. Returns True if a factory reset occurred."""
     print("\n" + "<"*30 + ">"*30)
@@ -211,72 +282,33 @@ def run_interactive_wizard(config, step: str) -> bool:
     if updates_dir.exists():
         downloaded_files += len(list(updates_dir.glob("*.xml.gz")))
 
-    db_status = "Missing"
-    is_corrupt = False
-    is_incomplete = False
-    is_locked = False
-    pending_count = 0
     db_age_days = 0
-
     if master_db_path and os.path.exists(master_db_path):
         db_age_days = (time.time() - os.path.getmtime(master_db_path)) / 86400
-        try:
-            conn, columns = _open_master_for_health_check(master_db_path)
-            cur = conn.cursor()
 
-            if not columns:
-                db_status = "EMPTY / CORRUPTED"
-                is_corrupt = True
-            elif 'pub_date' not in columns:
-                db_status = "OUTDATED SCHEMA"
-                is_corrupt = True
-            else:
-                cur.execute("SELECT count(*) FROM master_mesh_annotations")
-                record_count = cur.fetchone()[0]
-
-                try:
-                    cur.execute("SELECT count(*) FROM parsed_files")
-                    parsed_count = cur.fetchone()[0]
-                except sqlite3.OperationalError:
-                    parsed_count = 0
-
-                if downloaded_files > 0 and parsed_count < downloaded_files:
-                    is_incomplete = True
-                    pending_count = downloaded_files - parsed_count
-                    db_status = f"INCOMPLETE ({parsed_count}/{downloaded_files} files parsed, {record_count:,} records)"
-                else:
-                    db_status = f"Valid & Complete ({record_count:,} records)"
-
-            conn.close()
-
-        except sqlite3.OperationalError as e:
-            # OperationalError subclasses DatabaseError, so it MUST be handled
-            # first: a locked/busy database is healthy-but-in-use (e.g. another
-            # run has it open, or OneDrive is mid-sync), not corrupt, and must
-            # never be deleted.
-            if any(s in str(e).lower() for s in ("locked", "busy", "in use")):
-                db_status = "IN USE / LOCKED"
-                is_locked = True
-            else:
-                db_status = "CORRUPTED"
-                is_corrupt = True
-        except sqlite3.DatabaseError:
-            db_status = "CORRUPTED"
-            is_corrupt = True
-        except Exception as e:
-            # Unknown failure reading the DB: surface it, but never assume the
-            # database is gone or corrupt - do not auto-delete on an error we
-            # cannot positively classify.
-            db_status = f"UNREADABLE ({type(e).__name__})"
-            is_locked = True
+    db_status, is_corrupt, is_incomplete, is_locked, pending_count = \
+        _classify_master_db(master_db_path, downloaded_files)
 
     if is_locked:
         print(f"  [!] Master DB is {db_status}: {master_db_path.name if master_db_path else 'Unknown'}")
-        print("      The database exists and was NOT modified or deleted, but it could")
-        print("      not be read - most likely another pipeline run still has it open,")
-        print("      or OneDrive is mid-sync. Close any other runs, then re-run:")
-        print("          Get-Process python | Stop-Process -Force")
-        print("      Wait a few seconds for OneDrive to settle before restarting.")
+        print("      The database exists and was NOT modified or deleted, but it could not")
+        print("      be read. Usually another pipeline run is holding it open, OneDrive is")
+        print("      mid-sync, or a stale lock was left by a process that died (common on")
+        print("      Linux). First stop every other instance:")
+        print("          Get-Process python | Stop-Process -Force      (Windows)")
+        print("          pkill -f mesh_aop                              (Linux/macOS)")
+        ans = input("  Then attempt to unlock the database now? [y/n/Enter to skip]: ").strip().lower()
+        if ans in ['y', 'yes']:
+            if _attempt_unlock_master_db(master_db_path):
+                print("  [+] Unlock succeeded. Re-checking database status...")
+                db_status, is_corrupt, is_incomplete, is_locked, pending_count = \
+                    _classify_master_db(master_db_path, downloaded_files)
+                print(f"      Status now: {db_status}")
+            else:
+                print("  [!] Still locked/unreadable - a live process is holding it, or the")
+                print("      machine needs a reboot to clear the lock. The DB was NOT modified.")
+
+    if is_locked:
         params['_run_baseline_etl'] = False
         params['_delete_corrupt_db'] = False
 

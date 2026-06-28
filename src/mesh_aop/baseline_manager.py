@@ -292,11 +292,12 @@ class PubMedBaselineManager:
             if update_files:
                 self._download_files(self.updates_ftp_path, self.updates_dir, update_files, limit)
 
-    def _save_progress_manifest(self, parsed_files, total_files, complete=False):
+    def _save_progress_manifest(self, parsed_files, total_files, complete=False, record_count=None):
         """Persist a small JSON record of parse progress next to the master DB.
 
         Decoupled from the database file so progress stays visible and auditable
-        even if the DB is later quarantined as corrupt.
+        even if the DB is later quarantined as corrupt. On completion the verified
+        physical article count is stored so it can be cross-checked later.
         """
         try:
             payload = {
@@ -304,6 +305,7 @@ class PubMedBaselineManager:
                 "parsed_count": len(parsed_files),
                 "total_files": total_files,
                 "complete": complete,
+                "record_count": record_count,
                 "parsed_files": sorted(parsed_files),
             }
             tmp = Path(str(self.progress_path) + ".tmp")
@@ -374,6 +376,64 @@ class PubMedBaselineManager:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         except Exception:
             pass
+
+    def _verify_built_database(self, expected_files):
+        """Fast sanity check of the finished master DB before declaring success.
+
+        Opens the target exactly the way the downstream steps do (read-only) and
+        confirms it is readable, non-empty, and accounts for every input file.
+        Cheap by design: one read-only open plus two counts (the article count
+        walks the main table, so gross corruption surfaces here) - no full
+        integrity scan. Raises RuntimeError on failure so an unusable build
+        cannot pass silently to the relevance/generation phase. Returns the
+        physical article count on success.
+        """
+        print("\n" + "<"*30 + ">"*30)
+        print("<<< Phase 5: Build Verification >>>")
+        print("<"*30 + ">"*30)
+        path = str(self.master_db_path)
+        size_gb = os.path.getsize(path) / (1024 ** 3) if os.path.exists(path) else 0.0
+
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=60.0)
+        except sqlite3.DatabaseError as e:
+            raise RuntimeError(
+                f"[VERIFY FAILED] The finished database cannot be opened read-only "
+                f"(exactly how Step 3 reads it): {e}. The build is unusable - rebuild."
+            )
+        try:
+            columns = [r[1] for r in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
+            if not columns:
+                raise RuntimeError(
+                    "[VERIFY FAILED] master_mesh_annotations table is missing - the build "
+                    "produced an empty or unreadable database."
+                )
+            try:
+                record_count = conn.execute("SELECT count(*) FROM master_mesh_annotations").fetchone()[0]
+                parsed_count = conn.execute("SELECT count(*) FROM parsed_files").fetchone()[0]
+            except sqlite3.DatabaseError as e:
+                raise RuntimeError(f"[VERIFY FAILED] The database is corrupt (failed reading counts): {e}. Rebuild.")
+        finally:
+            conn.close()
+
+        print(f"  Read-only open .... OK (this is how relevance scoring reads it)")
+        print(f"  Database size ..... {size_gb:.2f} GB")
+        print(f"  Files parsed ...... {parsed_count:,} / {expected_files:,} expected")
+        print(f"  Articles in DB .... {record_count:,}")
+
+        problems = []
+        if record_count <= 0:
+            problems.append("the database contains zero articles")
+        if expected_files and parsed_count < expected_files:
+            problems.append(f"only {parsed_count}/{expected_files} input files are recorded as parsed")
+        if problems:
+            raise RuntimeError(
+                "[VERIFY FAILED] " + "; ".join(problems) +
+                ". The master database is incomplete or corrupt - do not proceed to scoring."
+            )
+
+        print("  [+] Verification PASSED - database is readable, complete, and non-empty.")
+        return record_count
 
     def compile_database(self):
         """Parse all downloaded XML into the master SQLite database in parallel, with resumable checkpoints."""
@@ -546,7 +606,11 @@ class PubMedBaselineManager:
         # Consistent snapshot of the finished DB to the target (backup API).
         self._checkpoint_to_target(conn)
         conn.close()
-        self._save_progress_manifest(final_parsed, len(all_files), complete=True)
+
+        # Verify the finished target the way downstream steps read it (read-only)
+        # before declaring success; raises if the build is unusable/incomplete.
+        record_count = self._verify_built_database(len(all_files))
+        self._save_progress_manifest(final_parsed, len(all_files), complete=True, record_count=record_count)
 
         print("\n" + "<"*30 + ">"*30)
         print("MASTER DATABASE COMPILATION COMPLETE")
