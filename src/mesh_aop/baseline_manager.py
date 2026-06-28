@@ -335,6 +335,37 @@ class PubMedBaselineManager:
                     f"re-run:\n    {self.local_workspace}"
                 )
 
+    def _checkpoint_to_target(self, conn):
+        """Write a consistent snapshot of the live DB to the master target.
+
+        Uses SQLite's online backup API to produce a complete, self-contained copy
+        (correctly including any WAL content) into a local temp file, then verify-
+        transfers that snapshot to the (possibly OneDrive-synced) target. This
+        replaces a journal-mode + raw-file-copy dance that could leave the target
+        with data pages but an EMPTY schema (no tables) - which made it useless for
+        resume and got it flagged as corrupt, forcing a rebuild from scratch.
+        """
+        conn.commit()
+        snap = Path(str(self.local_db_path) + ".snapshot")
+        if snap.exists():
+            snap.unlink()
+        dst = sqlite3.connect(str(snap))
+        try:
+            conn.backup(dst)
+        finally:
+            dst.close()
+
+        verified_safe_transfer(snap, self.master_db_path)
+        if snap.exists():
+            snap.unlink()
+
+        # Keep the WAL from growing without bound (best-effort; snapshot
+        # correctness is already guaranteed by the backup API above).
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception:
+            pass
+
     def compile_database(self):
         """Parse all downloaded XML into the master SQLite database in parallel, with resumable checkpoints."""
         print("\n" + "<"*30 + ">"*30)
@@ -457,16 +488,9 @@ class PubMedBaselineManager:
                         conn.commit()
                         cursor.execute("SELECT filename FROM parsed_files")
                         parsed_now = {r[0] for r in cursor.fetchall()}
-                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                        conn.execute("PRAGMA journal_mode = DELETE;")
-                        conn.close()
-
-                        verified_safe_transfer(self.local_db_path, self.master_db_path)
+                        # Consistent snapshot via the backup API (keeps conn open).
+                        self._checkpoint_to_target(conn)
                         self._save_progress_manifest(parsed_now, len(all_files))
-
-                        conn = sqlite3.connect(self.local_db_path)
-                        conn.execute("PRAGMA journal_mode = WAL;")
-                        cursor = conn.cursor()
             finally:
                 # terminate() (not close()) so workers can't linger as orphaned
                 # processes holding the workspace open if the run is interrupted.
@@ -503,16 +527,16 @@ class PubMedBaselineManager:
         print("<"*30 + ">"*30)
         conn.commit()
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-        conn.execute("PRAGMA journal_mode = DELETE;")
 
         print("  Running final database defragmentation (VACUUM)...", end=" ", flush=True)
         conn.execute("VACUUM;")
         print("Done.")
         cursor.execute("SELECT filename FROM parsed_files")
         final_parsed = {r[0] for r in cursor.fetchall()}
-        conn.close()
 
-        verified_safe_transfer(self.local_db_path, self.master_db_path)
+        # Consistent snapshot of the finished DB to the target (backup API).
+        self._checkpoint_to_target(conn)
+        conn.close()
         self._save_progress_manifest(final_parsed, len(all_files), complete=True)
 
         print("\n" + "<"*30 + ">"*30)
