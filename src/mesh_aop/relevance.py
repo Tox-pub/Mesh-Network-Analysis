@@ -200,6 +200,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_score1 ON article_relevance_scores ('score_{weight_key_1}')")
             conn.commit()
             conn.close()
+            _keep_on_device(relevance_db_path)
             print(f"  [+] Successfully saved {len(scores_df):,} contributing article scores to the database.")
         except Exception as e:
             print(f"  [!] WARNING: Could not save article scores to database: {e}")

@@ -21,6 +21,24 @@ import numpy as np
 import pandas as pd
 from Bio import Entrez, Medline
 
+from .baseline_manager import _keep_on_device
+
+
+def _open_readonly_resilient(db_path):
+    """Open a database read-only, resilient to OneDrive dehydration.
+
+    Pins the file and opens read-only; if the read-only view exposes no tables -
+    a dehydrated OneDrive placeholder reads back empty - it reopens with a normal
+    connection, which forces OneDrive to hydrate the real file. No writes are
+    issued, and an already-hydrated file keeps the read-only path unchanged.
+    """
+    _keep_on_device(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=120.0)
+    if conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+        return conn
+    conn.close()
+    return sqlite3.connect(str(db_path), timeout=120.0)
+
 def _calculate_impact_scores(raw_rows: list, sort_metric: str, linear_weight_ars: float, oversample_limit: int) -> list:
     """
     Pandas engine to apply dynamic scaling and dual-metric Article Impact Scoring.
@@ -158,7 +176,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
 
     try:
         # Step 1: Query Relevance DB
-        conn_rel = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn_rel = _open_readonly_resilient(db_path)
         cursor_rel = conn_rel.cursor()
         cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores WHERE contributing_seeds LIKE ?", (f'%{node_name}%',))
         rel_rows = cursor_rel.fetchall()
@@ -174,7 +192,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
 
         # Step 3: Batch lookup in Master DB
         citation_map = {}
-        conn_clean = sqlite3.connect(f"file:{cleaned_db_path}?mode=ro", uri=True)
+        conn_clean = _open_readonly_resilient(cleaned_db_path)
         cursor_clean = conn_clean.cursor()
 
         chunk_size = 900
@@ -222,7 +240,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
     oversample_limit = limit * 5
 
     try:
-        conn_rel = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn_rel = _open_readonly_resilient(db_path)
         cursor_rel = conn_rel.cursor()
         cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores WHERE contributing_seeds LIKE ? AND contributing_seeds LIKE ?", (f'%{node1}%', f'%{node2}%'))
         rel_rows = cursor_rel.fetchall()
@@ -236,7 +254,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
         rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2]) for i in range(len(clean_pmids))}
 
         citation_map = {}
-        conn_clean = sqlite3.connect(f"file:{cleaned_db_path}?mode=ro", uri=True)
+        conn_clean = _open_readonly_resilient(cleaned_db_path)
         cursor_clean = conn_clean.cursor()
 
         chunk_size = 900
@@ -284,7 +302,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
     oversample_limit = limit * 5
 
     try:
-        conn_rel = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn_rel = _open_readonly_resilient(db_path)
         cursor_rel = conn_rel.cursor()
         cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores ORDER BY score_betweenness_centrality DESC LIMIT 50000")
         rel_rows = cursor_rel.fetchall()
@@ -298,7 +316,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
         rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2]) for i in range(len(clean_pmids))}
 
         citation_map = {}
-        conn_clean = sqlite3.connect(f"file:{cleaned_db_path}?mode=ro", uri=True)
+        conn_clean = _open_readonly_resilient(cleaned_db_path)
         cursor_clean = conn_clean.cursor()
 
         chunk_size = 900
