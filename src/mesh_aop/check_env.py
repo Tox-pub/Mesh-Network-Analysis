@@ -208,6 +208,36 @@ def _report_pip_conflicts():
     except Exception as e:
         print(f"    [!] Could not run conflict scan: {e}")
 
+def check_windows_activation_policy():
+    """On Windows, warn if the PowerShell execution policy blocks venv activation.
+
+    A 'Restricted'/'AllSigned' policy makes `Activate.ps1` fail with
+    "running scripts is disabled on this system", which stops users from
+    activating the virtual environment for the shorthand `python ...` commands.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Get-ExecutionPolicy"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15
+        )
+        policy = (result.stdout or "").strip()
+    except Exception:
+        return  # PowerShell unavailable; nothing to warn about
+
+    if policy.lower() in ("restricted", "allsigned"):
+        print("\n" + "<"*30 + ">"*30)
+        print(f"[!] WINDOWS NOTE: PowerShell execution policy is '{policy}'.")
+        print("<"*30 + ">"*30)
+        print("    This BLOCKS virtual-environment activation. If you see")
+        print("    'Activate.ps1 cannot be loaded ... running scripts is disabled',")
+        print("    enable local scripts once (no admin required):")
+        print("        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned")
+        print("    Then: & \"$env:USERPROFILE\\mesh_env\\Scripts\\Activate.ps1\"")
+        print("    Or skip activation entirely and call the venv Python by full path:")
+        print("        & \"$env:USERPROFILE\\mesh_env\\Scripts\\python.exe\" -m mesh_aop.cli --step all --interactive")
+
 def provision_kaleido_dependencies():
     """Installs required OS-level shared libraries and the headless Chrome binary."""
     if not sys.platform.startswith('linux'):
@@ -261,6 +291,7 @@ def main():
         print("\n\n[!] Exiting: Script manually interrupted by user.")
         sys.exit(130)
 
+    check_windows_activation_policy()
     provision_kaleido_dependencies()
 
 if __name__ == "__main__":
