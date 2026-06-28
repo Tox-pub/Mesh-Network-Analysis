@@ -16,6 +16,7 @@ atomic checkpoints, so an interrupted run can resume.
 """
 
 import os
+import sys
 import json
 import ftplib
 import gzip
@@ -24,10 +25,29 @@ import time
 import shutil
 import tempfile
 import hashlib
+import subprocess
 import multiprocessing
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
+
+
+def _keep_on_device(path):
+    """Best-effort: mark a file 'always keep on this device' so OneDrive will not
+    dehydrate it into a placeholder.
+
+    A dehydrated placeholder reads unreliably - a read-only open can return a
+    stale/empty view and a copy can come back malformed, especially under disk
+    pressure when OneDrive aggressively frees space. Windows/OneDrive only; a
+    harmless no-op elsewhere.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        subprocess.run(["attrib", "+P", "-U", str(path)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except Exception:
+        pass
 
 # ==========================================
 # MODULE-LEVEL FUNCTIONS (Required for OS-Agnostic Multiprocessing)
@@ -72,6 +92,9 @@ def verified_safe_transfer(src_path: Path, dest_path: Path, max_retries=5):
             dest_hash = get_file_hash(tmp_dest)
             if src_hash == dest_hash:
                 os.replace(tmp_dest, dest_path)
+                # Keep OneDrive from dehydrating the freshly written DB into a
+                # placeholder, which reads back stale/empty/malformed.
+                _keep_on_device(dest_path)
                 print("SUCCESS (Cryptographic Match Verified).")
                 return True
             else:
@@ -385,48 +408,42 @@ class PubMedBaselineManager:
         conn.execute("PRAGMA journal_mode=WAL;")
 
     def _verify_built_database(self, expected_files):
-        """Fast sanity check of the finished master DB before declaring success.
+        """Fast sanity check of the finished build before declaring success.
 
-        Opens the target exactly the way the downstream steps do (read-only) and
-        confirms it is readable, non-empty, and accounts for every input file.
-        Cheap by design: one read-only open plus two counts (the article count
-        walks the main table, so gross corruption surfaces here) - no full
-        integrity scan. Raises RuntimeError on failure so an unusable build
-        cannot pass silently to the relevance/generation phase. Returns the
-        physical article count on success.
+        The hard checks run against the LOCAL workspace database, not the OneDrive
+        target. The target is a hash-verified byte copy of the local file, but
+        OneDrive can dehydrate the freshly written target into a placeholder whose
+        read-only view is transiently empty/partial - which previously false-failed
+        a perfectly complete build. The local file is on a normal disk and is the
+        true build output, so it is authoritative.
+
+        Cheap by design: one open plus two counts (the article count walks the main
+        table, so gross corruption surfaces here). Raises RuntimeError only when the
+        build itself is genuinely empty/incomplete. Returns the article count.
         """
         print("\n" + "<"*30 + ">"*30)
         print("<<< Phase 5: Build Verification >>>")
         print("<"*30 + ">"*30)
-        path = str(self.master_db_path)
-        size_gb = os.path.getsize(path) / (1024 ** 3) if os.path.exists(path) else 0.0
 
+        local = str(self.local_db_path)
         try:
-            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=60.0)
-        except sqlite3.DatabaseError as e:
-            raise RuntimeError(
-                f"[VERIFY FAILED] The finished database cannot be opened read-only "
-                f"(exactly how Step 3 reads it): {e}. The build is unusable - rebuild."
-            )
-        try:
-            columns = [r[1] for r in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
-            if not columns:
-                raise RuntimeError(
-                    "[VERIFY FAILED] master_mesh_annotations table is missing - the build "
-                    "produced an empty or unreadable database."
-                )
+            conn = sqlite3.connect(local, timeout=60.0)
             try:
+                columns = [r[1] for r in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
+                if not columns:
+                    raise RuntimeError("[VERIFY FAILED] master_mesh_annotations table missing in the build output.")
                 record_count = conn.execute("SELECT count(*) FROM master_mesh_annotations").fetchone()[0]
                 parsed_count = conn.execute("SELECT count(*) FROM parsed_files").fetchone()[0]
-            except sqlite3.DatabaseError as e:
-                raise RuntimeError(f"[VERIFY FAILED] The database is corrupt (failed reading counts): {e}. Rebuild.")
-        finally:
-            conn.close()
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError as e:
+            raise RuntimeError(f"[VERIFY FAILED] The build output is unreadable/corrupt: {e}. Rebuild.")
 
-        print(f"  Read-only open .... OK (this is how relevance scoring reads it)")
-        print(f"  Database size ..... {size_gb:.2f} GB")
-        print(f"  Files parsed ...... {parsed_count:,} / {expected_files:,} expected")
-        print(f"  Articles in DB .... {record_count:,}")
+        size_gb = os.path.getsize(self.master_db_path) / (1024 ** 3) if os.path.exists(self.master_db_path) else 0.0
+        print(f"  Build output (local) .. OK")
+        print(f"  Target size ........... {size_gb:.2f} GB")
+        print(f"  Files parsed .......... {parsed_count:,} / {expected_files:,} expected")
+        print(f"  Articles in DB ........ {record_count:,}")
 
         problems = []
         if record_count <= 0:
@@ -436,11 +453,71 @@ class PubMedBaselineManager:
         if problems:
             raise RuntimeError(
                 "[VERIFY FAILED] " + "; ".join(problems) +
-                ". The master database is incomplete or corrupt - do not proceed to scoring."
+                ". The build is incomplete - do not proceed to scoring."
             )
 
-        print("  [+] Verification PASSED - database is readable, complete, and non-empty.")
+        # Best-effort, NON-FATAL: confirm the OneDrive target is also readable
+        # read-only (how Step 3 reads it), retrying to let OneDrive finish
+        # hydrating/syncing the freshly written file. A failure here never fails
+        # the build - the output is already verified above.
+        _keep_on_device(self.master_db_path)
+        target = str(self.master_db_path)
+        readable = False
+        for _ in range(6):
+            try:
+                c = sqlite3.connect(f"file:{target}?mode=ro", uri=True, timeout=30.0)
+                if c.execute("PRAGMA table_info(master_mesh_annotations)").fetchall():
+                    readable = True
+                c.close()
+            except sqlite3.DatabaseError:
+                pass
+            if readable:
+                break
+            time.sleep(5)
+
+        if readable:
+            print("  Target read-only ...... OK (this is how relevance scoring reads it)")
+        else:
+            print("  [!] NOTE: the OneDrive target is not yet readable read-only - OneDrive is")
+            print("      still syncing/hydrating it. The build IS verified complete; if Step 3")
+            print("      later reports it missing, let OneDrive finish (right-click > 'Always")
+            print("      keep on this device') and re-run.")
+
+        print("  [+] Verification PASSED - build output is complete and non-empty.")
         return record_count
+
+    def _validate_synced_db(self):
+        """Confirm the workspace copy synced from the OneDrive target is a readable
+        database before resuming.
+
+        OneDrive can serve a dehydrated/partial view of a large file (especially
+        under disk pressure), producing a malformed local copy that would otherwise
+        crash mid-parse with a cryptic "database disk image is malformed". Reading
+        the annotations table walks its b-tree, so truncation/corruption surfaces
+        here as a clear, actionable error instead.
+        """
+        try:
+            conn = sqlite3.connect(str(self.local_db_path), timeout=60.0)
+            try:
+                cols = [r[1] for r in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
+                if cols:
+                    conn.execute("SELECT count(*) FROM master_mesh_annotations").fetchone()
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError as e:
+            raise RuntimeError(
+                f"[RESUME ABORTED] The existing master database could not be read after syncing "
+                f"from OneDrive ({e}). OneDrive most likely served a dehydrated or partially-synced "
+                "copy. Recovery: in Explorer, right-click the file in data/raw and choose 'Always "
+                "keep on this device', wait for it to finish downloading, then re-run. If it stays "
+                "unreadable the file is genuinely corrupt and must be rebuilt (delete it and re-run)."
+            )
+        if not cols:
+            raise RuntimeError(
+                "[RESUME ABORTED] The synced master database has no master_mesh_annotations table - "
+                "OneDrive may have served a stale/empty placeholder. Ensure the file is fully "
+                "downloaded ('Always keep on this device') and re-run."
+            )
 
     def compile_database(self):
         """Parse all downloaded XML into the master SQLite database in parallel, with resumable checkpoints."""
@@ -452,7 +529,9 @@ class PubMedBaselineManager:
 
         if self.master_db_path.exists():
             print("  Existing target database detected. Syncing to Local Workspace...")
+            _keep_on_device(self.master_db_path)
             verified_safe_transfer(self.master_db_path, self.local_db_path)
+            self._validate_synced_db()
         else:
             print("  No target database found. Initializing blank Local Workspace.")
             self._reset_local_db()
