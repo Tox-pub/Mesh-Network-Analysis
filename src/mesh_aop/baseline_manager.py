@@ -352,6 +352,15 @@ class PubMedBaselineManager:
         dst = sqlite3.connect(str(snap))
         try:
             conn.backup(dst)
+            # The backup inherits the live DB's WAL mode (header 2,2). A WAL-mode
+            # file cannot be opened read-only on a OneDrive-backed path - read-only
+            # access needs to create the -shm shared-memory file, which fails on the
+            # reparse-point filesystem - so the wizard and the relevance step see an
+            # empty schema and wrongly flag the DB as corrupt. Convert the snapshot
+            # to rollback (DELETE) mode so the target is self-contained and readable
+            # read-only on any filesystem.
+            dst.execute("PRAGMA journal_mode=DELETE;")
+            dst.commit()
         finally:
             dst.close()
 

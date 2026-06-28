@@ -89,6 +89,25 @@ def _ask_block(title: str, preview_dict: dict) -> bool:
     ans = input(f"Update {title}? [y/n/Enter to skip]: ").strip().lower()
     return ans in ['y', 'yes']
 
+def _open_master_for_health_check(master_db_path):
+    """Open the master DB for the status check and return (connection, columns).
+
+    A read-only open is tried first, but a WAL-mode database cannot be brought
+    online read-only on a OneDrive path (the -shm shared-memory file cannot be
+    created), so it would report an empty schema and be misread as corrupt. If
+    the read-only open finds no schema, fall back to a normal connection - which
+    can apply the WAL even on OneDrive - so a healthy database is not flagged
+    corrupt purely because of its journal mode.
+    """
+    conn = sqlite3.connect(f"file:{master_db_path}?mode=ro", uri=True, timeout=120.0)
+    columns = [info[1] for info in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
+    if columns:
+        return conn, columns
+    conn.close()
+    conn = sqlite3.connect(str(master_db_path), timeout=120.0)
+    columns = [info[1] for info in conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall()]
+    return conn, columns
+
 def run_interactive_wizard(config, step: str) -> bool:
     """Executes block-by-block configuration wizard. Returns True if a factory reset occurred."""
     print("\n" + "<"*30 + ">"*30)
@@ -201,12 +220,8 @@ def run_interactive_wizard(config, step: str) -> bool:
     if master_db_path and os.path.exists(master_db_path):
         db_age_days = (time.time() - os.path.getmtime(master_db_path)) / 86400
         try:
-            uri_path = f"file:{master_db_path}?mode=ro"
-            conn = sqlite3.connect(uri_path, uri=True, timeout=120.0)
+            conn, columns = _open_master_for_health_check(master_db_path)
             cur = conn.cursor()
-
-            cur.execute("PRAGMA table_info(master_mesh_annotations)")
-            columns = [info[1] for info in cur.fetchall()]
 
             if not columns:
                 db_status = "EMPTY / CORRUPTED"
