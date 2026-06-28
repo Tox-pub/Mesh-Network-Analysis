@@ -247,8 +247,6 @@ class PubMedBaselineManager:
         total = len(files_to_download)
         print(f"  Starting download sequence for {total} files...")
         seq_start = time.time()
-        batch_start = seq_start
-        last_i = 0
 
         for i, filename in enumerate(files_to_download, 1):
             local_filepath = local_dir / filename
@@ -272,17 +270,7 @@ class PubMedBaselineManager:
                     print(f"    [!] FAILED to download {filename}. Skipping.")
 
             if i % 50 == 0 or i == total:
-                now = time.time()
-                batch_dt = now - batch_start
-                total_dt = now - seq_start
-                n = i - last_i
-                rate = (n / batch_dt) if batch_dt > 0 else 0.0
-                overall_rate = (i / total_dt) if total_dt > 0 else 0.0
-                eta_min = ((total - i) / overall_rate / 60) if overall_rate > 0 else 0.0
-                print(f"    -> {i}/{total} files | +{n} in {batch_dt/60:.1f} min "
-                      f"({rate:.1f}/s) | elapsed {total_dt/60:.1f} min | ETA ~{eta_min:.0f} min")
-                batch_start = now
-                last_i = i
+                print(f"    -> Downloaded {i}/{total} files... [{(time.time() - seq_start)/60:.1f} min]")
 
         if ftp:
             try:
