@@ -23,6 +23,24 @@ from tqdm import tqdm
 
 # Relative package imports
 from .data_ops import parse_date_robust
+from .baseline_manager import _keep_on_device
+
+
+def _open_master_readonly(master_db_path):
+    """Open the master DB for reading, resilient to OneDrive dehydration.
+
+    Pins the file so OneDrive keeps it on-device, then opens read-only. If the
+    read-only view shows no schema - a dehydrated placeholder reads back empty -
+    it re-opens with a normal connection, which forces OneDrive to hydrate the
+    file and exposes the real content. No writes are issued either way, and on a
+    normal (already-hydrated) file the read-only path is used unchanged.
+    """
+    _keep_on_device(master_db_path)
+    conn = sqlite3.connect(f'file:{master_db_path}?mode=ro', uri=True, timeout=120.0)
+    if conn.execute("PRAGMA table_info(master_mesh_annotations)").fetchall():
+        return conn
+    conn.close()
+    return sqlite3.connect(str(master_db_path), timeout=120.0)
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # HELPER FUNCTIONS
@@ -93,8 +111,9 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
     print(f"  Target Date Range: {start_iso} to {end_iso}")
 
     try:
-        # Connect in Read-Only mode to prevent FUSE lock issues
-        master_conn = sqlite3.connect(f'file:{master_db_path}?mode=ro', uri=True)
+        # Read-only to avoid lock issues, with a fallback that rehydrates the file
+        # if OneDrive has dehydrated it into a placeholder (see _open_master_readonly).
+        master_conn = _open_master_readonly(master_db_path)
         m_cursor = master_conn.cursor()
 
         # Schema compatibility check
