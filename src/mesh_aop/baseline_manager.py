@@ -313,6 +313,28 @@ class PubMedBaselineManager:
         except Exception as e:
             print(f"      [!] Could not write progress manifest: {e}")
 
+    def _reset_local_db(self):
+        """Delete a stale local-workspace DB (and its WAL/SHM sidecars) before a
+        fresh build, with retries and a clear error if another pipeline instance
+        (or an orphaned worker process) still holds the file open."""
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(self.local_db_path) + suffix)
+            for _ in range(3):
+                try:
+                    if p.exists():
+                        p.unlink()
+                    break
+                except PermissionError:
+                    time.sleep(1.0)
+            else:
+                raise RuntimeError(
+                    "The ETL workspace is locked by another process - a previous pipeline "
+                    f"run (or its orphaned Python workers) is still holding '{p.name}'. "
+                    "Only one pipeline build can run at a time. Close any other running "
+                    "pipeline, end stray python.exe processes, then delete this folder and "
+                    f"re-run:\n    {self.local_workspace}"
+                )
+
     def compile_database(self):
         """Parse all downloaded XML into the master SQLite database in parallel, with resumable checkpoints."""
         print("\n" + "<"*30 + ">"*30)
@@ -326,8 +348,7 @@ class PubMedBaselineManager:
             verified_safe_transfer(self.master_db_path, self.local_db_path)
         else:
             print("  No target database found. Initializing blank Local Workspace.")
-            if self.local_db_path.exists():
-                self.local_db_path.unlink()
+            self._reset_local_db()
 
         conn = sqlite3.connect(self.local_db_path)
         conn.execute("PRAGMA journal_mode = WAL;")
@@ -447,7 +468,9 @@ class PubMedBaselineManager:
                         conn.execute("PRAGMA journal_mode = WAL;")
                         cursor = conn.cursor()
             finally:
-                pool.close()
+                # terminate() (not close()) so workers can't linger as orphaned
+                # processes holding the workspace open if the run is interrupted.
+                pool.terminate()
                 pool.join()
 
         print("\n" + "<"*30 + ">"*30)
