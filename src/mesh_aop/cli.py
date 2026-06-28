@@ -292,15 +292,10 @@ def main():
             if config.params.get('_delete_corrupt_db', False):
                 db_path = str(config.files['master_db'])
                 if os.path.exists(db_path):
-                    # Quarantine (rename) rather than permanently delete, so a DB
-                    # flagged corrupt is never irrecoverably lost.
-                    quarantine = f"{db_path}.corrupt-{time.strftime('%Y%m%d_%H%M%S')}.bak"
-                    try:
-                        os.replace(db_path, quarantine)
-                        print(f"  [!] Corrupt master DB quarantined to: {os.path.basename(quarantine)}")
-                    except Exception as e:
-                        print(f"  [!] Could not quarantine corrupt DB ({e}); deleting instead.")
-                        os.remove(db_path)
+                    # A corrupt master DB can't be reused and a multi-GB copy would
+                    # only waste (OneDrive-synced) space, so delete it and rebuild.
+                    os.remove(db_path)
+                    print(f"  [!] Corrupt master DB deleted; rebuilding from scratch.")
 
             baseline_mgr = PubMedBaselineManager(
                 raw_data_dir=config.active_raw_dir,
