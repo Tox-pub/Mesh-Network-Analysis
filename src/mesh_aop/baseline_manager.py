@@ -576,37 +576,21 @@ class PubMedBaselineManager:
         print("\n" + "<"*30 + ">"*30)
         print("<<< Phase 3: Post-Load Optimization & Indexing >>>")
         print("<"*30 + ">"*30)
-        cursor.execute("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_pmid'")
-
-        if cursor.fetchone()[0] == 0:
-            print("  Cleaning duplicate records from NLM Baseline overlaps (This may take a few minutes)...")
-            cursor.execute("""
-                DELETE FROM master_mesh_annotations
-                WHERE rowid NOT IN (
-                    SELECT MIN(rowid)
-                    FROM master_mesh_annotations
-                    GROUP BY pmid
-                )
-            """)
-            conn.commit()
-
-            print("  Building B-Tree Index locally...")
-            cursor.execute("DROP INDEX IF EXISTS idx_pmid")
-            index_start = time.time()
-            cursor.execute("CREATE UNIQUE INDEX idx_pmid ON master_mesh_annotations (pmid)")
-            print(f"  Index complete. [{((time.time() - index_start)/60):.1f} min]")
-        else:
-            print("  Index already exists.")
+        # De-duplication and pmid indexing are inherent to the schema: pmid is an
+        # INTEGER PRIMARY KEY and rows are merged with INSERT OR REPLACE, so
+        # duplicate pmids never exist and the primary key already provides the
+        # lookup index. The previous explicit dedup-DELETE (a full-table scan) and
+        # the separate UNIQUE INDEX duplicated that work for no benefit.
+        print("  De-duplication and pmid indexing handled by the primary key (no extra pass needed).")
 
         print("\n" + "<"*30 + ">"*30)
         print("<<< Phase 4: Final Network Transfer >>>")
         print("<"*30 + ">"*30)
         conn.commit()
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-
-        print("  Running final database defragmentation (VACUUM)...", end=" ", flush=True)
-        conn.execute("VACUUM;")
-        print("Done.")
+        # VACUUM removed: it rewrote the entire multi-GB database and required an
+        # equal amount of free temp space, risking a disk-full failure at the very
+        # end. With primary-key dedup there is negligible free space to reclaim.
         cursor.execute("SELECT filename FROM parsed_files")
         final_parsed = {r[0] for r in cursor.fetchall()}
 
