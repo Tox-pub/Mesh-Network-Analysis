@@ -341,44 +341,48 @@ class PubMedBaselineManager:
                 )
 
     def _checkpoint_to_target(self, conn):
-        """Write a consistent snapshot of the live DB to the master target.
+        """Write the live DB to the master target as one self-contained file.
 
-        Uses SQLite's online backup API to produce a complete, self-contained copy
-        (correctly including any WAL content) into a local temp file, then verify-
-        transfers that snapshot to the (possibly OneDrive-synced) target. This
-        replaces a journal-mode + raw-file-copy dance that could leave the target
-        with data pages but an EMPTY schema (no tables) - which made it useless for
-        resume and got it flagged as corrupt, forcing a rebuild from scratch.
+        Folds the WAL into the main database file and switches it to rollback
+        (DELETE) journal mode in place, then verify-transfers that single file to
+        the (possibly OneDrive-synced) target. Rollback mode matters because a
+        WAL-mode file cannot be opened read-only on a OneDrive path (the -shm
+        shared-memory file cannot be created there), which made the wizard and the
+        relevance step misread a healthy DB as corrupt.
+
+        Doing the consolidation in place avoids making a second full-size .snapshot
+        copy in the workspace - halving the checkpoint footprint, which matters on
+        a near-full disk. If the WAL cannot be fully consolidated (e.g. a reader
+        holds it), it falls back to the SQLite backup API so a checkpoint is never
+        written from an unflushed WAL.
         """
         conn.commit()
-        snap = Path(str(self.local_db_path) + ".snapshot")
-        if snap.exists():
-            snap.unlink()
-        dst = sqlite3.connect(str(snap))
-        try:
-            conn.backup(dst)
-            # The backup inherits the live DB's WAL mode (header 2,2). A WAL-mode
-            # file cannot be opened read-only on a OneDrive-backed path - read-only
-            # access needs to create the -shm shared-memory file, which fails on the
-            # reparse-point filesystem - so the wizard and the relevance step see an
-            # empty schema and wrongly flag the DB as corrupt. Convert the snapshot
-            # to rollback (DELETE) mode so the target is self-contained and readable
-            # read-only on any filesystem.
-            dst.execute("PRAGMA journal_mode=DELETE;")
-            dst.commit()
-        finally:
-            dst.close()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        mode = conn.execute("PRAGMA journal_mode=DELETE;").fetchone()[0]
+        conn.commit()
 
-        verified_safe_transfer(snap, self.master_db_path)
-        if snap.exists():
-            snap.unlink()
+        if mode == "delete":
+            # Live file is now complete and self-contained: copy it directly.
+            verified_safe_transfer(self.local_db_path, self.master_db_path)
+        else:
+            # Rare: WAL could not be consolidated in place. Fall back to the
+            # backup API so we never transfer an incomplete main file.
+            snap = Path(str(self.local_db_path) + ".snapshot")
+            if snap.exists():
+                snap.unlink()
+            dst = sqlite3.connect(str(snap))
+            try:
+                conn.backup(dst)
+                dst.execute("PRAGMA journal_mode=DELETE;")
+                dst.commit()
+            finally:
+                dst.close()
+            verified_safe_transfer(snap, self.master_db_path)
+            if snap.exists():
+                snap.unlink()
 
-        # Keep the WAL from growing without bound (best-effort; snapshot
-        # correctness is already guaranteed by the backup API above).
-        try:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-        except Exception:
-            pass
+        # Restore WAL mode for fast continued bulk loading.
+        conn.execute("PRAGMA journal_mode=WAL;")
 
     def _verify_built_database(self, expected_files):
         """Fast sanity check of the finished master DB before declaring success.
