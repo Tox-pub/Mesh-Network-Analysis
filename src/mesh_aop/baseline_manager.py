@@ -16,6 +16,7 @@ atomic checkpoints, so an interrupted run can resume.
 """
 
 import os
+import json
 import ftplib
 import gzip
 import sqlite3
@@ -206,7 +207,12 @@ class PubMedBaselineManager:
         self.updates_ftp_path = "/pubmed/updatefiles/"
 
         self.chunk_size = 25
-        self.checkpoint_interval = 4  # Execute backup every 100 files
+        self.checkpoint_interval = 4  # Heavy DB checkpoint every 100 files (plus an early one after the first block)
+
+        # Progress manifest written alongside the master DB. It records parse
+        # progress independently of the database file, so a later quarantine of a
+        # corrupt DB never erases the record of how far the build got.
+        self.progress_path = Path(str(self.master_db_path) + ".progress.json")
 
     def _get_ftp_file_list(self, ftp_path: str) -> list:
         """Return the list of .xml.gz filenames available at the given NCBI FTP path."""
@@ -286,6 +292,27 @@ class PubMedBaselineManager:
             if update_files:
                 self._download_files(self.updates_ftp_path, self.updates_dir, update_files, limit)
 
+    def _save_progress_manifest(self, parsed_files, total_files, complete=False):
+        """Persist a small JSON record of parse progress next to the master DB.
+
+        Decoupled from the database file so progress stays visible and auditable
+        even if the DB is later quarantined as corrupt.
+        """
+        try:
+            payload = {
+                "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "parsed_count": len(parsed_files),
+                "total_files": total_files,
+                "complete": complete,
+                "parsed_files": sorted(parsed_files),
+            }
+            tmp = Path(str(self.progress_path) + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=1)
+            os.replace(tmp, self.progress_path)
+        except Exception as e:
+            print(f"      [!] Could not write progress manifest: {e}")
+
     def compile_database(self):
         """Parse all downloaded XML into the master SQLite database in parallel, with resumable checkpoints."""
         print("\n" + "<"*30 + ">"*30)
@@ -323,6 +350,20 @@ class PubMedBaselineManager:
         cursor.execute("DROP INDEX IF EXISTS idx_pmid")
         cursor.execute("SELECT filename FROM parsed_files")
         completed_files = {row[0] for row in cursor.fetchall()}
+
+        # If a progress manifest from a prior run exists but the database holds no
+        # parsed files, the DB was reset/rebuilt - explain why a full re-parse follows
+        # (the XML downloads are reused; only parsing repeats).
+        if self.progress_path.exists() and not completed_files:
+            try:
+                prev = json.load(open(self.progress_path, encoding="utf-8"))
+                if prev.get("parsed_count", 0) > 0 and not prev.get("complete", False):
+                    print(f"  [i] Progress manifest from {prev.get('updated','?')} recorded "
+                          f"{prev.get('parsed_count')} parsed files, but the database was reset "
+                          f"(corrupt/rebuilt) so that parsed data is gone - re-parsing is required.")
+                    print("      (Your downloaded XML files are reused; nothing is re-downloaded.)")
+            except Exception:
+                pass
 
         all_files = []
         if self.baseline_dir.exists():
@@ -386,14 +427,21 @@ class PubMedBaselineManager:
                     print(f"  -> Processed Block {chunk_idx}/{len(chunks)}. (Total: {total_done}/{len(all_files)}) [+ {global_articles:,} articles] [{elapsed/60:.1f} min]")
 
                     # <<< ATOMIC CHECKPOINT >>>
-                    if chunk_idx % self.checkpoint_interval == 0:
+                    # Checkpoint after the very first block (cheap - the DB is tiny)
+                    # so a resumable copy exists within minutes, then on the normal
+                    # cadence. This prevents an interrupt-before-first-checkpoint from
+                    # leaving a tableless DB that gets flagged corrupt and wiped.
+                    if chunk_idx == 1 or chunk_idx % self.checkpoint_interval == 0:
                         print(f"  <<< Executing Routine Checkpoint ({total_done} files) >>>")
                         conn.commit()
+                        cursor.execute("SELECT filename FROM parsed_files")
+                        parsed_now = {r[0] for r in cursor.fetchall()}
                         conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                         conn.execute("PRAGMA journal_mode = DELETE;")
                         conn.close()
 
                         verified_safe_transfer(self.local_db_path, self.master_db_path)
+                        self._save_progress_manifest(parsed_now, len(all_files))
 
                         conn = sqlite3.connect(self.local_db_path)
                         conn.execute("PRAGMA journal_mode = WAL;")
@@ -437,9 +485,12 @@ class PubMedBaselineManager:
         print("  Running final database defragmentation (VACUUM)...", end=" ", flush=True)
         conn.execute("VACUUM;")
         print("Done.")
+        cursor.execute("SELECT filename FROM parsed_files")
+        final_parsed = {r[0] for r in cursor.fetchall()}
         conn.close()
 
         verified_safe_transfer(self.local_db_path, self.master_db_path)
+        self._save_progress_manifest(final_parsed, len(all_files), complete=True)
 
         print("\n" + "<"*30 + ">"*30)
         print("MASTER DATABASE COMPILATION COMPLETE")

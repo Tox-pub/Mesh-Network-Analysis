@@ -290,9 +290,17 @@ def main():
             print("\n>>> STARTING: Step 0 - PubMed Baseline ETL (Master Database Generation)")
 
             if config.params.get('_delete_corrupt_db', False):
-                db_path = config.files['master_db']
+                db_path = str(config.files['master_db'])
                 if os.path.exists(db_path):
-                    os.remove(db_path)
+                    # Quarantine (rename) rather than permanently delete, so a DB
+                    # flagged corrupt is never irrecoverably lost.
+                    quarantine = f"{db_path}.corrupt-{time.strftime('%Y%m%d_%H%M%S')}.bak"
+                    try:
+                        os.replace(db_path, quarantine)
+                        print(f"  [!] Corrupt master DB quarantined to: {os.path.basename(quarantine)}")
+                    except Exception as e:
+                        print(f"  [!] Could not quarantine corrupt DB ({e}); deleting instead.")
+                        os.remove(db_path)
 
             baseline_mgr = PubMedBaselineManager(
                 raw_data_dir=config.active_raw_dir,
