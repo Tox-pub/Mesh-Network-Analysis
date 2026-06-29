@@ -39,46 +39,85 @@ def _open_readonly_resilient(db_path):
     conn.close()
     return sqlite3.connect(str(db_path), timeout=120.0)
 
+
+def _fetch_relevance_rows(conn, clause, params):
+    """Fetch (pmid, ARS, contributing_seeds, pub_year) from article_relevance_scores.
+
+    Includes the publication year when the relevance DB has a pub_date column; a
+    legacy DB without it yields pub_year=None, so the impact engine falls back to a
+    raw citation count instead of a citations-per-year rate. `clause` is the
+    trailing SQL (WHERE/ORDER/LIMIT) appended to the SELECT.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(article_relevance_scores)").fetchall()]
+    has_pubdate = 'pub_date' in cols
+    select_cols = "pmid, score_betweenness_centrality, contributing_seeds" + (", pub_date" if has_pubdate else "")
+    rows = conn.execute(f"SELECT {select_cols} FROM article_relevance_scores {clause}", params).fetchall()
+
+    out = []
+    for r in rows:
+        year = None
+        if has_pubdate and r[3]:
+            try:
+                year = int(str(r[3])[:4])
+            except (ValueError, TypeError):
+                year = None
+        out.append((r[0], r[1], r[2], year))
+    return out
+
 def _calculate_impact_scores(raw_rows: list, sort_metric: str, linear_weight_ars: float, oversample_limit: int) -> list:
     """
     Pandas engine to apply dynamic scaling and dual-metric Article Impact Scoring.
-    Replaces arbitrary floors with a dynamic baseline relative to the network's max citation count.
+
+    The citation axis is the citations-per-year RATE (total citations / years since
+    publication, with a minimum-age floor) so that older papers are not favoured
+    purely for having had longer to accumulate citations. This rate feeds both the
+    Linear (weighted-average) and F1 (harmonic-mean) engines identically to the old
+    raw-count signal - only the input changes. Rows whose publication year is
+    unknown (e.g. a legacy relevance DB lacking a pub_date column) fall back to the
+    raw citation count, so behaviour is unchanged for those.
     """
     if not raw_rows:
         return []
 
-    df = pd.DataFrame(raw_rows, columns=['pmid', 'ars_score', 'seeds', 'cited_by'])
+    df = pd.DataFrame(raw_rows, columns=['pmid', 'ars_score', 'seeds', 'cited_by', 'pub_year'])
 
-    # 1. Extract raw citation counts (0, 1, 2, etc.)
+    # 1. Raw incoming-citation counts (kept for display/transparency).
     cited_by_str = df['cited_by'].fillna('').astype(str).str.strip()
     is_empty = (cited_by_str == '') | (cited_by_str.str.lower() == 'nan') | (cited_by_str.str.lower() == 'none')
     raw_counts = np.where(is_empty, 0, cited_by_str.str.count(';') + 1)
-
-    # Bind the raw counts to the DataFrame immediately before any sorting can occur
     df['Incoming_Citations_Smoothed'] = raw_counts
 
-    # 2. Log-Normalize (using standard +1 so 0 citations = log10(1) = 0.0 initially)
-    df['log_cit'] = np.log10(raw_counts + 1)
+    # 2. Citations-per-year rate with a minimum-age floor so very recent papers are
+    #    not inflated. Unknown publication year -> fall back to the raw count.
+    MIN_AGE_YEARS = 3
+    current_year = time.localtime().tm_year
+    pub_year = pd.to_numeric(df['pub_year'], errors='coerce')
+    age = (current_year - pub_year).clip(lower=MIN_AGE_YEARS)
+    citation_signal = np.where(pub_year.notna(), raw_counts / age, raw_counts)
+    df['Citations_Per_Year'] = np.where(pub_year.notna(), citation_signal, np.nan)
 
-    # 3. Dynamic Scaling based on the Network's Maximum
+    # 3. Log-Normalize the citation signal (rate where the year is known).
+    df['log_cit'] = np.log10(citation_signal + 1)
+
+    # 4. Dynamic Scaling based on the Network's Maximum
     max_log = df['log_cit'].max()
 
     if max_log > 0:
         one_citation_scale = np.log10(2) / max_log
         dynamic_floor = one_citation_scale / 2.0
         normalized = df['log_cit'] / max_log
-        df['Normalized_Citation'] = np.where(raw_counts == 0, dynamic_floor, normalized)
+        df['Normalized_Citation'] = np.where(citation_signal == 0, dynamic_floor, normalized)
     else:
         dynamic_floor = 1.0
         df['Normalized_Citation'] = 1.0
 
     df['ars_score'] = df['ars_score'].clip(lower=dynamic_floor)
 
-    # 4. Dual Calculation Engine
+    # 5. Dual Calculation Engine (unchanged structure; citation axis is now a rate)
     df['Linear_AIS'] = (df['ars_score'] * linear_weight_ars) + (df['Normalized_Citation'] * (1.0 - linear_weight_ars))
     df['F1_AIS'] = (2 * df['ars_score'] * df['Normalized_Citation']) / (df['ars_score'] + df['Normalized_Citation'])
 
-    # 5. Sort by user's chosen metric and truncate
+    # 6. Sort by user's chosen metric and truncate
     sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
     df = df.sort_values(by=sort_col, ascending=False)
 
@@ -146,6 +185,7 @@ def _fetch_metadata_and_filter(pmid_score_dicts: list, exclude_reviews: bool, li
                     "Title": title,
                     "Raw_ARS": base_data.get('ars_score', 0.0),
                     "Incoming_Citations": base_data.get('Incoming_Citations_Smoothed', 0),
+                    "Citations_Per_Year": base_data.get('Citations_Per_Year', None),
                     "Normalized_Citation": base_data.get('Normalized_Citation', 0.0),
                     "Linear_AIS": base_data.get('Linear_AIS', 0.0),
                     "F1_AIS": base_data.get('F1_AIS', 0.0),
@@ -177,9 +217,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
     try:
         # Step 1: Query Relevance DB
         conn_rel = _open_readonly_resilient(db_path)
-        cursor_rel = conn_rel.cursor()
-        cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores WHERE contributing_seeds LIKE ?", (f'%{node_name}%',))
-        rel_rows = cursor_rel.fetchall()
+        rel_rows = _fetch_relevance_rows(conn_rel, "WHERE contributing_seeds LIKE ?", (f'%{node_name}%',))
         conn_rel.close()
 
         if not rel_rows:
@@ -188,7 +226,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
 
         # Step 2: Clean PMIDs and map data
         clean_pmids = [str(r[0]).split('.')[0] for r in rel_rows]
-        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2]) for i in range(len(clean_pmids))}
+        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
         # Step 3: Batch lookup in Master DB
         citation_map = {}
@@ -205,7 +243,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
         conn_clean.close()
 
         # Step 4: Reconstruct array
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None)) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
         print(f"  -> Extracted & Scored top {len(pmid_dicts)} candidates. Hydrating metadata...")
@@ -215,7 +253,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
         if not df.empty:
             print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
-            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
+            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', 'Citations_Per_Year', sort_col]].head(5).to_string(index=False))
 
             os.makedirs(results_dir, exist_ok=True)
             safe_name = node_name.replace(" ", "_").replace("/", "-")
@@ -241,9 +279,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
 
     try:
         conn_rel = _open_readonly_resilient(db_path)
-        cursor_rel = conn_rel.cursor()
-        cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores WHERE contributing_seeds LIKE ? AND contributing_seeds LIKE ?", (f'%{node1}%', f'%{node2}%'))
-        rel_rows = cursor_rel.fetchall()
+        rel_rows = _fetch_relevance_rows(conn_rel, "WHERE contributing_seeds LIKE ? AND contributing_seeds LIKE ?", (f'%{node1}%', f'%{node2}%'))
         conn_rel.close()
 
         if not rel_rows:
@@ -251,7 +287,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
             return
 
         clean_pmids = [str(r[0]).split('.')[0] for r in rel_rows]
-        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2]) for i in range(len(clean_pmids))}
+        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
         citation_map = {}
         conn_clean = _open_readonly_resilient(cleaned_db_path)
@@ -266,7 +302,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
                 citation_map[str(row[0])] = row[1]
         conn_clean.close()
 
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None)) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
         print(f"  -> Extracted & Scored top {len(pmid_dicts)} candidates. Hydrating metadata...")
@@ -276,7 +312,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
         if not df.empty:
             print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
-            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
+            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', 'Citations_Per_Year', sort_col]].head(5).to_string(index=False))
 
             os.makedirs(results_dir, exist_ok=True)
             safe_n1 = node1.replace(" ", "_").replace(",", "")
@@ -303,9 +339,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
 
     try:
         conn_rel = _open_readonly_resilient(db_path)
-        cursor_rel = conn_rel.cursor()
-        cursor_rel.execute("SELECT pmid, score_betweenness_centrality, contributing_seeds FROM article_relevance_scores ORDER BY score_betweenness_centrality DESC LIMIT 50000")
-        rel_rows = cursor_rel.fetchall()
+        rel_rows = _fetch_relevance_rows(conn_rel, "ORDER BY score_betweenness_centrality DESC LIMIT 50000", ())
         conn_rel.close()
 
         if not rel_rows:
@@ -313,7 +347,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
             return
 
         clean_pmids = [str(r[0]).split('.')[0] for r in rel_rows]
-        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2]) for i in range(len(clean_pmids))}
+        rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
         citation_map = {}
         conn_clean = _open_readonly_resilient(cleaned_db_path)
@@ -328,7 +362,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
                 citation_map[str(row[0])] = row[1]
         conn_clean.close()
 
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None)) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
 
@@ -337,7 +371,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
         if not df.empty:
             print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
-            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
+            print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', 'Citations_Per_Year', sort_col]].head(5).to_string(index=False))
 
             os.makedirs(results_dir, exist_ok=True)
             out_file = os.path.join(results_dir, f"{file_prefix}_Top_Network_Articles.csv")

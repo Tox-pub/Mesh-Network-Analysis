@@ -122,8 +122,15 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
         if 'pub_date' not in columns:
             raise RuntimeError("CRITICAL ERROR: 'pub_date' column is missing from the Master Database. You MUST run Step 0 again to rebuild the database with the new 4-column schema before proceeding.")
 
-        # Count total articles in range for progress bar
-        print(f"  Scanning 30-million record database for temporal matches...")
+        # Global corpus size for Information Content (IC): the FULL master DB,
+        # independent of the analysis window, so IC measures a term's specificity
+        # across all of the literature rather than within the chosen date range.
+        print(f"  Scanning 30-million record database...")
+        m_cursor.execute("SELECT count(*) FROM master_mesh_annotations")
+        N_global = float(m_cursor.fetchone()[0])
+
+        # In-window count drives the ARS pass (which articles get scored / form
+        # each term's P_i) and the zero-check.
         m_cursor.execute("SELECT count(*) FROM master_mesh_annotations WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
         total_articles_in_range = m_cursor.fetchone()[0]
 
@@ -132,17 +139,19 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             master_conn.close()
             return
 
-        print(f"  Found {total_articles_in_range:,} articles matching date constraints. Commencing semantic scoring...")
-
-        m_cursor.execute("SELECT pmid, mesh_terms FROM master_mesh_annotations WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
+        print(f"  Found {total_articles_in_range:,} articles in window; scanning the full {int(N_global):,}-article corpus for global term specificity...")
 
         aggregator_1 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
         aggregator_2 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
+        global_term_freq = defaultdict(int)
         article_scores_data = []
 
-        # Iterate via fetchmany to control RAM
+        # Single full-corpus pass: accumulate each seed term's GLOBAL document
+        # frequency (G_t, for IC) over every article, and run ARS scoring only on
+        # the in-window articles (which form each term's P_i for CF and mean ARS).
+        m_cursor.execute("SELECT pmid, pub_date, mesh_terms FROM master_mesh_annotations")
         chunk_size = 100000
-        pbar = tqdm(total=total_articles_in_range, desc="Scoring Articles")
+        pbar = tqdm(total=int(N_global), desc="Scanning corpus")
 
         while True:
             rows = m_cursor.fetchmany(chunk_size)
@@ -150,7 +159,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 break
 
             for row in rows:
-                pmid, mesh_terms_str = row
+                pmid, pub_date, mesh_terms_str = row
                 if not mesh_terms_str:
                     continue
 
@@ -158,6 +167,14 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 matching_seeds = article_terms.intersection(seed_terms)
 
                 if not matching_seeds:
+                    continue
+
+                # GLOBAL term frequency (all dates) -> G_t for the IC denominator.
+                for term in matching_seeds:
+                    global_term_freq[term] += 1
+
+                # ARS scoring only for in-window articles.
+                if not (start_iso <= pub_date <= end_iso):
                     continue
 
                 score_1, score_2 = 0.0, 0.0
@@ -177,7 +194,8 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                     'pmid': pmid,
                     f'score_{weight_key_1}': score_1,
                     f'score_{weight_key_2}': score_2,
-                    'contributing_seeds': ';'.join(sorted(list(matching_seeds)))
+                    'contributing_seeds': ';'.join(sorted(list(matching_seeds))),
+                    'pub_date': pub_date
                 })
 
             pbar.update(len(rows))
@@ -209,19 +227,19 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 
 # Calculate final Contextual Relevance Scores (CRS) with Harmonic Mean & Max-Scaling
     print("\n<<< Calculating CRS (Harmonic Mean Penalty & Max-Scaling)... >>>")
-    N_global = float(total_articles_in_range)
 
     raw_node_weights_1 = {}
     for term, data in aggregator_1.items():
         if data['count'] > 0:
             mean_ars = data['sum'] / data['count']
-            cf_vol = np.log10(data['count'] + 1)
-            # Pure IC penalty (no smoothing)
-            ic_spec = -np.log10(data['count'] / N_global)
-            
+            cf_vol = np.log10(data['count'] + 1)                 # CF: in-window evidence volume |P_i|
+            g_t = global_term_freq.get(term, data['count'])      # G_t: global document frequency
+            ic_spec = -np.log10(g_t / N_global)                  # IC: specificity across the whole corpus
+
             # Harmonic Mean of Confidence Factor and Information Content
-            harmonic_multiplier = (2 * cf_vol * ic_spec) / (cf_vol + ic_spec)
-            
+            denom = cf_vol + ic_spec
+            harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
+
             raw_node_weights_1[term] = mean_ars * harmonic_multiplier
 
     raw_node_weights_2 = {}
@@ -229,10 +247,12 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
         if data['count'] > 0:
             mean_ars = data['sum'] / data['count']
             cf_vol = np.log10(data['count'] + 1)
-            ic_spec = -np.log10(data['count'] / N_global)
-            
-            harmonic_multiplier = (2 * cf_vol * ic_spec) / (cf_vol + ic_spec)
-            
+            g_t = global_term_freq.get(term, data['count'])
+            ic_spec = -np.log10(g_t / N_global)
+
+            denom = cf_vol + ic_spec
+            harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
+
             raw_node_weights_2[term] = mean_ars * harmonic_multiplier
 
     # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---

@@ -486,7 +486,8 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "E.g., 1.0e-6 for strict precision, or 1.0e-4 for faster processing."
             )
             params['analysis_parameters']['context_start_date'] = _prompt_override(
-                "Context Start Date", b4_preview["Context Start Date"], str
+                "Context Start Date", b4_preview["Context Start Date"], str,
+                "Scopes which articles are relevance-scored (ARS). Term specificity (IC) is always computed across the full corpus, independent of this window."
             )
             params['analysis_parameters']['context_end_date'] = _prompt_override(
                 "Context End Date", b4_preview["Context End Date"], str
