@@ -14,7 +14,6 @@ JPEG/TIFF and interactive figures as self-contained HTML.
 """
 
 import os
-import sys
 import json
 import warnings
 import numpy as np
@@ -39,13 +38,14 @@ from contextlib import redirect_stdout
 # Relative imports from our package
 from .stats import calculate_graph_stats
 
-# Optional Node2Vec dependency (used only for the dendrogram figure). node2vec
-# pins numpy<2 (no wheel on Python 3.13+) and imports pkg_resources, which
-# setuptools removed in v81 - so it needs Python 3.11/3.12 and setuptools<81.
-# Capture the failure reason so the dendrogram step can explain a skip instead of
-# silently omitting the figure.
+# Node2Vec embedding for the dendrogram figure. We use a vendored, dependency-light
+# implementation (node2vec_embedding) instead of the `node2vec` package, so the
+# pipeline carries none of that package's import constraints - its edges.py imports
+# pkg_resources (removed in setuptools 81). The vendored module needs only gensim,
+# networkx and numpy, and works with modern versions of each. Capture any failure
+# so the dendrogram step can explain a skip instead of silently omitting the figure.
 try:
-    from node2vec import Node2Vec
+    from .node2vec_embedding import Node2Vec
     _NODE2VEC_IMPORT_ERROR = None
 except Exception as e:
     Node2Vec = None
@@ -583,17 +583,13 @@ def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_pr
     """Ward dendrogram of Node2Vec embeddings, with leaf labels coloured by AOP level (warns clearly if node2vec is unavailable)."""
     if Node2Vec is None:
         print("\n<<< Node2Vec Dendrogram >>>")
-        print("  [!] SKIPPED - the 'node2vec' library could not be loaded, so this figure")
+        print("  [!] SKIPPED - the embedding backend could not be loaded, so this figure")
         print("      was not generated. Every other figure is unaffected.")
         print(f"      Reason: {type(_NODE2VEC_IMPORT_ERROR).__name__}: {_NODE2VEC_IMPORT_ERROR}")
-        if sys.version_info >= (3, 13):
-            print("      -> Python 3.13+ is not supported by node2vec (it pins numpy<2.0,")
-            print("         which has no 3.13 wheel). Use Python 3.11 or 3.12 for this figure.")
-        elif 'pkg_resources' in str(_NODE2VEC_IMPORT_ERROR):
-            print("      -> setuptools 81+ removed pkg_resources, which node2vec imports.")
-            print('         Fix:  python -m pip install "setuptools<81"')
+        if 'gensim' in str(_NODE2VEC_IMPORT_ERROR).lower():
+            print("      -> This figure needs gensim.  Fix:  python -m pip install gensim")
         else:
-            print("      -> Install it with:  python -m pip install node2vec")
+            print("      -> Ensure gensim, networkx and numpy are installed and importable.")
         return
     print("\n<<< Generating Node2Vec Dendrogram >>>")
     try:
