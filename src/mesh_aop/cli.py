@@ -539,7 +539,8 @@ def main():
             plot_sankey_alluvial(G, node_df, str(config.figures_dir), config.prefix)
             plot_dumbell_plot(node_df, str(config.figures_dir), config.prefix)
             plot_scatter_panels(node_df, str(config.figures_dir), config.prefix)
-            plot_dendrogram(G, node_df, str(config.figures_dir), config.prefix)
+            plot_dendrogram(G, node_df, str(config.figures_dir), config.prefix,
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
         if args.step == 'benchmark':

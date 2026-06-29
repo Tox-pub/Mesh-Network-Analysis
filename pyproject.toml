@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesh_aop_network"
-version = "1.0.0"
+version = "2.1.0"
 description = "Pipeline for MeSH term AOP network generation and analysis"
 # Python 3.13+ is excluded: node2vec requires numpy<2.0, and numpy<2.0 has no
 # prebuilt wheel for cp313, so installs try (and fail) to compile numpy from

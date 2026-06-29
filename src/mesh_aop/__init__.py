@@ -16,7 +16,7 @@ This module re-exports the primary function of each stage as a flat, importable
 API so the pipeline can be driven programmatically as well as from the CLI.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # --- 1. Configuration ---
 from .config_parser import MeshConfig

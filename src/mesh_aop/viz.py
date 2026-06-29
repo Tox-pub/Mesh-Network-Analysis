@@ -15,6 +15,7 @@ JPEG/TIFF and interactive figures as self-contained HTML.
 
 import os
 import json
+import hashlib
 import warnings
 import numpy as np
 import pandas as pd
@@ -579,8 +580,19 @@ def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str
     finally:
         plt.close('all')
 
-def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Ward dendrogram of Node2Vec embeddings, with leaf labels coloured by AOP level (warns clearly if node2vec is unavailable)."""
+def _reproducible_hash(value):
+    """Deterministic word hash so Word2Vec initialization is reproducible regardless
+    of PYTHONHASHSEED (Python's built-in str hash is randomized per process)."""
+    return int(hashlib.md5(str(value).encode('utf-8')).hexdigest(), 16)
+
+
+def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str, random_seed: int = None):
+    """Ward dendrogram of Node2Vec embeddings, with leaf labels coloured by AOP level (warns clearly if node2vec is unavailable).
+
+    When `random_seed` is provided the embedding is fully reproducible run-to-run:
+    the biased walks are seeded, gensim trains single-threaded, and a deterministic
+    word-hash removes the PYTHONHASHSEED dependence. Without a seed it stays
+    stochastic (as the original library was)."""
     if Node2Vec is None:
         print("\n<<< Node2Vec Dendrogram >>>")
         print("  [!] SKIPPED - the embedding backend could not be loaded, so this figure")
@@ -593,8 +605,13 @@ def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_pr
         return
     print("\n<<< Generating Node2Vec Dendrogram >>>")
     try:
-        n2v = Node2Vec(G, dimensions=64, walk_length=30, num_walks=200, workers=4, quiet=True)
-        model = n2v.fit(window=10, min_count=1)
+        # workers=1 + seed + deterministic hashfxn make the embedding reproducible
+        # (gensim training is non-deterministic across workers / hash seeds).
+        n2v = Node2Vec(G, dimensions=64, walk_length=30, num_walks=200, workers=1, quiet=True, seed=random_seed)
+        w2v_params = {'window': 10, 'min_count': 1}
+        if random_seed is not None:
+            w2v_params.update(seed=random_seed, hashfxn=_reproducible_hash)
+        model = n2v.fit(**w2v_params)
         labels = model.wv.index_to_key
         vectors = model.wv.vectors
         Z = linkage(vectors, method='ward', metric='euclidean')
