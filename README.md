@@ -68,12 +68,12 @@ Mesh-Network-Analysis-Main-Library/
 
 The NLM has officially discontinued the MeSH ASCII format as of 2026. This pipeline now utilizes the computational gold-standard **MeSH XML format**.
 
-* **Download:** Navigate to the NLM MeSH Data Distribution Page and download `desc2025.xml` (or the most current yearly release).
+* **Download:** Navigate to the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/) and download `desc2025.xml` (or the most current yearly release).
 * **Placement:** Place this file directly into your `data/raw/` directory.
 
 ### 2. Internet Connectivity Requirement
 
-**Active internet connectivity is strictly required for the first execution.** The pipeline must connect to the NCBI FTP servers to download the full PubMed Baseline (thousands of `.xml.gz` files) and compile the ~30-million record local master database. Subsequent analytical runs can be performed completely offline.
+**Active internet connectivity is strictly required for the first execution.** The pipeline must connect to the NCBI FTP servers to download the full PubMed Baseline (thousands of `.xml.gz` files) and compile the ~30-million record local master database. Subsequent analytical runs can be performed completely offline. These baseline and daily-update archives are the official NLM/NCBI annual PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
 
 ---
 
@@ -225,7 +225,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 ### 3. NCBI Credentials
 
-* **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, increasing Step 2 processing time exponentially.
+* **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, increasing Step 2 processing time exponentially. Sign in or create a free account at the [NCBI/NLM account portal](https://account.ncbi.nlm.nih.gov/) to obtain a key (found under *Account Settings → API Key Management*).
 
 ### 4. Search Parameters
 
@@ -314,7 +314,7 @@ To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Diction
 1. **Enable Pausing:** In the Wizard, ensure `Pause for Annotation` is set to `True`.
 2. **Run the Pipeline:** Let the pipeline run. It will execute Steps 0 through 3 (Network Construction), output AOP-independent figures (like distributions and convergence trajectories), and then pause.
 3. **Open the Run Template:** Navigate to the `results/` directory and open your run-specific template: `[PREFIX]_run_annotations.csv`.
-4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata:
+4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata. *(Unsure how to categorize a term? Look up its official scope note and hierarchy in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/) — the official MeSH description is the best guide for determining the correct AOP stratum.)*
 * `Stressor` - External stimuli that initiate a biological reaction (e.g., `UV Rays`, `Chemicals`)
 * `Molecular` - Gene, protein, or receptor level events (e.g., `Receptors, Antigen, T-Cell`)
 * `Cellular` - Cellular level events (e.g., `Chemotaxis`, `Apoptosis`)
