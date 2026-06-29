@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesh_aop_network"
+version = "2.2.0"
+description = "Pipeline for MeSH term AOP network generation and analysis"
+# Python 3.13+ is excluded: node2vec requires numpy<2.0, and numpy<2.0 has no
+# prebuilt wheel for cp313, so installs try (and fail) to compile numpy from
+# source. Use Python 3.11 or 3.12, where the whole stack installs from wheels.
+requires-python = ">=3.11"
+dependencies = [
+    "adjustText>=0.8",
+    "biopython>=1.85",
+    "kaleido>=1.3.0",
+    "matplotlib>=3.10.0",
+    # The Node2Vec embedding is vendored in node2vec_embedding.py (uses gensim
+    # directly), so the `node2vec` package is not required. Upper caps on numpy and
+    # networkx were lifted in v2.2 (modernization branch); gensim>=4.3.3 is the first
+    # release with official numpy-2 support.
+    "gensim>=4.3.3",
+    "networkx>=2.8.8",
+    "numpy>=1.26",
+    "openpyxl>=3.1.5",
+    "pandas>=2.2.2",
+    "plotly>=6.1.1",
+    "pymarc>=5.2.3",
+    "python-louvain>=0.16",
+    "requests>=2.32.4",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.16.3",
+    "seaborn>=0.13.2",
+    "statsmodels>=0.14.6",
+    "tqdm>=4.67.1"
+]
+
+[project.scripts]
+mesh-check-env = "mesh_aop.check_env:main"
+mesh-pipeline = "mesh_aop.cli:main"
