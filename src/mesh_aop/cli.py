@@ -509,9 +509,12 @@ def main():
 
         if args.step == 'all':
             if config.params.get('control_flags', {}).get('pause_for_annotation', False):
-                print(f"\n[!] Pipeline paused. AOP level pipeline functions not completed.")
-                print(f"    Annotations for MeSH terms in LCC need to checked and edited manually for new runs")
-                print(f"    Annotate {os.path.basename(run_anno_path)} and then run mesh-pipeline --step viz")
+                print(f"\n[!] Pipeline paused - AOP-level steps are not yet complete.")
+                print(f"    The MeSH terms in the LCC need an AOP level assigned manually before visualization.")
+                print(f"    1. Open and edit this file (set the AOP level for each term):")
+                print(f"         {os.path.abspath(run_anno_path)}")
+                print(f"    2. Then resume the pipeline with:")
+                print(f"         python -m mesh_aop.cli --step viz")
                 sys.exit(0)
             else:
                 print(f"AFK Override Active. Proceeding to visualization with 'Unassigned' AOP levels...")

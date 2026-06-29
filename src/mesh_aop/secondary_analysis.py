@@ -213,7 +213,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
         df = _fetch_metadata_and_filter(pmid_dicts, exclude_reviews, limit, entrez_email, entrez_api_key, sort_metric)
 
         if not df.empty:
-            print(f"  Top {len(df)} results (Ranked by {sort_metric} AIS):")
+            print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
             print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
 
@@ -274,7 +274,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
         df = _fetch_metadata_and_filter(pmid_dicts, exclude_reviews, limit, entrez_email, entrez_api_key, sort_metric)
 
         if not df.empty:
-            print(f"  Top {len(df)} results (Ranked by {sort_metric} AIS):")
+            print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
             print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
 
@@ -331,12 +331,11 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
         raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None)) for pmid in clean_pmids]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
-        print(f"  -> Scored {len(pmid_dicts)} overall candidates. Hydrating metadata...")
 
         df = _fetch_metadata_and_filter(pmid_dicts, exclude_reviews, limit, entrez_email, entrez_api_key, sort_metric)
 
         if not df.empty:
-            print(f"  Top {len(df)} results (Ranked by {sort_metric} AIS):")
+            print(f"  Top {len(df)} results (Ranked by {sort_metric} Article Impact Score (AIS)):")
             sort_col = 'Linear_AIS' if sort_metric.lower() == 'linear' else 'F1_AIS'
             print(df[['PMID', 'Year', 'Raw_ARS', 'Incoming_Citations', sort_col]].head(5).to_string(index=False))
 
