@@ -166,7 +166,7 @@ def _fetch_metadata_and_filter(pmid_score_dicts: list, exclude_reviews: bool, li
 
 def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
-                           sort_metric: str = 'Linear', linear_weight_ars: float = 0.5):
+                           sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Pulls and scores all articles associated with a specific node."""
     if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
         raise FileNotFoundError("Missing required databases.")
@@ -231,7 +231,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
 
 def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
-                           sort_metric: str = 'Linear', linear_weight_ars: float = 0.5):
+                           sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Pulls and scores all articles associated with a specific EDGE (relationship)."""
     if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
         raise FileNotFoundError("Missing required databases.")
@@ -293,7 +293,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
 
 def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str, limit: int,
                              exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
-                             sort_metric: str = 'Linear', linear_weight_ars: float = 0.5):
+                             sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Retrieves and scores articles across the entire refined network."""
     if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
         raise FileNotFoundError("Missing required databases.")

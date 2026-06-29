@@ -597,7 +597,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         if step == 'all':
             b7_preview = {
                 "Export Limit": sec_params.get('export_limit', 500),
-                "Sort Metric": sec_params.get('sort_metric', 'Linear'),
+                "Sort Metric": sec_params.get('sort_metric', 'F1'),
                 "Linear ARS Weight": sec_params.get('linear_weight_ars', 0.5),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),
                 "Exclude Review Articles": sec_params.get('exclude_reviews', True)
@@ -630,7 +630,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         elif step == 'secondary':
             b7_preview = {
                 "Export Limit": sec_params.get('export_limit', 500),
-                "Sort Metric": sec_params.get('sort_metric', 'Linear'),
+                "Sort Metric": sec_params.get('sort_metric', 'F1'),
                 "Linear ARS Weight": sec_params.get('linear_weight_ars', 0.5),
                 "Exclude Review Articles": sec_params.get('exclude_reviews', True),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),

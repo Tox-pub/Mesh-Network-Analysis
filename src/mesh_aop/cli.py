@@ -468,7 +468,7 @@ def main():
 
             # --- DUAL-ENGINE METRIC PARAMETERS ---
             export_limit = sec_params.get('export_limit', 500)
-            sort_metric = sec_params.get('sort_metric', 'Linear')
+            sort_metric = sec_params.get('sort_metric', 'F1')
             linear_weight_ars = sec_params.get('linear_weight_ars', 0.5)
 
             if sec_params.get('export_top_articles', True):
