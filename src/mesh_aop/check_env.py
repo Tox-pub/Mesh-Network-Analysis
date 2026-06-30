@@ -45,20 +45,24 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
 
     # 1. CHECK PYTHON VERSION
     current_py = sys.version_info
-    if current_py >= (3, 13):
-        print(f"[!] WARNING: Python {sys.version.split()[0]} is NOT supported by this pipeline.")
-        print("    A core dependency (node2vec) requires numpy<2.0, and numpy<2.0 has NO")
-        print("    prebuilt wheel for Python 3.13+. Installation will try to COMPILE numpy")
-        print("    from source and fail unless a C/C++ compiler (MSVC) is installed.")
-        print("    >>> Fix: install Python 3.11 or 3.12 and rebuild the virtual environment.")
+    # The pipeline is validated on Python 3.11-3.13. node2vec is no longer a
+    # dependency (its embedding is vendored), so 3.13 is fully supported. Newer
+    # Python may work but is untested - newer interpreters and library wheels can
+    # introduce compilation failures or dependency conflicts.
+    if current_py[:2] > (3, 13):
+        print(f"[!] NOTE: Python {sys.version.split()[0]} is newer than the latest version this")
+        print("    pipeline has been validated against (Python 3.13). It will likely work, but")
+        print("    running beyond the tested versions can cause compilation issues or dependency")
+        print("    conflicts. Newer Python and libraries may be used, but with caution - pin or")
+        print("    downgrade if you hit problems.")
         if not auto_install:
             try:
-                input("    Press Enter to attempt anyway (likely to fail), or Ctrl+C to exit...")
+                input("    Press Enter to continue anyway, or Ctrl+C to exit...")
             except KeyboardInterrupt:
                 print("\n\n[!] Exiting: Environment check cancelled by user.")
                 return False
     elif current_py < (3, 11):
-        print(f"[!] WARNING: Python {sys.version.split()[0]} is too old; Python 3.11 or 3.12 is required.")
+        print(f"[!] WARNING: Python {sys.version.split()[0]} is too old; Python 3.11-3.13 is required.")
         if not auto_install:
             try:
                 input("    Press Enter to attempt to continue, or Ctrl+C to exit...")
