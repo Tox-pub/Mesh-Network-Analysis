@@ -68,7 +68,8 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                                      weight_key_2: str, final_key_2: str,
                                      start_date_param: str, end_date_param: str,
                                      entrez_email: str = "", entrez_api_key: str = "",
-                                     calculate_full_centrality: bool = True):
+                                     calculate_full_centrality: bool = True,
+                                     weight_key_3: str = None, final_key_3: str = None):
     """
     Calculates contextual relevance by querying the local Master Database
     over the specific time constraints, completely bypassing API limits.
@@ -79,6 +80,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
     print(f"\n<<< Loading Seed Terms from {os.path.basename(input_nodes_file)} >>>")
     seed_weights_1, total_weight_1, seed_terms = {}, 0, set()
     seed_weights_2, total_weight_2 = {}, 0
+    seed_weights_3, total_weight_3 = {}, 0
 
     try:
         with open(input_nodes_file, 'r') as f:
@@ -86,6 +88,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
         for node in nodes:
             data = node.get('data', {})
             term, weight_1, weight_2 = data.get(id_key), data.get(weight_key_1), data.get(weight_key_2)
+            weight_3 = data.get(weight_key_3) if weight_key_3 else None
             if term:
                 seed_terms.add(term)
                 if isinstance(weight_1, (int, float)):
@@ -94,6 +97,9 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 if isinstance(weight_2, (int, float)):
                     seed_weights_2[term] = float(weight_2)
                     total_weight_2 += float(weight_2)
+                if isinstance(weight_3, (int, float)):
+                    seed_weights_3[term] = float(weight_3)
+                    total_weight_3 += float(weight_3)
         print(f"Loaded {len(seed_terms)} unique seed terms for relevance scoring.")
     except Exception as e:
         raise RuntimeError(f"ERROR loading seed terms: {e}")
@@ -143,6 +149,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 
         aggregator_1 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
         aggregator_2 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
+        aggregator_3 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
         global_term_freq = defaultdict(int)
         article_scores_data = []
 
@@ -177,7 +184,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 if not (start_iso <= pub_date <= end_iso):
                     continue
 
-                score_1, score_2 = 0.0, 0.0
+                score_1, score_2, score_3 = 0.0, 0.0, 0.0
                 if total_weight_1 > 0:
                     score_1 = sum(seed_weights_1.get(term, 0) for term in matching_seeds) / total_weight_1
                     for term in matching_seeds:
@@ -190,13 +197,22 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                         aggregator_2[term]['sum'] += score_2
                         aggregator_2[term]['count'] += 1
 
-                article_scores_data.append({
+                if total_weight_3 > 0:
+                    score_3 = sum(seed_weights_3.get(term, 0) for term in matching_seeds) / total_weight_3
+                    for term in matching_seeds:
+                        aggregator_3[term]['sum'] += score_3
+                        aggregator_3[term]['count'] += 1
+
+                article_row = {
                     'pmid': pmid,
                     f'score_{weight_key_1}': score_1,
                     f'score_{weight_key_2}': score_2,
                     'contributing_seeds': ';'.join(sorted(list(matching_seeds))),
                     'pub_date': pub_date
-                })
+                }
+                if weight_key_3:
+                    article_row[f'score_{weight_key_3}'] = score_3
+                article_scores_data.append(article_row)
 
             pbar.update(len(rows))
 
@@ -255,6 +271,20 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 
             raw_node_weights_2[term] = mean_ars * harmonic_multiplier
 
+    # Optional third weighting (e.g. PageRank). Same CF/IC multiplier - only the
+    # mean-ARS weighting differs.
+    raw_node_weights_3 = {}
+    if weight_key_3:
+        for term, data in aggregator_3.items():
+            if data['count'] > 0:
+                mean_ars = data['sum'] / data['count']
+                cf_vol = np.log10(data['count'] + 1)
+                g_t = global_term_freq.get(term, data['count'])
+                ic_spec = -np.log10(g_t / N_global)
+                denom = cf_vol + ic_spec
+                harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
+                raw_node_weights_3[term] = mean_ars * harmonic_multiplier
+
     # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---
     final_node_weights_1 = {}
     max_crs_1 = max(raw_node_weights_1.values()) if raw_node_weights_1 else 1.0
@@ -266,6 +296,11 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
     for term, val in raw_node_weights_2.items():
         final_node_weights_2[term] = val / max_crs_2
 
+    final_node_weights_3 = {}
+    max_crs_3 = max(raw_node_weights_3.values()) if raw_node_weights_3 else 1.0
+    for term, val in raw_node_weights_3.items():
+        final_node_weights_3[term] = val / max_crs_3
+
     print("\n<<< Generating Final Output JSON File >>>")
     try:
         with open(input_nodes_file, 'r') as f:
@@ -275,6 +310,8 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             term = node.get('data', {}).get(id_key)
             node['data'][final_key_1] = final_node_weights_1.get(term, 0.0)
             node['data'][final_key_2] = final_node_weights_2.get(term, 0.0)
+            if final_key_3:
+                node['data'][final_key_3] = final_node_weights_3.get(term, 0.0)
 
         os.makedirs(os.path.dirname(output_nodes_file), exist_ok=True)
         with open(output_nodes_file, 'w') as f:

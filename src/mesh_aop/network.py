@@ -448,6 +448,12 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
                     G_analysis_conn, weight=None, max_iter=safe_max_iter, tol=safe_tol
                 )
 
+            # PageRank: a discriminating "connectedness" centrality (unlike eigenvector,
+            # which saturates on dense components). Used as a CRS weighting alongside
+            # betweenness. Deterministic given the graph.
+            print("  Calculating PageRank Centrality...")
+            pagerank_centrality = nx.pagerank(G_analysis_conn, alpha=0.85, weight=None)
+
             if run_full_centrality:
                 print("  Calculating EXACT Betweenness Centrality (This may take a while)...")
                 betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight=None)
@@ -459,7 +465,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
                 edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=_ListSampleRandom(random_seed))
 
         else:
-            degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map = {}, {}, {}, {}, {}, {}
+            degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map, pagerank_centrality = {}, {}, {}, {}, {}, {}, {}
 
     except MemoryError:
         raise RuntimeError("Memory Limit Exceeded during centrality calculations. Consider reducing generations.")
@@ -468,6 +474,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
         data['degree'] = degree_dict.get(node_id, 0)
         data['betweenness_centrality'] = betweenness_centrality.get(node_id, 0.0)
         data['eigenvector_centrality'] = eigenvector_centrality.get(node_id, 0.0)
+        data['pagerank_centrality'] = pagerank_centrality.get(node_id, 0.0)
         data['clustering_coefficient'] = clustering_coefficient.get(node_id, 0.0)
         data['unfiltered_louvain_community_id'] = partition_map.get(node_id, -1)
 
@@ -491,6 +498,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
             'adjusted_node_weight': float(data.get('adjusted_node_weight', 0.0)), 'degree': int(data.get('degree', 0)),
             'betweenness_centrality': float(data.get('betweenness_centrality', 0.0)),
             'eigenvector_centrality': float(data.get('eigenvector_centrality', 0.0)),
+            'pagerank_centrality': float(data.get('pagerank_centrality', 0.0)),
             'clustering_coefficient': float(data.get('clustering_coefficient', 0.0)),
             'unfiltered_louvain_community_id': int(data.get('unfiltered_louvain_community_id', -1))
         }

@@ -109,7 +109,7 @@ def load_and_prepare_data(json_path: str, annotation_path: str):
         'id': 'mesh_term',
         'adjusted_node_weight': 'ARS',
         'CRS_betweenness_centrality': 'CRS_betweenness',
-        'CRS_eigenvector_centrality': 'CRS_eigenvector'
+        'CRS_pagerank_centrality': 'CRS_pagerank'
     }, inplace=True)
     node_df.set_index('mesh_term', inplace=True)
 
@@ -338,10 +338,10 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
         plt.close('all')
 
 def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 4: joint scatter + marginal histograms of betweenness vs eigenvector CRS."""
+    """Figure 4: joint scatter + marginal histograms of betweenness vs PageRank CRS."""
     print("\n<<< Generating Figure 4: CRS Correlation Joint Plot >>>")
     try:
-        plot_df = node_df[(node_df['CRS_betweenness'] > 0) & (node_df['CRS_eigenvector'] > 0)].copy()
+        plot_df = node_df[(node_df['CRS_betweenness'] > 0) & (node_df['CRS_pagerank'] > 0)].copy()
 
         if plot_df.empty:
             print("[!] Error: No strictly positive CRS values available.")
@@ -359,7 +359,7 @@ def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
         ax_histx.tick_params(axis="x", which="both", bottom=True, labelbottom=False)
         ax_histy.tick_params(axis="y", which="both", left=True, labelleft=False)
 
-        sns.scatterplot(data=plot_df, x='CRS_betweenness', y='CRS_eigenvector', hue='aop_level', style='aop_level', markers=MARKERS_LIST, palette='magma_r', hue_order=AOP_ORDER, s=60, alpha=0.7, ax=ax_scat)
+        sns.scatterplot(data=plot_df, x='CRS_betweenness', y='CRS_pagerank', hue='aop_level', style='aop_level', markers=MARKERS_LIST, palette='magma_r', hue_order=AOP_ORDER, s=60, alpha=0.7, ax=ax_scat)
         
         ax_scat.grid(True, which="both", ls="--", alpha=0.5)
         ax_histx.grid(True, axis="x", which="both", ls="--", alpha=0.5)
@@ -367,13 +367,13 @@ def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
 
         ax_scat.legend(title=r"$\bf{AOP\ Level}$", bbox_to_anchor=(1.02, 1), loc='lower left')
         ax_scat.set_xlabel('CRS (Betweenness)', fontsize=12)
-        ax_scat.set_ylabel('CRS (Eigenvector)', fontsize=12)
+        ax_scat.set_ylabel('CRS (PageRank)', fontsize=12)
 
         sns.histplot(data=plot_df, x='CRS_betweenness', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histx, log_scale=True, bins=15)
-        sns.histplot(data=plot_df, y='CRS_eigenvector', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histy, log_scale=True, bins=15)
+        sns.histplot(data=plot_df, y='CRS_pagerank', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histy, log_scale=True, bins=15)
 
-        top = pd.concat([plot_df.nlargest(5, 'CRS_betweenness'), plot_df.nlargest(5, 'CRS_eigenvector')]).drop_duplicates()
-        texts = [ax_scat.text(row['CRS_betweenness'], row['CRS_eigenvector'], idx, fontsize=9) for idx, row in top.iterrows()]
+        top = pd.concat([plot_df.nlargest(5, 'CRS_betweenness'), plot_df.nlargest(5, 'CRS_pagerank')]).drop_duplicates()
+        texts = [ax_scat.text(row['CRS_betweenness'], row['CRS_pagerank'], idx, fontsize=9) for idx, row in top.iterrows()]
 
         with redirect_stdout(io.StringIO()):
             adjust_text(texts, ax=ax_scat, arrowprops=dict(arrowstyle="-", color='black', lw=0.5))
@@ -510,18 +510,18 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
         print(f"[!] Error generating Figure 6 (Alluvial Flow): {e}")
 
 def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 7: dumbbell plot of the nodes with the largest shift between betweenness and eigenvector CRS."""
+    """Figure 7: dumbbell plot of the nodes with the largest shift between betweenness and PageRank CRS."""
     print("\n<<< Figure 7: Dumbbell Plot >>>")
     try:
         df_plot = node_df.copy()
-        df_plot['diff'] = (df_plot['CRS_betweenness'] - df_plot['CRS_eigenvector']).abs()
+        df_plot['diff'] = (df_plot['CRS_betweenness'] - df_plot['CRS_pagerank']).abs()
         top_diff = df_plot.nlargest(20, 'diff').sort_values('CRS_betweenness')
 
         plt.figure(figsize=(10, 8))
-        plt.hlines(y=top_diff.index, xmin=top_diff['CRS_betweenness'], xmax=top_diff['CRS_eigenvector'], color='gray', alpha=0.5, linewidth=1.5, zorder=1)
+        plt.hlines(y=top_diff.index, xmin=top_diff['CRS_betweenness'], xmax=top_diff['CRS_pagerank'], color='gray', alpha=0.5, linewidth=1.5, zorder=1)
         colors = ["#2C3E50", "#B0B0B0"]
         plt.scatter(top_diff['CRS_betweenness'], top_diff.index, color=colors[0], s=100, zorder=2, label='Betweenness')
-        plt.scatter(top_diff['CRS_eigenvector'], top_diff.index, color=colors[1], s=100, zorder=2, label='Eigenvector')
+        plt.scatter(top_diff['CRS_pagerank'], top_diff.index, color=colors[1], s=100, zorder=2, label='PageRank')
 
         ax = plt.gca()
         for lbl in ax.get_yticklabels():
@@ -535,7 +535,7 @@ def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
                  [mpatches.Patch(color=c, label=l) for l, c in AOP_COLOR_MAP.items()] +
                  [mpatches.Patch(color='none', label="")] +
                  [mpatches.Patch(color='none', label=r"$\bf{Method}$")] +
-                 [mpatches.Patch(color=colors[0], label='Betweenness'), mpatches.Patch(color=colors[1], label='Eigenvector')])
+                 [mpatches.Patch(color=colors[0], label='Betweenness'), mpatches.Patch(color=colors[1], label='PageRank')])
 
         plt.legend(handles=leg_h, loc='lower right', bbox_to_anchor=(1.0, 0.0))
         plt.xlabel("Contextual Relevance Score (CRS)")
@@ -564,17 +564,18 @@ def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str
         print(f"    Saved: {os.path.basename(out_b)}")
         plt.close()
 
-        print("  - Generating Panel D: Raw Eigenvector vs CRS (Eigenvector)...")
-        plot_df_e = node_df[(node_df['eigenvector_centrality'] > 0) & (node_df['CRS_eigenvector'] > 0)]
-        g_e = sns.lmplot(data=plot_df_e, x='eigenvector_centrality', y='CRS_eigenvector', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
-        ax_e = g_e.ax
-        ax_e.set_xscale('log'); ax_e.set_yscale('log')
-        ax_e.set_xlabel('Raw Eigenvector Centrality (Log Scale)', fontsize=12)
-        ax_e.set_ylabel('CRS (Eigenvector) (Log Scale)', fontsize=12)
-        ax_e.grid(True, which="both", ls="--", alpha=0.5)
-        out_e = os.path.join(output_dir, f"{file_prefix}_Panel_D_Scatter_Eigenvector.tif")
-        plt.savefig(out_e, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
-        print(f"    Saved: {os.path.basename(out_e)}")
+        print("  - Generating Panel D: Raw PageRank vs CRS (PageRank)...")
+        plot_df_p = node_df[(node_df['pagerank_centrality'] > 0) & (node_df['CRS_pagerank'] > 0)]
+        g_p = sns.lmplot(data=plot_df_p, x='pagerank_centrality', y='CRS_pagerank', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
+        ax_p = g_p.ax
+        ax_p.set_xscale('log'); ax_p.set_yscale('log')
+        ax_p.set_xlabel('Raw PageRank Centrality (Log Scale)', fontsize=12)
+        ax_p.set_ylabel('CRS (PageRank) (Log Scale)', fontsize=12)
+        ax_p.grid(True, which="both", ls="--", alpha=0.5)
+        out_p = os.path.join(output_dir, f"{file_prefix}_Panel_D_Scatter_PageRank.tif")
+        plt.savefig(out_p, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
+        print(f"    Saved: {os.path.basename(out_p)}")
+        plt.close()
     except Exception as e:
         print(f"[!] Error generating Figure 8 (Scatter Panels): {e}")
     finally:
@@ -698,7 +699,7 @@ def plot_crs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: 
     print("\n<<< Generating Figure: CRS Ubiquity Bias Evaluation >>>")
     try:
         # Map to the renamed columns in load_and_prepare_data
-        crs_cols = ["CRS_eigenvector", "CRS_betweenness"]
+        crs_cols = ["CRS_pagerank", "CRS_betweenness"]
         count_col = "article_count"
 
         missing_cols = [col for col in [count_col] + crs_cols if col not in node_df.columns]

@@ -427,7 +427,7 @@ def load_relevance_scores(db_path: str,
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         df = pd.read_sql_query(
-            f"SELECT pmid, score_betweenness_centrality, score_eigenvector_centrality, "
+            f"SELECT pmid, score_betweenness_centrality, score_pagerank_centrality, "
             f"contributing_seeds FROM {table}",
             conn,
         )
@@ -535,7 +535,7 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     # <<< 5.3 Ranking metrics per scorer, with CIs and null >>>
     scorer_cols = {
         "betweenness": "score_betweenness_centrality",
-        "eigenvector": "score_eigenvector_centrality",
+        "pagerank": "score_pagerank_centrality",
         "n_seeds (baseline)": "n_seeds",
     }
     labels = scores_df["y_true"].to_numpy()

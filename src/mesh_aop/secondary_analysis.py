@@ -50,7 +50,7 @@ def _fetch_relevance_rows(conn, clause, params):
     """
     cols = [r[1] for r in conn.execute("PRAGMA table_info(article_relevance_scores)").fetchall()]
     has_pubdate = 'pub_date' in cols
-    select_cols = "pmid, score_betweenness_centrality, contributing_seeds" + (", pub_date" if has_pubdate else "")
+    select_cols = "pmid, score_pagerank_centrality, contributing_seeds" + (", pub_date" if has_pubdate else "")
     rows = conn.execute(f"SELECT {select_cols} FROM article_relevance_scores {clause}", params).fetchall()
 
     out = []
@@ -339,7 +339,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
 
     try:
         conn_rel = _open_readonly_resilient(db_path)
-        rel_rows = _fetch_relevance_rows(conn_rel, "ORDER BY score_betweenness_centrality DESC LIMIT 50000", ())
+        rel_rows = _fetch_relevance_rows(conn_rel, "ORDER BY score_pagerank_centrality DESC LIMIT 50000", ())
         conn_rel.close()
 
         if not rel_rows:

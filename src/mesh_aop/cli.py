@@ -419,7 +419,7 @@ def main():
                     relevance_db_path=config.files['relevance_db'],
                     id_key='id',
                     weight_key_1="betweenness_centrality", final_key_1="CRS_betweenness_centrality",
-                    weight_key_2="eigenvector_centrality", final_key_2="CRS_eigenvector_centrality",
+                    weight_key_2="pagerank_centrality", final_key_2="CRS_pagerank_centrality",
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
                     entrez_email=config.get('credentials', 'entrez_email'),
