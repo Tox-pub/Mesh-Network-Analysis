@@ -118,11 +118,13 @@ def _load_network(final_network_path: str, weight_key: str):
 # correlates better" in isolation but "does the transformation add anything the
 # centrality did not already carry" - hence the paired baseline.
 _WEIGHT_CANDIDATES = [
-    ("CRS_pagerank_centrality", "pagerank_centrality"),
     ("CRS_betweenness_centrality", "betweenness_centrality"),
+    ("CRS_pagerank_centrality", "pagerank_centrality"),
+    ("CRS_betweenness_subgraph_centrality", "betweenness_subgraph_centrality"),
     ("CRS_pagerank_subgraph_centrality", "pagerank_subgraph_centrality"),
-    ("pagerank_centrality", None),
     ("betweenness_centrality", None),
+    ("pagerank_centrality", None),
+    ("betweenness_subgraph_centrality", None),
     ("pagerank_subgraph_centrality", None),
     ("eigenvector_centrality", None),
     ("adjusted_node_weight", None),
