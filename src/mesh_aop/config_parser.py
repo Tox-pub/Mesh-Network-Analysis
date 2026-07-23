@@ -180,9 +180,20 @@ class MeshConfig:
             "mesh_stopwords_py": self.root / "src" / "mesh_aop" / "mesh_stop_words.py"
         }
 
+    # Credentials are read from the environment when the config leaves them blank, so
+    # a working setup never requires writing a secret into a tracked file. The config
+    # still wins if it is populated, which keeps existing local setups working.
+    _CREDENTIAL_ENV = {
+        "entrez_email": "MESH_ENTREZ_EMAIL",
+        "entrez_api_key": "MESH_ENTREZ_API_KEY",
+    }
+
     def get(self, section: str, key: str):
         """Utility to safely retrieve a parameter."""
-        return self.params.get(section, {}).get(key)
+        value = self.params.get(section, {}).get(key)
+        if section == "credentials" and not value:
+            return os.environ.get(self._CREDENTIAL_ENV.get(key, ""), "") or value
+        return value
 
     def update(self, section: str, key: str, value):
         """Updates a parameter in memory."""
