@@ -421,6 +421,50 @@ def bootstrap_ci(scores: np.ndarray, labels: np.ndarray, metric_fn, n_boot: int,
     }
 
 
+def bootstrap_ci_multi(scores: np.ndarray, labels: np.ndarray, metric_fns: dict,
+                       n_boot: int, rng: np.random.Generator, ci: float = 0.95) -> dict:
+    """Percentile bootstrap CIs for several metrics off a SHARED set of resamples.
+
+    Resampling the pool and re-sorting it dominates the cost (the sort is O(n log n)
+    on the full candidate pool), so each replicate is sorted once and every metric is
+    read off that same sorted copy. Computing the statistics in separate passes
+    repeated the sort per statistic for no statistical gain: sharing replicates
+    leaves each metric's marginal percentile interval unchanged.
+
+    `metric_fns` maps a name to a callable taking (sorted_labels, total_positives).
+    """
+    n = len(labels)
+    vals = {name: [] for name in metric_fns}
+
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n)
+        s, l = scores[idx], labels[idx]
+        total_pos = int(l.sum())
+        sl = _sorted_labels(s, l, rng)          # the expensive step - once per replicate
+        for name, fn in metric_fns.items():
+            try:
+                v = fn(sl, total_pos)
+            except Exception:
+                v = float("nan")
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                vals[name].append(v)
+
+    lo_q = (1 - ci) / 2 * 100
+    hi_q = (1 + ci) / 2 * 100
+    out = {}
+    for name, v in vals.items():
+        if not v:
+            out[name] = {"point": float("nan"), "lo": float("nan"), "hi": float("nan")}
+        else:
+            out[name] = {
+                "point": float(np.mean(v)),
+                "lo": float(np.percentile(v, lo_q)),
+                "hi": float(np.percentile(v, hi_q)),
+                "n_boot": len(v),
+            }
+    return out
+
+
 def permutation_null(labels: np.ndarray, metric_on_ranked, n_perm: int,
                      rng: np.random.Generator, observed: float) -> dict:
     """Random-ranking null for a metric (shuffled labels), reporting the observed value's lift and p."""
@@ -604,17 +648,22 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
         )
 
         # Named helpers (rather than inline lambdas) for the resampling metrics.
-        def _map_of(s, l):
-            return average_precision(_sorted_labels(s, l, rng), int(l.sum()))
+        # Both statistics are read off one shared set of bootstrap replicates: the
+        # per-replicate sort of the full pool is the dominant cost, so drawing
+        # separate replicate sets for MAP and EF doubled the work for no gain.
+        def _map_stat(sorted_labels, total_pos):
+            return average_precision(sorted_labels, total_pos)
 
-        def _ef1_of(s, l):
-            return enrichment_factor(_sorted_labels(s, l, rng), 0.01, int(l.sum()))
+        def _ef1_stat(sorted_labels, total_pos):
+            return enrichment_factor(sorted_labels, 0.01, total_pos)
 
         def _map_ranked(l):
             return average_precision(l, int(l.sum()))
 
-        ci_map = bootstrap_ci(scores, labels, _map_of, n_boot, rng)
-        ci_ef = bootstrap_ci(scores, labels, _ef1_of, n_boot, rng)
+        cis = bootstrap_ci_multi(
+            scores, labels, {"MAP": _map_stat, "EF": _ef1_stat}, n_boot, rng
+        )
+        ci_map, ci_ef = cis["MAP"], cis["EF"]
         null_map = permutation_null(labels, _map_ranked, n_perm, rng, observed=suite["MAP"])
 
         suite["MAP_ci95"] = [ci_map["lo"], ci_map["hi"]]
