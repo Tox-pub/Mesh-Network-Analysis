@@ -618,12 +618,13 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     print("\nConsensus filtering and LCC extraction complete.")
 
 def run_community_detection(network_file_path: str, random_seed: int,
-                            compute_subgraph_pagerank: bool = False):
+                            compute_subgraph_centrality: bool = False):
     """Runs Louvain, re-orders community IDs by size, and saves back to JSON.
 
-    Optionally also records PageRank computed on this filtered subgraph (see the
-    self-contained block below), which is scored separately from the whole-corpus
-    PageRank carried over from network construction.
+    Optionally also records betweenness and PageRank computed on this filtered
+    subgraph (see the self-contained block below). These are scored separately from
+    the whole-corpus centralities carried over from network construction, so that
+    centrality *scope* can be compared against centrality *type*.
     """
     print(f"Loading network for community detection from: {network_file_path}")
 
@@ -672,20 +673,29 @@ def run_community_detection(network_file_path: str, random_seed: int,
             else:
                 node_obj['data']['filtered_louvain_community_id'] = -1
 
-        # <<< OPTIONAL: subgraph PageRank (experimental, self-contained) >>>
-        # 'pagerank_centrality' is computed during network construction on the FULL
-        # co-occurrence graph, alongside betweenness. Computed here instead on the
-        # filtered consensus subgraph, PageRank measures a term's importance within
-        # the curated concept space rather than within the whole corpus - a
-        # different quantity, so it is scored as its own metric rather than
-        # replacing the existing one. To remove the feature, delete this block and
-        # the compute_subgraph_pagerank argument threaded in from cli.py.
-        if compute_subgraph_pagerank:
-            print("Calculating PageRank on the filtered consensus subgraph...")
+        # <<< OPTIONAL: subgraph centralities (self-contained) >>>
+        # The whole-graph centralities recorded during network construction measure
+        # importance within the entire corpus, where generic high-degree MeSH terms
+        # dominate. Recomputed here on the filtered consensus subgraph, the same
+        # algorithms measure importance within the curated concept space instead.
+        # Both are kept so that centrality SCOPE and centrality TYPE can be varied
+        # independently rather than confounded. To remove the feature, delete this
+        # block and the compute_subgraph_centrality argument threaded in from cli.py.
+        if compute_subgraph_centrality:
+            print("Calculating centrality on the filtered consensus subgraph...")
             subgraph_pagerank = nx.pagerank(G, alpha=0.85, weight=None)
+            # The subgraph is small (hundreds of nodes), so betweenness is computed
+            # EXACTLY here - unlike the whole-graph pass, which samples k sources.
+            subgraph_betweenness = nx.betweenness_centrality(
+                G, k=None, normalized=True, weight=None
+            )
             for node_obj in nodes_json:
+                nid = node_obj['data']['id']
                 node_obj['data']['pagerank_subgraph_centrality'] = float(
-                    subgraph_pagerank.get(node_obj['data']['id'], 0.0)
+                    subgraph_pagerank.get(nid, 0.0)
+                )
+                node_obj['data']['betweenness_subgraph_centrality'] = float(
+                    subgraph_betweenness.get(nid, 0.0)
                 )
 
     final_data = {"elements": {"nodes": nodes_json, "edges": edges_json}}

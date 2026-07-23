@@ -64,45 +64,63 @@ def _extract_base_terms(mesh_str: str) -> set:
 
 def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: str,
                                      master_db_path: str, relevance_db_path: str,
-                                     id_key: str, weight_key_1: str, final_key_1: str,
-                                     weight_key_2: str, final_key_2: str,
+                                     id_key: str,
                                      start_date_param: str, end_date_param: str,
+                                     weightings: list = None,
+                                     weight_key_1: str = None, final_key_1: str = None,
+                                     weight_key_2: str = None, final_key_2: str = None,
+                                     weight_key_3: str = None, final_key_3: str = None,
                                      entrez_email: str = "", entrez_api_key: str = "",
-                                     calculate_full_centrality: bool = True,
-                                     weight_key_3: str = None, final_key_3: str = None):
+                                     calculate_full_centrality: bool = True):
     """
     Calculates contextual relevance by querying the local Master Database
     over the specific time constraints, completely bypassing API limits.
+
+    `weightings` is a list of (node_attribute, output_attribute) pairs, one per node
+    weighting to score. Each produces a per-article `score_<node_attribute>` column
+    and a per-node `<output_attribute>` CRS value, so any number of weightings can be
+    compared from a single pass over the corpus - the corpus scan dominates the cost,
+    so adding a weighting is far cheaper than re-running. The legacy
+    weight_key_1/2/3 arguments are folded into this list when it is not supplied.
     """
+    if weightings is None:
+        weightings = [(w, f) for w, f in ((weight_key_1, final_key_1),
+                                          (weight_key_2, final_key_2),
+                                          (weight_key_3, final_key_3)) if w and f]
+    if not weightings:
+        raise ValueError("No node weightings supplied to relevance scoring.")
+
     if not calculate_full_centrality:
         print("\n[!] NOTICE: Betweenness centrality was estimated from a sampled subset of nodes "
               "rather than computed exactly. Eigenvector and PageRank centrality are unaffected, "
               "and CRS still reflects topological relevance.\n")
 
     print(f"\n<<< Loading Seed Terms from {os.path.basename(input_nodes_file)} >>>")
-    seed_weights_1, total_weight_1, seed_terms = {}, 0, set()
-    seed_weights_2, total_weight_2 = {}, 0
-    seed_weights_3, total_weight_3 = {}, 0
+    n_w = len(weightings)
+    seed_weights = [dict() for _ in range(n_w)]
+    total_weight = [0.0] * n_w
+    seed_terms = set()
 
     try:
         with open(input_nodes_file, 'r') as f:
             nodes = json.load(f).get('elements', {}).get('nodes', [])
         for node in nodes:
             data = node.get('data', {})
-            term, weight_1, weight_2 = data.get(id_key), data.get(weight_key_1), data.get(weight_key_2)
-            weight_3 = data.get(weight_key_3) if weight_key_3 else None
-            if term:
-                seed_terms.add(term)
-                if isinstance(weight_1, (int, float)):
-                    seed_weights_1[term] = float(weight_1)
-                    total_weight_1 += float(weight_1)
-                if isinstance(weight_2, (int, float)):
-                    seed_weights_2[term] = float(weight_2)
-                    total_weight_2 += float(weight_2)
-                if isinstance(weight_3, (int, float)):
-                    seed_weights_3[term] = float(weight_3)
-                    total_weight_3 += float(weight_3)
+            term = data.get(id_key)
+            if not term:
+                continue
+            seed_terms.add(term)
+            for i, (w_key, _) in enumerate(weightings):
+                w = data.get(w_key)
+                if isinstance(w, (int, float)):
+                    seed_weights[i][term] = float(w)
+                    total_weight[i] += float(w)
         print(f"Loaded {len(seed_terms)} unique seed terms for relevance scoring.")
+        print(f"  Weightings ({n_w}): " + ", ".join(w for w, _ in weightings))
+        for i, (w_key, _) in enumerate(weightings):
+            if total_weight[i] <= 0:
+                print(f"  [!] WARNING: '{w_key}' is absent or zero on every node; "
+                      f"its scores will be 0.")
     except Exception as e:
         raise RuntimeError(f"ERROR loading seed terms: {e}")
 
@@ -149,9 +167,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 
         print(f"  Found {total_articles_in_range:,} articles in window; scanning the full {int(N_global):,}-article corpus for global term specificity...")
 
-        aggregator_1 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
-        aggregator_2 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
-        aggregator_3 = defaultdict(lambda: {'sum': 0.0, 'count': 0})
+        aggregators = [defaultdict(lambda: {'sum': 0.0, 'count': 0}) for _ in range(n_w)]
         global_term_freq = defaultdict(int)
         article_scores_data = []
 
@@ -186,34 +202,20 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 if not (start_iso <= pub_date <= end_iso):
                     continue
 
-                score_1, score_2, score_3 = 0.0, 0.0, 0.0
-                if total_weight_1 > 0:
-                    score_1 = sum(seed_weights_1.get(term, 0) for term in matching_seeds) / total_weight_1
-                    for term in matching_seeds:
-                        aggregator_1[term]['sum'] += score_1
-                        aggregator_1[term]['count'] += 1
+                article_row = {'pmid': pmid}
+                for i, (w_key, _) in enumerate(weightings):
+                    score = 0.0
+                    if total_weight[i] > 0:
+                        score = sum(seed_weights[i].get(term, 0)
+                                    for term in matching_seeds) / total_weight[i]
+                        agg = aggregators[i]
+                        for term in matching_seeds:
+                            agg[term]['sum'] += score
+                            agg[term]['count'] += 1
+                    article_row[f'score_{w_key}'] = score
 
-                if total_weight_2 > 0:
-                    score_2 = sum(seed_weights_2.get(term, 0) for term in matching_seeds) / total_weight_2
-                    for term in matching_seeds:
-                        aggregator_2[term]['sum'] += score_2
-                        aggregator_2[term]['count'] += 1
-
-                if total_weight_3 > 0:
-                    score_3 = sum(seed_weights_3.get(term, 0) for term in matching_seeds) / total_weight_3
-                    for term in matching_seeds:
-                        aggregator_3[term]['sum'] += score_3
-                        aggregator_3[term]['count'] += 1
-
-                article_row = {
-                    'pmid': pmid,
-                    f'score_{weight_key_1}': score_1,
-                    f'score_{weight_key_2}': score_2,
-                    'contributing_seeds': ';'.join(sorted(list(matching_seeds))),
-                    'pub_date': pub_date
-                }
-                if weight_key_3:
-                    article_row[f'score_{weight_key_3}'] = score_3
+                article_row['contributing_seeds'] = ';'.join(sorted(list(matching_seeds)))
+                article_row['pub_date'] = pub_date
                 article_scores_data.append(article_row)
 
             pbar.update(len(rows))
@@ -233,7 +235,11 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             scores_df.to_sql('article_relevance_scores', conn, if_exists='replace', index=False)
             cursor = conn.cursor()
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_pmid ON article_relevance_scores (pmid)")
-            cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_score1 ON article_relevance_scores ('score_{weight_key_1}')")
+            for i, (w_key, _) in enumerate(weightings, start=1):
+                cursor.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_score{i} "
+                    f"ON article_relevance_scores ('score_{w_key}')"
+                )
             conn.commit()
             conn.close()
             _keep_on_device(relevance_db_path)
@@ -246,62 +252,30 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 # Calculate final Contextual Relevance Scores (CRS) with Harmonic Mean & Max-Scaling
     print("\n<<< Calculating CRS (Harmonic Mean Penalty & Max-Scaling)... >>>")
 
-    raw_node_weights_1 = {}
-    for term, data in aggregator_1.items():
-        if data['count'] > 0:
-            mean_ars = data['sum'] / data['count']
-            cf_vol = np.log10(data['count'] + 1)                 # CF: in-window evidence volume |P_i|
-            g_t = global_term_freq.get(term, data['count'])      # G_t: global document frequency
-            ic_spec = -np.log10(g_t / N_global)                  # IC: specificity across the whole corpus
-
-            # Harmonic Mean of Confidence Factor and Information Content
-            denom = cf_vol + ic_spec
-            harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
-
-            raw_node_weights_1[term] = mean_ars * harmonic_multiplier
-
-    raw_node_weights_2 = {}
-    for term, data in aggregator_2.items():
-        if data['count'] > 0:
-            mean_ars = data['sum'] / data['count']
-            cf_vol = np.log10(data['count'] + 1)
-            g_t = global_term_freq.get(term, data['count'])
-            ic_spec = -np.log10(g_t / N_global)
-
-            denom = cf_vol + ic_spec
-            harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
-
-            raw_node_weights_2[term] = mean_ars * harmonic_multiplier
-
-    # Optional third weighting (e.g. PageRank). Same CF/IC multiplier - only the
-    # mean-ARS weighting differs.
-    raw_node_weights_3 = {}
-    if weight_key_3:
-        for term, data in aggregator_3.items():
+    # CF (in-window evidence volume) and IC (global specificity) depend only on the
+    # term, not on the weighting, so the harmonic multiplier is identical across
+    # weightings and only the mean ARS differs.
+    final_node_weights = []
+    for i, (w_key, _) in enumerate(weightings):
+        raw_node_weights = {}
+        for term, data in aggregators[i].items():
             if data['count'] > 0:
                 mean_ars = data['sum'] / data['count']
-                cf_vol = np.log10(data['count'] + 1)
-                g_t = global_term_freq.get(term, data['count'])
-                ic_spec = -np.log10(g_t / N_global)
+                cf_vol = np.log10(data['count'] + 1)             # CF: in-window evidence volume |P_i|
+                g_t = global_term_freq.get(term, data['count'])  # G_t: global document frequency
+                ic_spec = -np.log10(g_t / N_global)              # IC: specificity across the whole corpus
+
+                # Harmonic Mean of Confidence Factor and Information Content
                 denom = cf_vol + ic_spec
                 harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
-                raw_node_weights_3[term] = mean_ars * harmonic_multiplier
 
-    # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---
-    final_node_weights_1 = {}
-    max_crs_1 = max(raw_node_weights_1.values()) if raw_node_weights_1 else 1.0
-    for term, val in raw_node_weights_1.items():
-        final_node_weights_1[term] = val / max_crs_1
+                raw_node_weights[term] = mean_ars * harmonic_multiplier
 
-    final_node_weights_2 = {}
-    max_crs_2 = max(raw_node_weights_2.values()) if raw_node_weights_2 else 1.0
-    for term, val in raw_node_weights_2.items():
-        final_node_weights_2[term] = val / max_crs_2
-
-    final_node_weights_3 = {}
-    max_crs_3 = max(raw_node_weights_3.values()) if raw_node_weights_3 else 1.0
-    for term, val in raw_node_weights_3.items():
-        final_node_weights_3[term] = val / max_crs_3
+        # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---
+        max_crs = max(raw_node_weights.values()) if raw_node_weights else 1.0
+        final_node_weights.append(
+            {term: val / max_crs for term, val in raw_node_weights.items()} if max_crs else {}
+        )
 
     print("\n<<< Generating Final Output JSON File >>>")
     try:
@@ -310,10 +284,8 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
 
         for node in network_data.get('elements', {}).get('nodes', []):
             term = node.get('data', {}).get(id_key)
-            node['data'][final_key_1] = final_node_weights_1.get(term, 0.0)
-            node['data'][final_key_2] = final_node_weights_2.get(term, 0.0)
-            if final_key_3:
-                node['data'][final_key_3] = final_node_weights_3.get(term, 0.0)
+            for i, (_, f_key) in enumerate(weightings):
+                node['data'][f_key] = final_node_weights[i].get(term, 0.0)
 
         os.makedirs(os.path.dirname(output_nodes_file), exist_ok=True)
         with open(output_nodes_file, 'w') as f:

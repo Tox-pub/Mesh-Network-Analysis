@@ -414,9 +414,12 @@ def main():
                         if nodes:
                             data0 = nodes[0].get('data', {})
                             has_communities = data0.get('filtered_louvain_community_id') is not None
-                            # Re-run when the subgraph PageRank is wanted but absent,
-                            # otherwise a cached network would silently skip it.
-                            needs_sub_pr = include_sub_pr and data0.get('pagerank_subgraph_centrality') is None
+                            # Re-run when subgraph centralities are wanted but absent,
+                            # otherwise a cached network would silently skip them.
+                            needs_sub_pr = include_sub_pr and (
+                                data0.get('pagerank_subgraph_centrality') is None
+                                or data0.get('betweenness_subgraph_centrality') is None
+                            )
                             if has_communities and not needs_sub_pr:
                                 run_step_6 = False
                 except Exception:
@@ -426,7 +429,7 @@ def main():
                 run_community_detection(
                     network_file_path=config.files['consensus_lcc'],
                     random_seed=config.get('analysis_parameters', 'random_seed'),
-                    compute_subgraph_pagerank=include_sub_pr
+                    compute_subgraph_centrality=include_sub_pr
                 )
 
             if not os.path.exists(config.files['final_network']):
@@ -436,12 +439,17 @@ def main():
                     master_db_path=config.files['master_db'],
                     relevance_db_path=config.files['relevance_db'],
                     id_key='id',
-                    weight_key_1="betweenness_centrality", final_key_1="CRS_betweenness_centrality",
-                    weight_key_2="pagerank_centrality", final_key_2="CRS_pagerank_centrality",
-                    # Optional third weighting; omitted entirely when disabled, so no
-                    # score_pagerank_subgraph_centrality column is written.
-                    weight_key_3=("pagerank_subgraph_centrality" if include_sub_pr else None),
-                    final_key_3=("CRS_pagerank_subgraph_centrality" if include_sub_pr else None),
+                    # Whole-graph centralities always; the subgraph pair as well when
+                    # enabled, so centrality SCOPE and TYPE form a full 2x2 rather
+                    # than varying scope for only one algorithm. The corpus scan
+                    # dominates the runtime, so extra weightings are nearly free.
+                    weightings=(
+                        [("betweenness_centrality", "CRS_betweenness_centrality"),
+                         ("pagerank_centrality", "CRS_pagerank_centrality")]
+                        + ([("betweenness_subgraph_centrality", "CRS_betweenness_subgraph_centrality"),
+                            ("pagerank_subgraph_centrality", "CRS_pagerank_subgraph_centrality")]
+                           if include_sub_pr else [])
+                    ),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
                     entrez_email=config.get('credentials', 'entrez_email'),

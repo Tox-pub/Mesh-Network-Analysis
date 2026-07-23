@@ -58,11 +58,14 @@ def _open_readonly_resilient(db_path):
 
 # Filenames recognized as a ground-truth drop-in, searched in order within the
 # active raw directory (data/raw, or data/reference_raw when using reference data).
-# Optional extra scorer: ARS weighted by PageRank recomputed on the filtered
-# consensus subgraph instead of the full co-occurrence graph. Only present when
-# relevance ran with benchmark.run_ground_truth_analysis enabled; everything that
-# touches it degrades gracefully when the column is absent.
-OPTIONAL_SUBGRAPH_PR_COL = "score_pagerank_subgraph_centrality"
+def scorer_label(score_col: str) -> str:
+    """Human-readable scorer name for a `score_<node attribute>` column."""
+    name = score_col[len("score_"):]
+    if name.endswith("_centrality"):
+        name = name[: -len("_centrality")]
+    if name.endswith("_subgraph"):
+        return f"{name[: -len('_subgraph')]} (subgraph)"
+    return name
 
 KNOWN_GT_FILENAMES = (
     "ground_truth_pmids.csv",
@@ -509,13 +512,14 @@ def load_relevance_scores(db_path: str,
 
     conn = _open_readonly_resilient(db_path)
     try:
-        # The subgraph-PageRank score is optional: it only exists when relevance was
-        # run with that weighting enabled, so select it only if the column is there.
-        present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-        cols = ["pmid", "score_betweenness_centrality", "score_pagerank_centrality",
-                "contributing_seeds"]
-        if OPTIONAL_SUBGRAPH_PR_COL in present:
-            cols.insert(3, OPTIONAL_SUBGRAPH_PR_COL)
+        # Relevance writes one score_<attribute> column per node weighting it was
+        # given, so discover them rather than hard-coding a list: the benchmark then
+        # scores whatever weightings were actually computed.
+        present = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        score_cols = [c for c in present if c.startswith("score_")]
+        if not score_cols:
+            raise ValueError(f"No score_* columns found in {table}; re-run relevance scoring.")
+        cols = ["pmid"] + score_cols + ["contributing_seeds"]
         df = pd.read_sql_query(f"SELECT {', '.join(cols)} FROM {table}", conn)
     finally:
         conn.close()
@@ -624,14 +628,12 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     }
 
     # <<< 5.3 Ranking metrics per scorer, with CIs and null >>>
-    scorer_cols = {
-        "betweenness": "score_betweenness_centrality",
-        "pagerank": "score_pagerank_centrality",
-    }
-    # Scored head-to-head against whole-corpus PageRank under identical conditions
-    # when available; simply absent otherwise.
-    if OPTIONAL_SUBGRAPH_PR_COL in scores_df.columns:
-        scorer_cols["pagerank (subgraph)"] = OPTIONAL_SUBGRAPH_PR_COL
+    # One scorer per weighting relevance produced, in the order it wrote them, then
+    # the structural control. n_seeds is a uniform weight of 1 per node, so it does
+    # not depend on which graph a centrality was computed from and is the single
+    # scope-invariant baseline for all of them.
+    scorer_cols = {scorer_label(c): c
+                   for c in scores_df.columns if c.startswith("score_")}
     scorer_cols["n_seeds (baseline)"] = "n_seeds"
     labels = scores_df["y_true"].to_numpy()
 
