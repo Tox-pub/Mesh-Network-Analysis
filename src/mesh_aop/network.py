@@ -679,7 +679,7 @@ def run_community_detection(network_file_path: str, random_seed: int,
         # the curated concept space rather than within the whole corpus - a
         # different quantity, so it is scored as its own metric rather than
         # replacing the existing one. To remove the feature, delete this block and
-        # the benchmark.include_subgraph_pagerank flag that gates it.
+        # the compute_subgraph_pagerank argument threaded in from cli.py.
         if compute_subgraph_pagerank:
             print("Calculating PageRank on the filtered consensus subgraph...")
             subgraph_pagerank = nx.pagerank(G, alpha=0.85, weight=None)

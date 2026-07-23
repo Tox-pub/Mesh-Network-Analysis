@@ -60,7 +60,7 @@ def _open_readonly_resilient(db_path):
 # active raw directory (data/raw, or data/reference_raw when using reference data).
 # Optional extra scorer: ARS weighted by PageRank recomputed on the filtered
 # consensus subgraph instead of the full co-occurrence graph. Only present when
-# relevance ran with benchmark.include_subgraph_pagerank enabled; everything that
+# relevance ran with benchmark.run_ground_truth_analysis enabled; everything that
 # touches it degrades gracefully when the column is absent.
 OPTIONAL_SUBGRAPH_PR_COL = "score_pagerank_subgraph_centrality"
 

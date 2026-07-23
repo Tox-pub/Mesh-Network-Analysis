@@ -396,11 +396,15 @@ def main():
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42
                 )
 
-            # Experimental extra scorer: PageRank recomputed on the filtered
-            # consensus subgraph rather than the full co-occurrence graph.
-            include_sub_pr = bool(
-                config.params.get('benchmark', {}).get('include_subgraph_pagerank', False)
-            )
+            # The subgraph PageRank exists purely to be scored against the
+            # whole-corpus one, so it is driven by the ground-truth analysis switch
+            # rather than a toggle of its own. It has to be decided here, at the
+            # network stage, because it changes which centralities get computed.
+            _bench = config.params.get('benchmark', {})
+            include_sub_pr = bool(_bench.get(
+                'run_ground_truth_analysis',
+                bool(config.get('control_flags', 'use_reference_data'))
+            ))
 
             run_step_6 = True
             if os.path.exists(config.files['consensus_lcc']):

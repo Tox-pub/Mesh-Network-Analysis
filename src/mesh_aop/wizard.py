@@ -676,19 +676,19 @@ def run_interactive_wizard(config, step: str) -> bool:
         print("\n<<< Benchmark Parameters >>>")
         print(f"  - [Skipped]: Not required for step '{step}'.")
     elif step == 'network':
-        # include_subgraph_pagerank decides which centralities get computed, so it
-        # must be set BEFORE the network step runs - offering it only under
-        # 'benchmark' would be too late to have any effect. The remaining benchmark
-        # parameters are not used by this step and are left alone.
+        # The ground-truth switch also decides whether the subgraph PageRank is
+        # computed, and that has to be known BEFORE this step runs - asking only
+        # under 'benchmark' would be too late. The remaining benchmark parameters
+        # are not used by this step and are left alone.
         bench_params = params['benchmark']
+        _use_ref_n = bool(params.get('control_flags', {}).get('use_reference_data', False))
         b8n_preview = {
-            "Include Subgraph PageRank": bench_params.get('include_subgraph_pagerank', False)
+            "Run Ground-Truth Analysis": bench_params.get('run_ground_truth_analysis', _use_ref_n)
         }
         if _ask_block("Benchmark Parameters (network-stage option)", b8n_preview):
-            bench_params['include_subgraph_pagerank'] = _prompt_override(
-                "Also compute PageRank on the filtered subgraph?",
-                b8n_preview["Include Subgraph PageRank"], bool,
-                "Adds a fourth benchmark scorer. Must be set before the network step."
+            bench_params['run_ground_truth_analysis'] = _prompt_override(
+                "Run ground-truth analysis?", b8n_preview["Run Ground-Truth Analysis"], bool,
+                "Also adds the subgraph-PageRank centrality scored by the benchmark."
             )
     else:
         bench_params = params['benchmark']
@@ -702,8 +702,7 @@ def run_interactive_wizard(config, step: str) -> bool:
             ),
             "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
             "Bootstrap Resamples": bench_params.get('n_boot', 25),
-            "Permutations": bench_params.get('n_perm', 25),
-            "Include Subgraph PageRank": bench_params.get('include_subgraph_pagerank', False)
+            "Permutations": bench_params.get('n_perm', 25)
         }
         if _ask_block("Ground-Truth Validation & Benchmark Parameters", b8_preview):
             bench_params['run_ground_truth_analysis'] = _prompt_override(
@@ -725,11 +724,6 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             bench_params['n_perm'] = _prompt_override(
                 "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int
-            )
-            bench_params['include_subgraph_pagerank'] = _prompt_override(
-                "Also compute PageRank on the filtered subgraph?",
-                b8_preview["Include Subgraph PageRank"], bool,
-                "Adds a fourth scorer. Takes effect only from the next network run."
             )
 
     print("\n<<< Configuration Update Complete >>>\n")
