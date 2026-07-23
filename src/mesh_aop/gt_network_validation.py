@@ -80,18 +80,19 @@ def _raw_terms(mesh_str: str) -> set:
 
 
 def _load_network(final_network_path: str, weight_key: str):
-    """Load node ids, the chosen node weight, and the edge set from the final network."""
+    """Load node ids, the chosen node weight, all node attributes, and the edge set."""
     with open(final_network_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     nodes = data.get('elements', {}).get('nodes', [])
-    node_ids, weights, extras = set(), {}, {}
+    node_ids, weights, extras, node_attrs = set(), {}, {}, {}
     for n in nodes:
         d = n.get('data', {})
         nid = d.get('id')
         if not nid:
             continue
         node_ids.add(nid)
+        node_attrs[nid] = d
         weights[nid] = float(d.get(weight_key, 0.0) or 0.0)
         extras[nid] = {
             'betweenness_centrality': float(d.get('betweenness_centrality', 0.0) or 0.0),
@@ -105,7 +106,123 @@ def _load_network(final_network_path: str, weight_key: str):
         if s and t:
             G.add_edge(s, t, cooccurrence_count=int(d.get('cooccurrence_count', 0) or 0))
 
-    return node_ids, weights, extras, G
+    return node_ids, weights, extras, G, node_attrs
+
+
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# NODE-WEIGHTING COMPARISON
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# Candidate node weightings, paired with the raw centrality each is derived from.
+# A CRS is a transformation of its centrality, so the question is never "which
+# correlates better" in isolation but "does the transformation add anything the
+# centrality did not already carry" - hence the paired baseline.
+_WEIGHT_CANDIDATES = [
+    ("CRS_pagerank_centrality", "pagerank_centrality"),
+    ("CRS_betweenness_centrality", "betweenness_centrality"),
+    ("CRS_pagerank_subgraph_centrality", "pagerank_subgraph_centrality"),
+    ("pagerank_centrality", None),
+    ("betweenness_centrality", None),
+    ("pagerank_subgraph_centrality", None),
+    ("eigenvector_centrality", None),
+    ("adjusted_node_weight", None),
+]
+
+
+def _auc_present_vs_absent(scores: np.ndarray, present: np.ndarray) -> float:
+    """Probability a ground-truth-attested node outranks an unattested one (Mann-Whitney)."""
+    n_pos = int(present.sum())
+    n_neg = int(len(present) - n_pos)
+    if n_pos == 0 or n_neg == 0:
+        return float('nan')
+    from scipy.stats import rankdata
+    r = rankdata(scores)
+    return float((r[present == 1].sum() - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg))
+
+
+def _partial_spearman(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> float:
+    """Spearman correlation of x and y after linearly removing z, on ranks.
+
+    Answers the incremental question: once the raw centrality (z) is accounted
+    for, does the transformed weight (x) still track ground-truth prominence (y)?
+    """
+    from scipy.stats import rankdata
+    rx, ry, rz = rankdata(x), rankdata(y), rankdata(z)
+    A = np.column_stack([np.ones_like(rz), rz])
+    rx_res = rx - A @ np.linalg.lstsq(A, rx, rcond=None)[0]
+    ry_res = ry - A @ np.linalg.lstsq(A, ry, rcond=None)[0]
+    if rx_res.std() == 0 or ry_res.std() == 0:
+        return float('nan')
+    return float(np.corrcoef(rx_res, ry_res)[0, 1])
+
+
+def _compare_node_weightings(node_attrs: dict, freq: Counter, n_gt: int,
+                             corpus_prev, n_boot: int, seed: int) -> pd.DataFrame:
+    """Score every available node weighting against external ground-truth prominence.
+
+    Three complementary criteria, because no single one is sufficient:
+      * GT frequency  - how often ground-truth articles use the term (shared nodes);
+      * GT enrichment - the same, divided by the corpus base rate, which removes the
+        frequency component CRS partly encodes through CF and so is the stricter test;
+      * AUC           - whether the weighting ranks attested nodes above unattested
+        ones across ALL nodes, using the terms the ground truth never mentions too.
+    Paired weightings additionally get a partial correlation controlling for the raw
+    centrality, and a bootstrap CI on the difference between the two.
+    """
+    rng = np.random.default_rng(seed)
+    ids = sorted(node_attrs)
+    present = np.array([1 if freq.get(t, 0) > 0 else 0 for t in ids])
+    gt_freq = np.array([freq.get(t, 0) for t in ids], dtype=float)
+    enrich = np.array([(freq.get(t, 0) / n_gt) / corpus_prev(t) for t in ids])
+    shared = present == 1
+
+    def col(key):
+        return np.array([float(node_attrs[t].get(key, 0.0) or 0.0) for t in ids])
+
+    rows = []
+    for key, base_key in _WEIGHT_CANDIDATES:
+        if not any(key in node_attrs[t] for t in ids):
+            continue
+        w = col(key)
+        if w.std() == 0:
+            continue
+
+        rho_f = spearmanr(w[shared], gt_freq[shared]).correlation if shared.sum() > 2 else float('nan')
+        rho_e = spearmanr(w[shared], enrich[shared]).correlation if shared.sum() > 2 else float('nan')
+        auc = _auc_present_vs_absent(w, present)
+
+        partial = diff_lo = diff_hi = float('nan')
+        if base_key and any(base_key in node_attrs[t] for t in ids):
+            b = col(base_key)
+            if b.std() > 0:
+                partial = _partial_spearman(w[shared], gt_freq[shared], b[shared])
+                # Paired bootstrap of the correlation difference: the two weightings
+                # are measured on the same nodes, so they must be resampled together.
+                idx_pool = np.flatnonzero(shared)
+                diffs = []
+                for _ in range(n_boot):
+                    s = rng.choice(idx_pool, size=len(idx_pool), replace=True)
+                    if gt_freq[s].std() == 0 or w[s].std() == 0 or b[s].std() == 0:
+                        continue
+                    d = (spearmanr(w[s], gt_freq[s]).correlation
+                         - spearmanr(b[s], gt_freq[s]).correlation)
+                    if d == d:
+                        diffs.append(d)
+                if diffs:
+                    diff_lo, diff_hi = np.percentile(diffs, [2.5, 97.5])
+
+        rows.append({
+            'weighting': key,
+            'vs_raw_centrality': base_key or '',
+            'spearman_gt_freq': round(rho_f, 4) if rho_f == rho_f else None,
+            'spearman_gt_enrichment': round(rho_e, 4) if rho_e == rho_e else None,
+            'auc_attested_vs_not': round(auc, 4) if auc == auc else None,
+            'partial_spearman_given_raw': round(partial, 4) if partial == partial else None,
+            'delta_vs_raw_ci95_lo': round(diff_lo, 4) if diff_lo == diff_lo else None,
+            'delta_vs_raw_ci95_hi': round(diff_hi, 4) if diff_hi == diff_hi else None,
+        })
+
+    return pd.DataFrame(rows)
 
 
 def _sample_background_pool(master_db_path: str, pool_size: int, seed: int) -> list:
@@ -255,6 +372,7 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
                               pool_size: int = 50000,
                               n_perm_nodes: int = 1000,
                               n_perm_edges: int = 500,
+                              n_boot_weighting: int = 2000,
                               random_seed: int = 42,
                               make_figures: bool = True) -> dict:
     """Validate the network's nodes and edges against a curated ground truth."""
@@ -267,7 +385,7 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
     print("<" * 30 + ">" * 30)
 
     # <<< 1. Network >>>
-    node_ids, weights, extras, G = _load_network(final_network_path, weight_key)
+    node_ids, weights, extras, G, node_attrs = _load_network(final_network_path, weight_key)
     net_edges = {frozenset((u, v)) for u, v in G.edges()}
     stopped_nodes = node_ids & MESH_STOP_WORDS
     print(f"  Network ....................... {len(node_ids)} nodes / {len(net_edges)} edges")
@@ -372,6 +490,29 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
     print(f"  Permutation null .............. {edge_null.mean():.1f} +/- {edge_null.std():.1f}"
           f"   z={z_e:.1f}  p={p_e:.4f}")
 
+    # <<< 5b. Which node weighting best tracks ground-truth prominence? >>>
+    # A CRS is derived from its centrality, so the two are collinear and comparing
+    # their raw correlations alone would be misleading. The partial correlation and
+    # the paired bootstrap difference are the parts that actually answer whether the
+    # transformation contributes anything the centrality did not already carry.
+    weight_cmp = _compare_node_weightings(node_attrs, freq, n_gt, corpus_prev,
+                                          n_boot_weighting, random_seed)
+    if len(weight_cmp):
+        print("\n<<< NODE WEIGHTING vs GROUND-TRUTH PROMINENCE >>>")
+        print("  (rho_freq = vs GT article frequency; rho_enrich = base-rate corrected;")
+        print("   AUC = attested vs unattested nodes; partial = controlling for raw centrality)")
+        for _, r in weight_cmp.iterrows():
+            base = f" | vs {r['vs_raw_centrality']}" if r['vs_raw_centrality'] else ""
+            line = (f"  {r['weighting']:<34} rho_freq {str(r['spearman_gt_freq']):>7}"
+                    f"  rho_enrich {str(r['spearman_gt_enrichment']):>7}"
+                    f"  AUC {str(r['auc_attested_vs_not']):>6}")
+            if r['partial_spearman_given_raw'] is not None:
+                line += (f"  partial {r['partial_spearman_given_raw']:+.3f}"
+                         f"  delta95 [{r['delta_vs_raw_ci95_lo']:+.3f}, {r['delta_vs_raw_ci95_hi']:+.3f}]")
+            print(line + base)
+        print("  A delta interval spanning 0 means the transformation is not")
+        print("  distinguishable from the centrality it was built from.")
+
     # <<< 6. Ground-truth co-occurrence network >>>
     gt_nodes = [t for t in eligible if freq[t] >= min_articles_per_node]
     co = Counter()
@@ -445,6 +586,8 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
         gt_terms_df.to_excel(xw, sheet_name='GT_terms', index=False)
         misses_df.to_excel(xw, sheet_name='GT_misses', index=False)
         edges_df.to_excel(xw, sheet_name='network_edge_validation', index=False)
+        if len(weight_cmp):
+            weight_cmp.to_excel(xw, sheet_name='node_weighting_comparison', index=False)
     print(f"\n  [+] Wrote {os.path.basename(xlsx_path)}")
 
     # <<< 8. Cytoscape.js export of the GT co-occurrence network >>>
@@ -527,4 +670,5 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
         'workbook': xlsx_path,
         'cytoscape_json': cy_path,
         'figures': figures,
+        'node_weighting_comparison': weight_cmp.to_dict('records') if len(weight_cmp) else [],
     }

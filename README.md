@@ -452,12 +452,13 @@ Both levels are calibrated against a **permutation null of random article draws 
 * **Node level** — how many network nodes are attested in the ground truth, their enrichment over corpus base rates, and the Spearman correlation between a node's ground-truth prominence and its network weight.
 * **Edge level** — how many of the network's edges reappear as ground-truth co-occurrences.
 * **Misses** — ground-truth-frequent eligible terms that are *not* network nodes, which localize where the network under-covers the domain.
+* **Node-weighting comparison** — scores every available node weighting (each `CRS_*`, each raw centrality, `adjusted_node_weight`) against external ground-truth prominence, to test whether the CRS transformation adds node-importance information **over** the centrality it is built from. Because a CRS is derived from its centrality the two are collinear, so a plain comparison of their correlations is not sufficient; the table therefore reports a **partial correlation controlling for the raw centrality** and a **paired bootstrap CI on the difference**. A difference interval spanning zero means the transformation is not distinguishable from the centrality underneath it. Three criteria are reported side by side: correlation with GT article frequency, correlation with **enrichment** (base-rate corrected, which removes the frequency component CRS partly encodes through CF and is therefore the stricter test), and an AUC for ranking attested nodes above unattested ones across *all* nodes.
 
 It runs *before* the ranking benchmark (it takes minutes rather than tens of minutes), so a long benchmark never blocks the structural result. Disable it with `benchmark.run_network_validation = false`.
 
 **Outputs** (to `results/` and `results/figures/`):
 
-* `*_gt_network_validation.xlsx` — sheets: `summary`, `stopword_audit`, `network_nodes`, `GT_terms`, `GT_misses`, `network_edge_validation`
+* `*_gt_network_validation.xlsx` — sheets: `summary`, `stopword_audit`, `network_nodes`, `GT_terms`, `GT_misses`, `network_edge_validation`, `node_weighting_comparison`
 * `*_gt_cooccurrence_network.json` — the ground-truth co-occurrence graph in **Cytoscape.js** format, every node and edge annotated with its overlap status (`shared` vs `GT_only_miss`, `recovered` vs `GT_only`), enrichment, and counts
 * `*_GT_Node_Validation.png`, `*_GT_Cooccurrence_Network.png`, `*_GT_Permutation_Nulls.png`
 
