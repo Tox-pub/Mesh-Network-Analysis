@@ -666,5 +666,45 @@ def run_interactive_wizard(config, step: str) -> bool:
                     b7_preview["Target Edges"], str
                 )
 
+    # ---------------------------------------------------------
+    # BLOCK 8: Ground-Truth Validation & Benchmarking
+    # ---------------------------------------------------------
+    if 'benchmark' not in params:
+        params['benchmark'] = {}
+
+    if step not in ['all', 'benchmark']:
+        print("\n<<< Benchmark Parameters >>>")
+        print(f"  - [Skipped]: Not required for step '{step}'.")
+    else:
+        bench_params = params['benchmark']
+        b8_preview = {
+            "Ground Truth File": bench_params.get(
+                'ground_truth_csv', 'data/reference_processed/oecd_ground_truth_curated.xlsx'
+            ),
+            "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
+            "Bootstrap Resamples": bench_params.get('n_boot', 100),
+            "Permutations": bench_params.get('n_perm', 100)
+        }
+        if _ask_block("Ground-Truth Validation & Benchmark Parameters", b8_preview):
+            bench_params['ground_truth_csv'] = _prompt_override(
+                "Ground Truth File (.csv/.xlsx; filename or path)",
+                b8_preview["Ground Truth File"], str,
+                "The curated positives retrieval is scored against. Leave as-is for the bundled OECD AOP40 set."
+            )
+            bench_params['primary_node'] = _prompt_override(
+                "Primary Disease Node", b8_preview["Primary Node"], str,
+                "Splits hits into 'under the primary node' vs 'topology-exclusive' (found without it)."
+            )
+            bench_params['n_boot'] = _prompt_override(
+                "Bootstrap Resamples (n_boot)", b8_preview["Bootstrap Resamples"], int,
+                "COST WARNING: every resample re-sorts the ENTIRE article pool (~4 s per iteration on a "
+                "9M-row pool, run twice per scorer for 3 scorers). 50-100 = quick look (~20-40 min); "
+                "200 = solid (~1.3 h); 1000-2000 = publication-grade (~6-13 h)."
+            )
+            bench_params['n_perm'] = _prompt_override(
+                "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int,
+                "Random-ranking null used for the MAP lift/p-value. Cheaper per iteration than n_boot."
+            )
+
     print("\n<<< Configuration Update Complete >>>\n")
     return False

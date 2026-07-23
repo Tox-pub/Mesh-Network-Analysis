@@ -553,7 +553,7 @@ def main():
             # data/reference_raw/ when 'Use Reference Data' is True, and data/raw/
             # when False -- so users supply their own PMID list by dropping a file
             # named e.g. 'ground_truth_pmids.csv' into data/raw/.
-            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt)
+            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt, root=config.root)
             if not gt_path:
                 print("\n" + "<"*30 + ">"*30)
                 print("[CRITICAL ERROR] No ground-truth file found for Benchmarking")
@@ -571,7 +571,7 @@ def main():
                 sys.exit(1)
 
             nc_filename = bench_params.get('negative_control_csv', '')
-            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename) if nc_filename else None
+            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename, root=config.root) if nc_filename else None
 
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db']

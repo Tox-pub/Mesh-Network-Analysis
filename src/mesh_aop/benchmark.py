@@ -24,6 +24,8 @@ import pandas as pd
 
 from sklearn.metrics import roc_auc_score, average_precision_score, ndcg_score
 
+from .baseline_manager import _keep_on_device
+
 # Matplotlib rendering is optional; fall back so a headless display never aborts.
 try:
     import matplotlib
@@ -32,6 +34,22 @@ try:
     _HAS_MPL = True
 except Exception:
     _HAS_MPL = False
+
+
+def _open_readonly_resilient(db_path):
+    """Open a database read-only, resilient to OneDrive dehydration.
+
+    Pins the file and opens read-only; if the read-only view exposes no tables -
+    a dehydrated OneDrive placeholder reads back empty - it reopens with a normal
+    connection, which forces OneDrive to hydrate the real file. No writes are
+    issued, and an already-hydrated file keeps the read-only path unchanged.
+    """
+    _keep_on_device(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=120.0)
+    if conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+        return conn
+    conn.close()
+    return sqlite3.connect(str(db_path), timeout=120.0)
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -91,13 +109,24 @@ def _read_csv_any_encoding(path, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, encoding="utf-8", encoding_errors="replace", **kwargs)
 
 
-def resolve_ground_truth_path(raw_dir, configured_name: str = "") -> str:
-    """Locate a ground-truth file in raw_dir; honors a configured name, else tries the known defaults."""
+def resolve_ground_truth_path(raw_dir, configured_name: str = "", root=None) -> str:
+    """Locate a ground-truth file; honors a configured name, else tries the known defaults.
+
+    A configured name may be a bare filename (looked up in raw_dir), an absolute path,
+    or a path relative to the project root (e.g. 'data/reference_processed/...') when
+    ``root`` is given -- so the curated OECD ground truth can live outside data/raw.
+    """
     raw_dir = Path(raw_dir)
 
     if configured_name:
-        p = raw_dir / configured_name
-        return str(p) if p.exists() else None
+        candidates = [Path(configured_name)]                     # absolute or cwd-relative
+        if root:
+            candidates.append(Path(root) / configured_name)      # project-root relative
+        candidates.append(raw_dir / configured_name)             # bare filename in raw_dir
+        for p in candidates:
+            if p.exists():
+                return str(p)
+        return None
 
     for name in KNOWN_GT_FILENAMES:
         p = raw_dir / name
@@ -108,8 +137,12 @@ def resolve_ground_truth_path(raw_dir, configured_name: str = "") -> str:
 
 
 def _load_gt_dataframe(path: str) -> pd.DataFrame:
-    """Load a ground-truth file in any shape (semicolon CSV, PMID column, single column, or .txt list)."""
+    """Load a ground-truth file in any shape (Excel, semicolon CSV, PMID column, single column, or .txt list)."""
     p = Path(path)
+
+    # Excel workbook (e.g. the curated OECD ground truth): read the first sheet.
+    if p.suffix.lower() in (".xlsx", ".xls"):
+        return pd.read_excel(p, dtype=str)
 
     # Plain text list: one token per line, with an optional non-numeric header.
     if p.suffix.lower() in (".txt", ""):
@@ -424,7 +457,7 @@ def load_relevance_scores(db_path: str,
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"Relevance database not found: {db_path}")
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = _open_readonly_resilient(db_path)
     try:
         df = pd.read_sql_query(
             f"SELECT pmid, score_betweenness_centrality, score_pagerank_centrality, "
@@ -511,6 +544,11 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
         primary_node, na=False, regex=False
     ).astype(int)
 
+    # The seed string is only needed to derive n_seeds and has_primary (both done).
+    # On a ~9M-row pool it is a multi-GB object column, so release it before the
+    # resampling phase allocates its own per-scorer arrays.
+    scores_df.drop(columns=["contributing_seeds"], inplace=True)
+
     in_pool = target & pool_pmids
     naive_pmids = set(scores_df.loc[scores_df["has_primary"] == 1, "pmid"])
     topology_exclusive = in_pool - naive_pmids
@@ -540,9 +578,23 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     }
     labels = scores_df["y_true"].to_numpy()
 
+    n_pool = int(len(labels))
+    n_pos = int(labels.sum())
+    prevalence = (n_pos / n_pool) if n_pool else float("nan")
+
     print("\n<<< 3. RANKING PERFORMANCE ON FULL POOL (primary metrics) >>>")
-    print("  (Recall@K / MAP / EF / BEDROC need only positive positions; "
-          "ROC/PR-AUC are secondary.)")
+    print(f"  Pool {n_pool:,} | positives {n_pos:,} | prevalence {prevalence:.6%}")
+    if prevalence < 1e-3:
+        # Report the imbalance actually measured rather than assuming it: ROC-AUC stays
+        # flattering when negatives outnumber positives this heavily, so the
+        # early-recognition metrics are the ones to read.
+        print("  Extreme class imbalance -> lead with the early-recognition metrics")
+        print("  (Recall@K / MAP / EF / BEDROC): they depend only on WHERE the positives rank.")
+        print("  ROC-AUC can look strong here even when precision is ~0, so ROC/PR-AUC are")
+        print("  reported as SECONDARY. See README -> 'Benchmark metrics' for why.")
+    else:
+        print("  ROC/PR-AUC are informative at this prevalence; the early-recognition")
+        print("  metrics (Recall@K / MAP / EF / BEDROC) remain the primary ranking view.")
 
     report["ranking"] = {}
     for name, col in scorer_cols.items():

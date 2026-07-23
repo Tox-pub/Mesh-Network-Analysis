@@ -84,11 +84,11 @@ class MeshConfig:
                 "sa_cooling_rate": 0.999995
             },
             "benchmark": {
-                "ground_truth_csv": "",
+                "ground_truth_csv": "data/reference_processed/oecd_ground_truth_curated.xlsx",
                 "negative_control_csv": "",
                 "primary_node": "Dermatitis, Allergic Contact",
-                "n_boot": 2000,
-                "n_perm": 2000
+                "n_boot": 100,
+                "n_perm": 100
             }
         }
 

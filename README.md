@@ -298,7 +298,16 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 * **`ground_truth_csv`:** Filename of your ground-truth PMID set inside the active raw directory. Leave **empty** (default) to auto-detect a recognized filename; set it to pin a specific file.
 * **`negative_control_csv`:** Optional filename of an *unrelated* ground-truth set used as a specificity check (it should score near random). Empty disables the control.
 * **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
-* **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations for confidence intervals and the random-ranking null. Defaults `2000` each; lower for speed, raise for tighter intervals.
+* **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations for confidence intervals and the random-ranking null. Default `100` each, chosen to keep the step tractable: **every bootstrap resample re-sorts the entire article pool**, so cost scales with pool size (~4 s per iteration on a ~9 M-row pool, run twice per scorer across three scorers). Approximate total runtime for `--step benchmark`:
+
+  | `n_boot` / `n_perm` | Runtime | Use |
+  | --- | --- | --- |
+  | `50` | ~20 min | fast smoke test |
+  | `100` *(default)* | ~40 min | routine runs |
+  | `200` | ~1.3 h | solid intervals |
+  | `1000`–`2000` | ~6–13 h | publication-grade |
+
+  Raise for tighter intervals, but note the confidence-interval width is ultimately limited by **how many ground-truth positives you have**, not by `n_boot`.
 
 ---
 
@@ -349,7 +358,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
 * **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
 * **Figure 3:** Community Composition bar charts detailing biological strata makeup per cluster.
-* **Figure 4:** CRS Centrality correlations (Betweenness vs Eigenvector).
+* **Figure 4:** CRS Centrality correlations (Betweenness vs PageRank).
 * **Figure 5:** t-SNE projection of the network colored by Louvain community.
 * **Figure 6:** AOP Alluvial/Sankey flows (The primary visualization connecting Stressors to Outcomes). *(Note: Provided as interactive `.html` files for deep pathway inspection).*
 * **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
@@ -365,6 +374,21 @@ The `--step benchmark` module evaluates how well the network's per-article relev
 ```bash
 mesh-pipeline --step benchmark
 ```
+
+### The Bundled OECD Ground Truth
+
+The repository ships a curated positive set derived from the reference bibliography of the **OECD Adverse Outcome Pathway for skin sensitisation (AOP 40)**. It is the default target of `benchmark.ground_truth_csv`.
+
+| File | Location | Contents |
+| --- | --- | --- |
+| `oecd_ground_truth_curated.xlsx` | `data/reference_processed/` | **96 curated positives** — primary research articles with resolved PMIDs |
+| `oecd_ground_truth_exclusions.xlsx` | `data/reference_processed/` | **22 excluded citations**, each with an explicit reason (book chapters, OECD guidance documents, and records that are not indexed primary articles) |
+| `oecd_ground_truth.bib` | `data/reference_processed/` | Typed BibTeX of the parsed citations (`@article`, `@incollection`, `@techreport`, `@misc`) |
+| `oecd_resolved_citations.csv` | `data/reference_raw/` | The raw citation → PMID resolution table the curation was built from |
+
+**How it was built.** Citations were parsed from the OECD reference list, resolved to PMIDs via Entrez `esearch` on author + year + volume + first page (rather than free-text matching, which mis-resolves), and then manually adjudicated. Non-article references and records lacking MeSH indexing were moved to the exclusions file rather than silently dropped, so the **96 + 22 = 118** entries fully account for the source bibliography — the exclusions are auditable, not hidden losses.
+
+**Why the exclusions matter.** Anything without MeSH indexing is unreachable by a MeSH co-occurrence network *by construction*. Keeping those citations in the positive set would depress every metric for a reason unrelated to ranking quality, so they are excluded explicitly and counted separately.
 
 ### Supplying Your Own Ground Truth
 
@@ -386,6 +410,7 @@ Alternatively, pin an explicit filename via the `benchmark.ground_truth_csv` con
 
 **Accepted formats** (auto-detected, with delimiter and encoding sniffing):
 
+* An **`.xlsx` workbook** with a `PMID` column (the format of the bundled curated set).
 * A CSV/TSV with a **`PMID`** column (aliases such as `pmids`, `pubmed_id`, `id` are recognized) and an optional reference/citation column.
 * The bundled `Raw_Reference;PMID` semicolon-delimited format.
 * A **single column of PMIDs**, with or without a header.
