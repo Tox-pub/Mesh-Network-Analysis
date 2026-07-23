@@ -241,8 +241,8 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 ### 5. Analysis Parameters
 
-* **Calculate Full Centrality (Boolean):** If `True` (Default), calculates Eigenvector and Betweenness centralities (using the K-Samples parameter to estimate Betweenness for speed).
-  * **[!] WARNING:** If set to `False`, the pipeline skips this heavy graph math to prevent RAM exhaustion on massive networks. You will receive a "Bare Bones" network based purely on co-occurrence. Advanced downstream metrics, including Article Relevance Scores (ARS) and Contextual Relevance Scores (CRS), **cannot and will not be calculated**.
+* **Calculate Full Centrality (Boolean):** Controls **how betweenness is computed, not whether centrality is computed at all**. If `True`, betweenness is calculated **exactly** over every node pair. If `False` (Default), it is **estimated** from a sample of `betweenness_k_samples` source nodes, which is dramatically faster and bounds memory on large graphs.
+  * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Contextual Relevance Scores (CRS) are produced normally in both modes. The only difference is that betweenness — and therefore the betweenness-weighted ARS/CRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
 * **Betweenness K-Samples:** Heuristic sampling limit for Centrality calculation. Lower values increase speed but reduce precision.
 * **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Contextual Relevance Scoring, allowing the simulation of historical network states.
 * **Random Seed:** Integer seed passed to NetworkX and scikit-learn for reproducible t-SNE projections and community detection. Default: `42`.
@@ -597,11 +597,11 @@ The `mesh-check-env --auto` script detects and resolves this automatically.
 
 Networks with `generations_n >= 2` can load several million records into RAM during centrality calculation. If the process is killed by the OS:
 
-1. Set `calculate_full_centrality: false` in `mesh_config.json` to skip Eigenvector and Betweenness calculations.
+1. Set `calculate_full_centrality: false` in `mesh_config.json` so betweenness is estimated from a node sample rather than computed exactly.
 2. Reduce `betweenness_k_samples` (default `1000`) to lower the heuristic sampling budget.
 3. Reduce `target_num_edges` so GLF/SA operate on a smaller subgraph.
 
-Note that disabling full centrality prevents CRS scores from being calculated (see the Analysis Parameters section above).
+Setting `calculate_full_centrality: false` does **not** disable centrality or prevent CRS from being calculated — eigenvector and PageRank are computed regardless, and only betweenness becomes a sampled estimate (see the Analysis Parameters section above).
 
 ### SQLite Lock Errors on Network-Attached Storage
 
