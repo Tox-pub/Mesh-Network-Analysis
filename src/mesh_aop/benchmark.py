@@ -58,6 +58,12 @@ def _open_readonly_resilient(db_path):
 
 # Filenames recognized as a ground-truth drop-in, searched in order within the
 # active raw directory (data/raw, or data/reference_raw when using reference data).
+# Optional extra scorer: ARS weighted by PageRank recomputed on the filtered
+# consensus subgraph instead of the full co-occurrence graph. Only present when
+# relevance ran with benchmark.include_subgraph_pagerank enabled; everything that
+# touches it degrades gracefully when the column is absent.
+OPTIONAL_SUBGRAPH_PR_COL = "score_pagerank_subgraph_centrality"
+
 KNOWN_GT_FILENAMES = (
     "ground_truth_pmids.csv",
     "ground_truth_pmids.txt",
@@ -503,11 +509,14 @@ def load_relevance_scores(db_path: str,
 
     conn = _open_readonly_resilient(db_path)
     try:
-        df = pd.read_sql_query(
-            f"SELECT pmid, score_betweenness_centrality, score_pagerank_centrality, "
-            f"contributing_seeds FROM {table}",
-            conn,
-        )
+        # The subgraph-PageRank score is optional: it only exists when relevance was
+        # run with that weighting enabled, so select it only if the column is there.
+        present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        cols = ["pmid", "score_betweenness_centrality", "score_pagerank_centrality",
+                "contributing_seeds"]
+        if OPTIONAL_SUBGRAPH_PR_COL in present:
+            cols.insert(3, OPTIONAL_SUBGRAPH_PR_COL)
+        df = pd.read_sql_query(f"SELECT {', '.join(cols)} FROM {table}", conn)
     finally:
         conn.close()
 
@@ -618,8 +627,12 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     scorer_cols = {
         "betweenness": "score_betweenness_centrality",
         "pagerank": "score_pagerank_centrality",
-        "n_seeds (baseline)": "n_seeds",
     }
+    # Scored head-to-head against whole-corpus PageRank under identical conditions
+    # when available; simply absent otherwise.
+    if OPTIONAL_SUBGRAPH_PR_COL in scores_df.columns:
+        scorer_cols["pagerank (subgraph)"] = OPTIONAL_SUBGRAPH_PR_COL
+    scorer_cols["n_seeds (baseline)"] = "n_seeds"
     labels = scores_df["y_true"].to_numpy()
 
     n_pool = int(len(labels))
@@ -764,7 +777,10 @@ def _plot_enrichment_curves(scores_df, scorer_cols, output_dir, file_prefix, rng
         ]
         ax.plot(fracs * 100, np.array(recall) * 100, label=name, lw=1.8)
 
-    ax.plot([0, 100], [0, 100], "k--", lw=1, label="random")
+    # Random ranking recovers positives in proportion to the fraction screened.
+    # Evaluated on the same grid as the curves: a two-point line starting at x=0 is
+    # invalid on the log axis below and renders as a flat line at 100% recall.
+    ax.plot(fracs * 100, fracs * 100, "k--", lw=1, label="random")
     ax.set_xlabel("Fraction of pool screened (%)")
     ax.set_ylabel("Ground-truth recall (%)")
     ax.set_title("Enrichment: ground-truth recovery vs ranking depth")

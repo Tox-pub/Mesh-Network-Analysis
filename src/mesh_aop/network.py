@@ -617,8 +617,14 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     save_subgraph_to_json(final_lcc_output_path, lcc_edge_keys, all_nodes_data, all_edges_data)
     print("\nConsensus filtering and LCC extraction complete.")
 
-def run_community_detection(network_file_path: str, random_seed: int):
-    """Runs Louvain, re-orders community IDs by size, and saves back to JSON."""
+def run_community_detection(network_file_path: str, random_seed: int,
+                            compute_subgraph_pagerank: bool = False):
+    """Runs Louvain, re-orders community IDs by size, and saves back to JSON.
+
+    Optionally also records PageRank computed on this filtered subgraph (see the
+    self-contained block below), which is scored separately from the whole-corpus
+    PageRank carried over from network construction.
+    """
     print(f"Loading network for community detection from: {network_file_path}")
 
     net_path = Path(network_file_path)
@@ -665,6 +671,22 @@ def run_community_detection(network_file_path: str, random_seed: int):
                 node_obj['data']['filtered_louvain_community_id'] = ranked_community_id
             else:
                 node_obj['data']['filtered_louvain_community_id'] = -1
+
+        # <<< OPTIONAL: subgraph PageRank (experimental, self-contained) >>>
+        # 'pagerank_centrality' is computed during network construction on the FULL
+        # co-occurrence graph, alongside betweenness. Computed here instead on the
+        # filtered consensus subgraph, PageRank measures a term's importance within
+        # the curated concept space rather than within the whole corpus - a
+        # different quantity, so it is scored as its own metric rather than
+        # replacing the existing one. To remove the feature, delete this block and
+        # the benchmark.include_subgraph_pagerank flag that gates it.
+        if compute_subgraph_pagerank:
+            print("Calculating PageRank on the filtered consensus subgraph...")
+            subgraph_pagerank = nx.pagerank(G, alpha=0.85, weight=None)
+            for node_obj in nodes_json:
+                node_obj['data']['pagerank_subgraph_centrality'] = float(
+                    subgraph_pagerank.get(node_obj['data']['id'], 0.0)
+                )
 
     final_data = {"elements": {"nodes": nodes_json, "edges": edges_json}}
 

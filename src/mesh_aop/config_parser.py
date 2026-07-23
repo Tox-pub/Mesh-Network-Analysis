@@ -89,6 +89,7 @@ class MeshConfig:
                 "primary_node": "Dermatitis, Allergic Contact",
                 "n_boot": 25,
                 "n_perm": 25,
+                "include_subgraph_pagerank": False,
                 "run_network_validation": True,
                 "network_validation_weight_key": "CRS_pagerank_centrality",
                 "min_articles_per_node": 2,

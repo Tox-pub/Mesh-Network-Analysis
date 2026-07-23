@@ -396,20 +396,33 @@ def main():
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42
                 )
 
+            # Experimental extra scorer: PageRank recomputed on the filtered
+            # consensus subgraph rather than the full co-occurrence graph.
+            include_sub_pr = bool(
+                config.params.get('benchmark', {}).get('include_subgraph_pagerank', False)
+            )
+
             run_step_6 = True
             if os.path.exists(config.files['consensus_lcc']):
                 try:
                     with open(config.files['consensus_lcc'], 'r') as f:
                         nodes = json.load(f).get('elements', {}).get('nodes', [])
-                        if nodes and nodes[0].get('data', {}).get('filtered_louvain_community_id') is not None:
-                            run_step_6 = False
+                        if nodes:
+                            data0 = nodes[0].get('data', {})
+                            has_communities = data0.get('filtered_louvain_community_id') is not None
+                            # Re-run when the subgraph PageRank is wanted but absent,
+                            # otherwise a cached network would silently skip it.
+                            needs_sub_pr = include_sub_pr and data0.get('pagerank_subgraph_centrality') is None
+                            if has_communities and not needs_sub_pr:
+                                run_step_6 = False
                 except Exception:
                     pass
 
             if run_step_6:
                 run_community_detection(
                     network_file_path=config.files['consensus_lcc'],
-                    random_seed=config.get('analysis_parameters', 'random_seed')
+                    random_seed=config.get('analysis_parameters', 'random_seed'),
+                    compute_subgraph_pagerank=include_sub_pr
                 )
 
             if not os.path.exists(config.files['final_network']):
@@ -421,6 +434,10 @@ def main():
                     id_key='id',
                     weight_key_1="betweenness_centrality", final_key_1="CRS_betweenness_centrality",
                     weight_key_2="pagerank_centrality", final_key_2="CRS_pagerank_centrality",
+                    # Optional third weighting; omitted entirely when disabled, so no
+                    # score_pagerank_subgraph_centrality column is written.
+                    weight_key_3=("pagerank_subgraph_centrality" if include_sub_pr else None),
+                    final_key_3=("CRS_pagerank_subgraph_centrality" if include_sub_pr else None),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
                     entrez_email=config.get('credentials', 'entrez_email'),
