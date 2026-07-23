@@ -9,8 +9,8 @@
         "output_dir": ""
     },
     "credentials": {
-        "entrez_email": "jakesax@gmail.com",
-        "entrez_api_key": "0c21ea51e2fab904162dac1f38cad8e40409"
+        "entrez_email": "",
+        "entrez_api_key": ""
     },
     "search_parameters": {
         "search_term": "Dermatitis, Allergic Contact [Mesh]",
