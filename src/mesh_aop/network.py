@@ -689,6 +689,23 @@ def run_community_detection(network_file_path: str, random_seed: int,
             subgraph_betweenness = nx.betweenness_centrality(
                 G, k=None, normalized=True, weight=None
             )
+            # Eigenvector completes the set, so centrality TYPE can be varied across
+            # all three algorithms at both scopes. The dense solver is preferred
+            # because power iteration fails to converge on graphs with a weakly
+            # connected periphery; it falls back if the eigensolver itself fails.
+            try:
+                subgraph_eigenvector = nx.eigenvector_centrality_numpy(G, weight=None)
+            except Exception as e:
+                print(f"  [!] Dense eigenvector solver failed on the subgraph ({e}); "
+                      f"falling back to power iteration.")
+                try:
+                    subgraph_eigenvector = nx.eigenvector_centrality(
+                        G, max_iter=1000, tol=1.0e-6, weight=None
+                    )
+                except Exception as e2:
+                    print(f"  [!] Subgraph eigenvector centrality could not be computed ({e2}); "
+                          f"recording zeros.")
+                    subgraph_eigenvector = {}
             for node_obj in nodes_json:
                 nid = node_obj['data']['id']
                 node_obj['data']['pagerank_subgraph_centrality'] = float(
@@ -696,6 +713,9 @@ def run_community_detection(network_file_path: str, random_seed: int,
                 )
                 node_obj['data']['betweenness_subgraph_centrality'] = float(
                     subgraph_betweenness.get(nid, 0.0)
+                )
+                node_obj['data']['eigenvector_subgraph_centrality'] = float(
+                    subgraph_eigenvector.get(nid, 0.0)
                 )
 
     final_data = {"elements": {"nodes": nodes_json, "edges": edges_json}}
