@@ -544,10 +544,24 @@ def main():
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
+        gt_enabled = False
         if args.step == 'benchmark':
             print("\n>>> STARTING: Step 5 - Ground-Truth Validation & Benchmarking")
 
             bench_params = config.params.get('benchmark', {})
+
+            # The bundled ground truth describes the reference corpus, so scoring
+            # against it only means something when that corpus is in play. Default
+            # the analysis on with reference data and off without it; an explicit
+            # run_ground_truth_analysis in the config always wins.
+            use_reference = bool(config.get('control_flags', 'use_reference_data'))
+            gt_enabled = bench_params.get('run_ground_truth_analysis', use_reference)
+            if not gt_enabled:
+                print("  [i] Ground-truth analysis is disabled for this run "
+                      f"(follows 'Use Reference Data', currently {use_reference}).")
+                print("      Set benchmark.run_ground_truth_analysis to true to force it on.")
+
+        if gt_enabled:
             configured_gt = bench_params.get('ground_truth_csv', '')
 
             # Resolve the ground-truth file from the ACTIVE raw directory. This is

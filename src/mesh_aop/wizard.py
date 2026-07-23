@@ -677,15 +677,23 @@ def run_interactive_wizard(config, step: str) -> bool:
         print(f"  - [Skipped]: Not required for step '{step}'.")
     else:
         bench_params = params['benchmark']
+        # The bundled ground truth describes the reference corpus, so it is only
+        # meaningful when that corpus is in play; default the analysis on/off to match.
+        _use_ref = bool(params.get('control_flags', {}).get('use_reference_data', False))
         b8_preview = {
+            "Run Ground-Truth Analysis": bench_params.get('run_ground_truth_analysis', _use_ref),
             "Ground Truth File": bench_params.get(
                 'ground_truth_csv', 'data/reference_processed/oecd_ground_truth_curated.xlsx'
             ),
             "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
-            "Bootstrap Resamples": bench_params.get('n_boot', 100),
-            "Permutations": bench_params.get('n_perm', 100)
+            "Bootstrap Resamples": bench_params.get('n_boot', 25),
+            "Permutations": bench_params.get('n_perm', 25)
         }
         if _ask_block("Ground-Truth Validation & Benchmark Parameters", b8_preview):
+            bench_params['run_ground_truth_analysis'] = _prompt_override(
+                "Run ground-truth analysis?", b8_preview["Run Ground-Truth Analysis"], bool,
+                "Defaults to on when using reference data, off otherwise."
+            )
             bench_params['ground_truth_csv'] = _prompt_override(
                 "Ground Truth File (.csv/.xlsx; filename or path)",
                 b8_preview["Ground Truth File"], str,
@@ -697,17 +705,10 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             bench_params['n_boot'] = _prompt_override(
                 "Bootstrap Resamples (n_boot)", b8_preview["Bootstrap Resamples"], int,
-                "Resamples used to build the confidence intervals. Each resample re-ranks the full "
-                "article pool, so runtime scales linearly: on a 9-million-article pool, n = 25 takes "
-                "approximately 15 minutes, n = 100 about 1 hour, and n = 200 about 2 hours. Interval "
-                "precision is bounded by the number of ground-truth positives, so raising n well "
-                "beyond 200 yields diminishing returns."
+                "Warning: n = 200 takes approximately 2 hours."
             )
             bench_params['n_perm'] = _prompt_override(
-                "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int,
-                "Iterations of the random-ranking null used for the lift and empirical p-value. "
-                "Substantially cheaper per iteration than a bootstrap resample, as it does not "
-                "re-rank the pool. Matching it to n_boot is a reasonable default."
+                "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int
             )
 
     print("\n<<< Configuration Update Complete >>>\n")

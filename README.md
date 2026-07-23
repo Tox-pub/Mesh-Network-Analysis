@@ -308,6 +308,7 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
   | `200` | ~2 hours | publication-grade |
 
   Interval precision is bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
+* **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
 * **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `CRS_pagerank_centrality`; set to `CRS_betweenness_centrality` to compare against the betweenness weighting instead.
 * **`min_articles_per_node`:** Minimum number of ground-truth articles a term must appear in to become a node of the ground-truth co-occurrence network (default `2`, which suppresses singleton noise).
