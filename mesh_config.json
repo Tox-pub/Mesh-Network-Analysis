@@ -49,7 +49,13 @@
         "negative_control_csv": "",
         "primary_node": "Dermatitis, Allergic Contact",
         "n_boot": 25,
-        "n_perm": 25
+        "n_perm": 25,
+        "run_network_validation": true,
+        "network_validation_weight_key": "CRS_pagerank_centrality",
+        "min_articles_per_node": 2,
+        "background_pool_size": 50000,
+        "include_subgraph_pagerank": true,
+        "run_ground_truth_analysis": true
     },
     "_run_baseline_etl": false,
     "secondary_analysis": {}

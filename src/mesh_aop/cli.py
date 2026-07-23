@@ -43,6 +43,7 @@ from .relevance import run_contextual_relevance_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
 from .gt_network_validation import run_gt_network_validation
+from .validation_report import run_validation_report
 from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
@@ -401,7 +402,7 @@ def main():
             # rather than a toggle of its own. It has to be decided here, at the
             # network stage, because it changes which centralities get computed.
             _bench = config.params.get('benchmark', {})
-            include_sub_pr = bool(_bench.get(
+            include_subgraph_weightings = bool(_bench.get(
                 'run_ground_truth_analysis',
                 bool(config.get('control_flags', 'use_reference_data'))
             ))
@@ -416,11 +417,14 @@ def main():
                             has_communities = data0.get('filtered_louvain_community_id') is not None
                             # Re-run when subgraph centralities are wanted but absent,
                             # otherwise a cached network would silently skip them.
-                            needs_sub_pr = include_sub_pr and (
-                                data0.get('pagerank_subgraph_centrality') is None
-                                or data0.get('betweenness_subgraph_centrality') is None
+                            needs_subgraph = include_subgraph_weightings and any(
+                                data0.get(k) is None for k in (
+                                    'pagerank_subgraph_centrality',
+                                    'betweenness_subgraph_centrality',
+                                    'eigenvector_subgraph_centrality',
+                                )
                             )
-                            if has_communities and not needs_sub_pr:
+                            if has_communities and not needs_subgraph:
                                 run_step_6 = False
                 except Exception:
                     pass
@@ -429,7 +433,7 @@ def main():
                 run_community_detection(
                     network_file_path=config.files['consensus_lcc'],
                     random_seed=config.get('analysis_parameters', 'random_seed'),
-                    compute_subgraph_centrality=include_sub_pr
+                    compute_subgraph_centrality=include_subgraph_weightings
                 )
 
             if not os.path.exists(config.files['final_network']):
@@ -439,16 +443,19 @@ def main():
                     master_db_path=config.files['master_db'],
                     relevance_db_path=config.files['relevance_db'],
                     id_key='id',
-                    # Whole-graph centralities always; the subgraph pair as well when
-                    # enabled, so centrality SCOPE and TYPE form a full 2x2 rather
-                    # than varying scope for only one algorithm. The corpus scan
-                    # dominates the runtime, so extra weightings are nearly free.
+                    # Whole-graph centralities always; the subgraph set as well when
+                    # enabled, so centrality SCOPE (whole corpus vs consensus subgraph)
+                    # and TYPE (betweenness / PageRank / eigenvector) form a full 3x2
+                    # grid rather than varying scope for only some algorithms. The
+                    # corpus scan dominates runtime, so extra weightings are near-free.
                     weightings=(
                         [("betweenness_centrality", "CRS_betweenness_centrality"),
-                         ("pagerank_centrality", "CRS_pagerank_centrality")]
+                         ("pagerank_centrality", "CRS_pagerank_centrality"),
+                         ("eigenvector_centrality", "CRS_eigenvector_centrality")]
                         + ([("betweenness_subgraph_centrality", "CRS_betweenness_subgraph_centrality"),
-                            ("pagerank_subgraph_centrality", "CRS_pagerank_subgraph_centrality")]
-                           if include_sub_pr else [])
+                            ("pagerank_subgraph_centrality", "CRS_pagerank_subgraph_centrality"),
+                            ("eigenvector_subgraph_centrality", "CRS_eigenvector_subgraph_centrality")]
+                           if include_subgraph_weightings else [])
                     ),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
@@ -648,6 +655,32 @@ def main():
                               f" continuing to the article ranking benchmark.")
                 else:
                     print("  [!] Skipping node/edge validation: final network not found.")
+
+            # Consolidated validation report. Evaluates every weighting the pipeline
+            # produced across four framings (corpus-wide, within the source query,
+            # outside it, and the hybrid reading list) and writes a drill-down
+            # workbook plus a narrative report. Independent of run_benchmark, which
+            # answers the narrower "how does the primary scorer rank the corpus".
+            if bench_params.get('run_validation_report', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_validation_report(
+                            final_network_file=str(config.files['final_network']),
+                            master_db_path=str(config.files['master_db']),
+                            pmid_db_path=str(config.files['pmids_db']),
+                            ground_truth_file=gt_path,
+                            output_dir=str(config.results_dir / 'validation'),
+                            project_prefix=f"{config.prefix}_",
+                            primary_query_term=bench_params.get(
+                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            n_boot=bench_params.get('validation_report_n_boot', 2000),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: validation report failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping validation report: final network not found.")
 
             try:
                 run_benchmark(
