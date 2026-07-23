@@ -83,7 +83,7 @@ This pipeline is computationally intensive and relies heavily on numerical array
 
 ### 1. System Requirements
 
-* **Python:** **3.11 or 3.12 only** (enforced by `requires-python = ">=3.11,<3.13"`). Python 3.13+ is *not* supported: `node2vec` requires `numpy<2.0`, and `numpy<2.0` has no prebuilt wheel for 3.13, so pip tries to compile NumPy from source and fails without a C/C++ compiler. See **Troubleshooting** if you only have 3.13.
+* **Python:** **3.11–3.13** (`requires-python = ">=3.11"`; validated against the 3.13 stack). Python 3.13 **is** supported — the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the `node2vec` package, which pinned `numpy<2.0` and had no 3.13 wheel, is no longer a dependency. Releases newer than 3.13 are untested.
 * **Memory:** Minimum 16GB RAM; 32GB+ highly recommended for Step 0 (Database Compilation) and networks exceeding 1 citation generation.
 * **Storage:** 100GB+ free space (The NLM Baseline XMLs and resulting SQLite Master Database expand rapidly).
 * **Windows path length:** Create the virtual environment at a **short path** (e.g. `C:\Users\<you>\mesh_env`), *not* inside a deeply nested or OneDrive-synced project folder. Some dependencies (e.g. `statsmodels`) ship very long filenames that overflow the Windows 260-character `MAX_PATH` limit and abort the install. See **Troubleshooting**.
@@ -532,9 +532,9 @@ The full list of exported symbols is defined in `src/mesh_aop/__init__.py`.
 
 Symptom: during `pip install -e .` you see meson/`Unknown compiler` errors building NumPy, e.g. `Could not find ... vswhere.exe`, or `ResolutionImpossible` mentioning `numpy`.
 
-Cause: `node2vec` requires `numpy<2.0`, and `numpy<2.0` ships **no prebuilt wheel for Python 3.13**, so pip falls back to compiling NumPy from C source — which needs an MSVC compiler you likely don't have.
+Cause: an earlier revision depended on the `node2vec` package, which pinned `numpy<2.0`; that NumPy ships **no prebuilt wheel for Python 3.13**, so pip fell back to compiling it from C source — which needs an MSVC compiler you likely don't have.
 
-Fix: use **Python 3.11 or 3.12**. On Windows, install 3.12 and recreate the venv with `py -3.12 -m venv ...`. (Any 3.12.x patch release works.)
+Fix: **this no longer applies.** The Node2Vec embedding is vendored in `node2vec_embedding.py` and the package dependency was removed, so Python 3.13 installs cleanly. If you still hit this, you are installing from an out-of-date checkout or a stale copy of `pyproject.toml`: pull the current revision, delete the virtual environment, and reinstall.
 
 ### Windows `MAX_PATH` / "No such file or directory" during install
 
