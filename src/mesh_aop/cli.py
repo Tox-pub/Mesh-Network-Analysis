@@ -615,8 +615,8 @@ def main():
                     primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
                     negative_control_csv=nc_path,
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42,
-                    n_boot=bench_params.get('n_boot', 100),
-                    n_perm=bench_params.get('n_perm', 100)
+                    n_boot=bench_params.get('n_boot', 25),
+                    n_perm=bench_params.get('n_perm', 25)
                 )
             except (ValueError, KeyError) as e:
                 print("\n" + "<"*30 + ">"*30)

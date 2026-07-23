@@ -48,13 +48,9 @@
         "ground_truth_csv": "data/reference_processed/oecd_ground_truth_curated.xlsx",
         "negative_control_csv": "",
         "primary_node": "Dermatitis, Allergic Contact",
-        "n_boot": 100,
-        "n_perm": 100
+        "n_boot": 25,
+        "n_perm": 25
     },
     "_run_baseline_etl": false,
-    "secondary_analysis": {
-        "run_secondary_analysis": true,
-        "target_nodes": "",
-        "target_edges": ""
-    }
+    "secondary_analysis": {}
 }

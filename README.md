@@ -298,16 +298,16 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 * **`ground_truth_csv`:** Filename of your ground-truth PMID set inside the active raw directory. Leave **empty** (default) to auto-detect a recognized filename; set it to pin a specific file.
 * **`negative_control_csv`:** Optional filename of an *unrelated* ground-truth set used as a specificity check (it should score near random). Empty disables the control.
 * **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
-* **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations for confidence intervals and the random-ranking null. Default `100` each, chosen to keep the step tractable: **every bootstrap resample re-sorts the entire article pool**, so cost scales with pool size (~4 s per iteration on a ~9 M-row pool, run twice per scorer across three scorers). Approximate total runtime for `--step benchmark`:
+* **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations behind the confidence intervals and the random-ranking null. Default `25` each. Each bootstrap resample re-ranks the full article pool, so runtime scales linearly with both this value and the size of that pool. Measured on a ~9-million-article pool:
 
-  | `n_boot` / `n_perm` | Runtime | Use |
+  | `n_boot` / `n_perm` | Approx. runtime | Use |
   | --- | --- | --- |
-  | `50` | ~20 min | fast smoke test |
-  | `100` *(default)* | ~40 min | routine runs |
-  | `200` | ~1.3 h | solid intervals |
-  | `1000`–`2000` | ~6–13 h | publication-grade |
+  | `25` *(default)* | ~15 min | routine runs |
+  | `50` | ~30 min | tighter intervals |
+  | `100` | ~1 hour | thorough |
+  | `200` | ~2 hours | publication-grade |
 
-  Raise for tighter intervals, but note the confidence-interval width is ultimately limited by **how many ground-truth positives you have**, not by `n_boot`.
+  Interval precision is bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
 * **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `CRS_pagerank_centrality`; set to `CRS_betweenness_centrality` to compare against the betweenness weighting instead.
 * **`min_articles_per_node`:** Minimum number of ground-truth articles a term must appear in to become a node of the ground-truth co-occurrence network (default `2`, which suppresses singleton noise).

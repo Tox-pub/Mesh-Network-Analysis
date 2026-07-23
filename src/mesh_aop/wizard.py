@@ -697,13 +697,17 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             bench_params['n_boot'] = _prompt_override(
                 "Bootstrap Resamples (n_boot)", b8_preview["Bootstrap Resamples"], int,
-                "COST WARNING: every resample re-sorts the ENTIRE article pool (~4 s per iteration on a "
-                "9M-row pool, run twice per scorer for 3 scorers). 50-100 = quick look (~20-40 min); "
-                "200 = solid (~1.3 h); 1000-2000 = publication-grade (~6-13 h)."
+                "Resamples used to build the confidence intervals. Each resample re-ranks the full "
+                "article pool, so runtime scales linearly: on a 9-million-article pool, n = 25 takes "
+                "approximately 15 minutes, n = 100 about 1 hour, and n = 200 about 2 hours. Interval "
+                "precision is bounded by the number of ground-truth positives, so raising n well "
+                "beyond 200 yields diminishing returns."
             )
             bench_params['n_perm'] = _prompt_override(
                 "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int,
-                "Random-ranking null used for the MAP lift/p-value. Cheaper per iteration than n_boot."
+                "Iterations of the random-ranking null used for the lift and empirical p-value. "
+                "Substantially cheaper per iteration than a bootstrap resample, as it does not "
+                "re-rank the pool. Matching it to n_boot is a reasonable default."
             )
 
     print("\n<<< Configuration Update Complete >>>\n")
