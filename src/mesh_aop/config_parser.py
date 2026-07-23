@@ -88,7 +88,11 @@ class MeshConfig:
                 "negative_control_csv": "",
                 "primary_node": "Dermatitis, Allergic Contact",
                 "n_boot": 100,
-                "n_perm": 100
+                "n_perm": 100,
+                "run_network_validation": True,
+                "network_validation_weight_key": "CRS_pagerank_centrality",
+                "min_articles_per_node": 2,
+                "background_pool_size": 50000
             }
         }
 

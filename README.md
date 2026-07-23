@@ -308,6 +308,10 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
   | `1000`–`2000` | ~6–13 h | publication-grade |
 
   Raise for tighter intervals, but note the confidence-interval width is ultimately limited by **how many ground-truth positives you have**, not by `n_boot`.
+* **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
+* **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `CRS_pagerank_centrality`; set to `CRS_betweenness_centrality` to compare against the betweenness weighting instead.
+* **`min_articles_per_node`:** Minimum number of ground-truth articles a term must appear in to become a node of the ground-truth co-occurrence network (default `2`, which suppresses singleton noise).
+* **`background_pool_size`:** Number of randomly sampled articles used to estimate corpus base rates and to build the permutation nulls (default `50000`). Larger is more precise but slower.
 
 ---
 
@@ -434,6 +438,26 @@ Written to `results/`:
 * `*_benchmark_enrichment.png` — cumulative recall (enrichment) curve: ground-truth recovery vs. fraction of the pool screened.
 
 > **Note on incomplete judgments:** the non-ground-truth articles are *unjudged*, not confirmed negatives. This is why recall- and rank-based metrics (which only need positive positions) are the headline numbers, while precision/PR-AUC are interpreted with caution. For the most rigorous citation→PMID verification, cross-check publication years online via NCBI Entrez (not enabled by default, as it requires network access).
+
+### Node/Edge Convergent Validation
+
+`--step benchmark` also runs a **structural** check (`gt_network_validation.py`) that asks a different question from the article ranking above: *is the network's own vocabulary and wiring independently reproduced by the ground-truth literature?* A network could rank articles well simply by naming popular terms — recovering its **edges** from an independent corpus is far harder to achieve by chance.
+
+The ground-truth articles' MeSH terms are pulled from the master database and filtered through the **same node-eligibility stop-word list used to build the network**, so stop-listed headings (check tags, organisms, geographics) can never appear as spurious "near misses" — they were never eligible to be nodes in the first place. An audit sheet records exactly which stop terms were removed and asserts that none leaked into the node or miss lists.
+
+Both levels are calibrated against a **permutation null of random article draws of the same size** — essential, because two corpora about the same topic will overlap somewhat by construction, so raw overlap alone is not evidence:
+
+* **Node level** — how many network nodes are attested in the ground truth, their enrichment over corpus base rates, and the Spearman correlation between a node's ground-truth prominence and its network weight.
+* **Edge level** — how many of the network's edges reappear as ground-truth co-occurrences.
+* **Misses** — ground-truth-frequent eligible terms that are *not* network nodes, which localize where the network under-covers the domain.
+
+It runs *before* the ranking benchmark (it takes minutes rather than tens of minutes), so a long benchmark never blocks the structural result. Disable it with `benchmark.run_network_validation = false`.
+
+**Outputs** (to `results/` and `results/figures/`):
+
+* `*_gt_network_validation.xlsx` — sheets: `summary`, `stopword_audit`, `network_nodes`, `GT_terms`, `GT_misses`, `network_edge_validation`
+* `*_gt_cooccurrence_network.json` — the ground-truth co-occurrence graph in **Cytoscape.js** format, every node and edge annotated with its overlap status (`shared` vs `GT_only_miss`, `recovered` vs `GT_only`), enrichment, and counts
+* `*_GT_Node_Validation.png`, `*_GT_Cooccurrence_Network.png`, `*_GT_Permutation_Nulls.png`
 
 ---
 

@@ -42,6 +42,7 @@ from .network import run_network_construction, run_consensus_filtering_and_lcc, 
 from .relevance import run_contextual_relevance_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
+from .gt_network_validation import run_gt_network_validation
 from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
@@ -579,6 +580,32 @@ def main():
 
             print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
 
+            # Node/edge convergent validation runs first: it takes minutes rather
+            # than the benchmark's tens of minutes, and answers a different
+            # question (is the network's vocabulary and wiring reproduced?), so a
+            # long ranking run never blocks getting the structural result.
+            if bench_params.get('run_network_validation', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_gt_network_validation(
+                            ground_truth_path=gt_path,
+                            master_db_path=str(config.files['master_db']),
+                            final_network_path=str(config.files['final_network']),
+                            output_dir=str(config.results_dir),
+                            figures_dir=str(config.figures_dir),
+                            file_prefix=config.prefix,
+                            weight_key=bench_params.get(
+                                'network_validation_weight_key', 'CRS_pagerank_centrality'),
+                            min_articles_per_node=bench_params.get('min_articles_per_node', 2),
+                            pool_size=bench_params.get('background_pool_size', 50000),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: node/edge validation failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping node/edge validation: final network not found.")
+
             try:
                 run_benchmark(
                     resolved_csv_path=gt_path,
@@ -588,8 +615,8 @@ def main():
                     primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
                     negative_control_csv=nc_path,
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42,
-                    n_boot=bench_params.get('n_boot', 2000),
-                    n_perm=bench_params.get('n_perm', 2000)
+                    n_boot=bench_params.get('n_boot', 100),
+                    n_perm=bench_params.get('n_perm', 100)
                 )
             except (ValueError, KeyError) as e:
                 print("\n" + "<"*30 + ">"*30)

@@ -59,6 +59,7 @@ from .benchmark import (
     resolve_ground_truth_path,
     normalize_pmid
 )
+from .gt_network_validation import run_gt_network_validation
 
 # --- 7. Visualization ---
 from .viz import (
@@ -95,6 +96,7 @@ __all__ = [
     "validate_ground_truth",
     "resolve_ground_truth_path",
     "normalize_pmid",
+    "run_gt_network_validation",
     "analyze_dispersion",
     "plot_cooccurrance_distribution",
     "run_optimization_comparison",
