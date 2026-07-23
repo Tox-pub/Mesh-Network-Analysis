@@ -7,9 +7,19 @@ wider literature within a chosen time window, querying the local master database
 so the calculation needs no API calls.
 
 For each surviving node it aggregates per-article term-overlap scores into a
-Contextual Relevance Score that blends topological weight, evidence volume, and
-term specificity (an information-content penalty applied via a harmonic mean),
+Contextual Relevance Score that blends topological weight with evidence volume:
+
+    S_contextual(i) = mean(S_article(A) for A in P_i) * log10(|P_i| + 1)
+
 then writes both the per-article scores and the relevance-annotated network to disk.
+
+An information-content penalty, -log10(G_t / N_global), was previously applied on top
+of this via a harmonic mean to correct for global term frequency. It was removed: the
+mean-ARS term is already frequency-neutral by construction (averaging over P_i dilutes
+common terms by their many low-scoring articles), so the penalty double-corrected -
+it inverted the association with corpus frequency and pushed discrimination of
+externally attested terms down to chance. Frequency confounding is instead addressed
+by conditional analysis at validation time, not by a multiplicative penalty here.
 """
 
 import os
@@ -18,7 +28,6 @@ import sqlite3
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
 # Relative package imports
@@ -148,13 +157,6 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
         if 'pub_date' not in columns:
             raise RuntimeError("CRITICAL ERROR: 'pub_date' column is missing from the Master Database. You MUST run Step 0 again to rebuild the database with the new 4-column schema before proceeding.")
 
-        # Global corpus size for Information Content (IC): the FULL master DB,
-        # independent of the analysis window, so IC measures a term's specificity
-        # across all of the literature rather than within the chosen date range.
-        print(f"  Scanning 30-million record database...")
-        m_cursor.execute("SELECT count(*) FROM master_mesh_annotations")
-        N_global = float(m_cursor.fetchone()[0])
-
         # In-window count drives the ARS pass (which articles get scored / form
         # each term's P_i) and the zero-check.
         m_cursor.execute("SELECT count(*) FROM master_mesh_annotations WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
@@ -165,18 +167,42 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             master_conn.close()
             return
 
-        print(f"  Found {total_articles_in_range:,} articles in window; scanning the full {int(N_global):,}-article corpus for global term specificity...")
+        print(f"  Found {total_articles_in_range:,} articles in window; scoring them now...")
 
         aggregators = [defaultdict(lambda: {'sum': 0.0, 'count': 0}) for _ in range(n_w)]
-        global_term_freq = defaultdict(int)
-        article_scores_data = []
 
-        # Single full-corpus pass: accumulate each seed term's GLOBAL document
-        # frequency (G_t, for IC) over every article, and run ARS scoring only on
-        # the in-window articles (which form each term's P_i for CF and mean ARS).
-        m_cursor.execute("SELECT pmid, pub_date, mesh_terms FROM master_mesh_annotations")
+        # Article scores are streamed straight into SQLite in batches rather than
+        # accumulated in a list and converted to a DataFrame at the end. On a corpus
+        # this size the old approach held every row in RAM and then copied all of it
+        # again for the DataFrame, which exhausted memory once several weightings were
+        # requested; peak usage here is one batch regardless of corpus or weighting count.
+        os.makedirs(os.path.dirname(relevance_db_path), exist_ok=True)
+        score_cols = [f"score_{w_key}" for w_key, _ in weightings]
+        out_conn = sqlite3.connect(relevance_db_path)
+        out_conn.execute("PRAGMA journal_mode=WAL")
+        out_conn.execute("PRAGMA synchronous=OFF")
+        out_conn.execute("DROP TABLE IF EXISTS article_relevance_scores")
+        out_conn.execute(
+            "CREATE TABLE article_relevance_scores (pmid TEXT, "
+            + ", ".join(f'"{c}" REAL' for c in score_cols)
+            + ", contributing_seeds TEXT, pub_date TEXT)"
+        )
+        insert_sql = (
+            "INSERT INTO article_relevance_scores VALUES ("
+            + ", ".join("?" * (len(score_cols) + 3)) + ")"
+        )
+        batch = []
+        rows_written = 0
+
+        # Only in-window articles are needed: they form each term's P_i, which drives
+        # both the mean ARS and the evidence-volume term. Filtering in SQL rather than
+        # scanning all 33M records and discarding in Python is what dropping the
+        # global-specificity term buys back.
+        m_cursor.execute(
+            "SELECT pmid, pub_date, mesh_terms FROM master_mesh_annotations "
+            "WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
         chunk_size = 100000
-        pbar = tqdm(total=int(N_global), desc="Scanning corpus")
+        pbar = tqdm(total=total_articles_in_range, desc="Scoring articles")
 
         while True:
             rows = m_cursor.fetchmany(chunk_size)
@@ -194,15 +220,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                 if not matching_seeds:
                     continue
 
-                # GLOBAL term frequency (all dates) -> G_t for the IC denominator.
-                for term in matching_seeds:
-                    global_term_freq[term] += 1
-
-                # ARS scoring only for in-window articles.
-                if not (start_iso <= pub_date <= end_iso):
-                    continue
-
-                article_row = {'pmid': pmid}
+                record = [pmid]
                 for i, (w_key, _) in enumerate(weightings):
                     score = 0.0
                     if total_weight[i] > 0:
@@ -212,13 +230,26 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
                         for term in matching_seeds:
                             agg[term]['sum'] += score
                             agg[term]['count'] += 1
-                    article_row[f'score_{w_key}'] = score
+                    record.append(score)
 
-                article_row['contributing_seeds'] = ';'.join(sorted(list(matching_seeds)))
-                article_row['pub_date'] = pub_date
-                article_scores_data.append(article_row)
+                record.append(';'.join(sorted(matching_seeds)))
+                record.append(pub_date)
+                batch.append(record)
+
+            if batch:
+                out_conn.executemany(insert_sql, batch)
+                # Commit per batch so the write-ahead log is checkpointed as we go.
+                # Left to a single transaction the WAL grows to the size of the whole
+                # table before any of it lands, and an interruption discards the lot.
+                out_conn.commit()
+                rows_written += len(batch)
+                batch = []
 
             pbar.update(len(rows))
+
+        if batch:
+            out_conn.executemany(insert_sql, batch)
+            rows_written += len(batch)
 
         pbar.close()
         master_conn.close()
@@ -226,50 +257,48 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
     except Exception as e:
         raise RuntimeError(f"ERROR calculating scores from Master DB: {e}")
 
-    print("\n<<< Saving Individual Article Relevance Scores to Database >>>")
-    if article_scores_data:
-        scores_df = pd.DataFrame(article_scores_data)
+    print("\n<<< Indexing Article Relevance Scores >>>")
+    if rows_written:
+        # The rows are already on disk (streamed during the scan); only the indexes
+        # remain. A failure here is raised, not warned about: the previous code
+        # swallowed save errors, so a run that wrote nothing still exited cleanly and
+        # looked successful until the empty table was discovered downstream.
         try:
-            os.makedirs(os.path.dirname(relevance_db_path), exist_ok=True)
-            conn = sqlite3.connect(relevance_db_path)
-            scores_df.to_sql('article_relevance_scores', conn, if_exists='replace', index=False)
-            cursor = conn.cursor()
+            cursor = out_conn.cursor()
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_pmid ON article_relevance_scores (pmid)")
             for i, (w_key, _) in enumerate(weightings, start=1):
                 cursor.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_score{i} "
                     f"ON article_relevance_scores ('score_{w_key}')"
                 )
-            conn.commit()
-            conn.close()
-            _keep_on_device(relevance_db_path)
-            print(f"  [+] Successfully saved {len(scores_df):,} contributing article scores to the database.")
-        except Exception as e:
-            print(f"  [!] WARNING: Could not save article scores to database: {e}")
+            out_conn.commit()
+        finally:
+            out_conn.close()
+        _keep_on_device(relevance_db_path)
+        print(f"  [+] Successfully saved {rows_written:,} contributing article scores to the database.")
     else:
-        print("  [!] No articles contained the target seed terms. No scores generated.")
+        out_conn.close()
+        raise RuntimeError(
+            "No articles contained the target seed terms, so no relevance scores were "
+            "written. Check the date window and that the network's node IDs match the "
+            "MeSH terms in the master database."
+        )
 
-# Calculate final Contextual Relevance Scores (CRS) with Harmonic Mean & Max-Scaling
-    print("\n<<< Calculating CRS (Harmonic Mean Penalty & Max-Scaling)... >>>")
+# Calculate final Contextual Relevance Scores (CRS) with Max-Scaling
+    print("\n<<< Calculating CRS (Evidence-Volume Weighting & Max-Scaling)... >>>")
 
-    # CF (in-window evidence volume) and IC (global specificity) depend only on the
-    # term, not on the weighting, so the harmonic multiplier is identical across
-    # weightings and only the mean ARS differs.
+    # S_contextual(i) = ( mean of S_article(A) over A in P_i ) * log10(|P_i| + 1)
+    #
+    # The evidence-volume term depends only on |P_i|, not on the weighting, so only
+    # the mean ARS differs between weightings.
     final_node_weights = []
     for i, (w_key, _) in enumerate(weightings):
         raw_node_weights = {}
         for term, data in aggregators[i].items():
             if data['count'] > 0:
-                mean_ars = data['sum'] / data['count']
-                cf_vol = np.log10(data['count'] + 1)             # CF: in-window evidence volume |P_i|
-                g_t = global_term_freq.get(term, data['count'])  # G_t: global document frequency
-                ic_spec = -np.log10(g_t / N_global)              # IC: specificity across the whole corpus
-
-                # Harmonic Mean of Confidence Factor and Information Content
-                denom = cf_vol + ic_spec
-                harmonic_multiplier = (2 * cf_vol * ic_spec) / denom if denom > 0 else 0.0
-
-                raw_node_weights[term] = mean_ars * harmonic_multiplier
+                mean_ars = data['sum'] / data['count']            # (1/|P_i|) * sum S_article
+                evidence_volume = np.log10(data['count'] + 1)     # log10(|P_i| + 1)
+                raw_node_weights[term] = mean_ars * evidence_volume
 
         # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---
         max_crs = max(raw_node_weights.values()) if raw_node_weights else 1.0
