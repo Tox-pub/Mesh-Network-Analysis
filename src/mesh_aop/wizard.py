@@ -439,11 +439,11 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "End Date (YYYY/MM/DD)",
                 b3_preview["End Date"]
             )
+            # levels incl. P0: 1=P0, 2=P0+G1, 3=P0+G1+G2
             params['search_parameters']['generations_n'] = _prompt_override(
-                "Citation Generations",
+                "Citation Generations (Lvl: P0=1, P0+G1=2, ...)",
                 b3_preview["Generations"],
-                int,
-                "Incoming/outgoing citations per layer. High values exponentially increase network size."
+                int
             )
             params['search_parameters']['update_mesh_support_files'] = _prompt_override(
                 "Force Update MeSH Support Files?",
