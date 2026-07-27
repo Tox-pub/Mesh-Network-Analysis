@@ -90,7 +90,7 @@ class MeshConfig:
                 "n_boot": 25,
                 "n_perm": 25,
                 "run_network_validation": True,
-                "network_validation_weight_key": "CRS_pagerank_centrality",
+                "network_validation_weight_key": "MRS_pagerank_centrality",
                 "min_articles_per_node": 2,
                 "background_pool_size": 50000
             }
@@ -167,7 +167,7 @@ class MeshConfig:
             "final_network": self.active_source_dir / f"{self.prefix}_final_network_with_relevance.json",
 
             "cleaned_db": self.active_source_dir / f"{self.prefix}_cleaned_pmids.db",
-            "relevance_db": self.active_source_dir / f"{self.prefix}_contextual_relevance.db",
+            "relevance_db": self.active_source_dir / f"{self.prefix}_mean_relevancy.db",
 
             "failed_mesh": self.log_dir / f"{self.prefix}_failed_mesh_fetches.tsv",
             "empty_mesh": self.log_dir / f"{self.prefix}_empty_mesh_pmids.tsv",

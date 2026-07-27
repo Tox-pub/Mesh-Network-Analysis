@@ -800,7 +800,7 @@ if __name__ == "__main__":
     # MeshConfig instead (see cli.py --step benchmark).
     run_benchmark(
         resolved_csv_path="data/reference_raw/oecd_resolved_citations.csv",
-        relevance_db_path="data/reference_processed/DAC_Mesh_contextual_relevance.db",
+        relevance_db_path="data/reference_processed/DAC_Mesh_mean_relevancy.db",
         output_dir="results",
         file_prefix="DAC_Mesh_benchmark",
     )

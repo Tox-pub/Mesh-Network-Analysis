@@ -39,8 +39,8 @@ from .data_ops import (
     update_db_with_mesh_batch
 )
 from .network import run_network_construction, run_consensus_filtering_and_lcc, run_community_detection
-from .relevance import run_contextual_relevance_scoring
-from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles
+from .relevance import run_mean_relevancy_scoring
+from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles, run_network_overlay_comparison
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
 from .gt_network_validation import run_gt_network_validation
 from .validation_report import run_validation_report
@@ -243,7 +243,7 @@ def main():
                             "  all        : Run the entire pipeline sequentially (Default).\n"
                             "  process    : Step 1 - Process MeSH XML and initialize Master Annotations.\n"
                             "  data_ops   : Step 2 - Collect Entrez data and build SQLite PMIDs database.\n"
-                            "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate CRS.\n"
+                            "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate MRS.\n"
                             "  secondary  : Step 3.5 - Execute targeted node/edge queries and metadata hydration.\n"
                             "  viz        : Step 4 - Generate biological plots, joint distributions, and HTML networks.\n"
                             "  benchmark  : Step 5 - Validate ground-truth citations and benchmark ranking performance."
@@ -437,7 +437,7 @@ def main():
                 )
 
             if not os.path.exists(config.files['final_network']):
-                run_contextual_relevance_scoring(
+                run_mean_relevancy_scoring(
                     input_nodes_file=config.files['consensus_lcc'],
                     output_nodes_file=config.files['final_network'],
                     master_db_path=config.files['master_db'],
@@ -449,12 +449,12 @@ def main():
                     # grid rather than varying scope for only some algorithms. The
                     # corpus scan dominates runtime, so extra weightings are near-free.
                     weightings=(
-                        [("betweenness_centrality", "CRS_betweenness_centrality"),
-                         ("pagerank_centrality", "CRS_pagerank_centrality"),
-                         ("eigenvector_centrality", "CRS_eigenvector_centrality")]
-                        + ([("betweenness_subgraph_centrality", "CRS_betweenness_subgraph_centrality"),
-                            ("pagerank_subgraph_centrality", "CRS_pagerank_subgraph_centrality"),
-                            ("eigenvector_subgraph_centrality", "CRS_eigenvector_subgraph_centrality")]
+                        [("betweenness_centrality", "MRS_betweenness_centrality"),
+                         ("pagerank_centrality", "MRS_pagerank_centrality"),
+                         ("eigenvector_centrality", "MRS_eigenvector_centrality")]
+                        + ([("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
+                            ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
+                            ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
                            if include_subgraph_weightings else [])
                     ),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
@@ -543,6 +543,18 @@ def main():
                                 entrez_email=api_email, entrez_api_key=api_key,
                                 sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                             )
+
+        # <<< STEP 3.5b: Optional network overlay comparison (default off) >>>
+        if args.step in ['all', 'secondary'] and sec_params.get('compare_networks', False):
+            # Look in the active processed folder (data/processed, or reference_processed
+            # when reference data is in use); PNG/CSV outputs go to the results section.
+            run_network_overlay_comparison(
+                network_files=sec_params.get('comparison_networks', ''),
+                search_dir=str(config.active_source_dir),
+                results_dir=str(config.results_dir),
+                file_prefix=config.prefix,
+                random_seed=config.get('analysis_parameters', 'random_seed') or 42
+            )
 
         if args.step == 'all':
             if config.params.get('control_flags', {}).get('pause_for_annotation', False):
@@ -645,7 +657,7 @@ def main():
                             figures_dir=str(config.figures_dir),
                             file_prefix=config.prefix,
                             weight_key=bench_params.get(
-                                'network_validation_weight_key', 'CRS_pagerank_centrality'),
+                                'network_validation_weight_key', 'MRS_pagerank_centrality'),
                             min_articles_per_node=bench_params.get('min_articles_per_node', 2),
                             pool_size=bench_params.get('background_pool_size', 50000),
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42

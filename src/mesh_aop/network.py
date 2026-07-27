@@ -449,7 +449,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
                 )
 
             # PageRank: a discriminating "connectedness" centrality (unlike eigenvector,
-            # which saturates on dense components). Used as a CRS weighting alongside
+            # which saturates on dense components). Used as an MRS weighting alongside
             # betweenness. Deterministic given the graph.
             print("  Calculating PageRank Centrality...")
             pagerank_centrality = nx.pagerank(G_analysis_conn, alpha=0.85, weight=None)

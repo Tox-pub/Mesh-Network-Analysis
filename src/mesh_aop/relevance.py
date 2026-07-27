@@ -1,25 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-relevance.py - contextual relevance scoring / semantic re-ranking (pipeline Step 3).
+relevance.py - mean relevancy scoring / semantic re-ranking (pipeline Step 3).
 
 Re-scores the network's nodes by how strongly they are supported across the
 wider literature within a chosen time window, querying the local master database
 so the calculation needs no API calls.
 
 For each surviving node it aggregates per-article term-overlap scores into a
-Contextual Relevance Score that blends topological weight with evidence volume:
+Mean Relevancy Score (MRS) - the plain mean article-relevance of a term:
 
-    S_contextual(i) = mean(S_article(A) for A in P_i) * log10(|P_i| + 1)
+    MRS(i) = mean(S_article(A) for A in P_i)
 
 then writes both the per-article scores and the relevance-annotated network to disk.
 
-An information-content penalty, -log10(G_t / N_global), was previously applied on top
-of this via a harmonic mean to correct for global term frequency. It was removed: the
-mean-ARS term is already frequency-neutral by construction (averaging over P_i dilutes
-common terms by their many low-scoring articles), so the penalty double-corrected -
-it inverted the association with corpus frequency and pushed discrimination of
-externally attested terms down to chance. Frequency confounding is instead addressed
-by conditional analysis at validation time, not by a multiplicative penalty here.
+Two multiplicative adjustments that earlier versions layered on top of this mean were
+both dropped, leaving the mean itself (hence "non-adjusted for context"):
+  - an evidence-volume / corpus-frequency factor, log10(|P_i| + 1); and
+  - an information-content penalty, -log10(G_t / N_global), applied via a harmonic mean.
+The mean-ARS term is already frequency-neutral by construction (averaging over P_i
+dilutes common terms by their many low-scoring articles), so both factors double-corrected
+for frequency: they inverted the association with corpus frequency and pushed discrimination
+of externally attested terms down to chance. Frequency confounding is instead addressed by
+conditional analysis at validation time, not by a multiplicative penalty here.
 """
 
 import os
@@ -71,38 +73,29 @@ def _extract_base_terms(mesh_str: str) -> set:
 # CORE PIPELINE OPERATIONS
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: str,
+def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
                                      master_db_path: str, relevance_db_path: str,
                                      id_key: str,
                                      start_date_param: str, end_date_param: str,
-                                     weightings: list = None,
-                                     weight_key_1: str = None, final_key_1: str = None,
-                                     weight_key_2: str = None, final_key_2: str = None,
-                                     weight_key_3: str = None, final_key_3: str = None,
+                                     weightings: list,
                                      entrez_email: str = "", entrez_api_key: str = "",
                                      calculate_full_centrality: bool = True):
     """
-    Calculates contextual relevance by querying the local Master Database
-    over the specific time constraints, completely bypassing API limits.
+    Scores each network node by how strongly the wider literature supports it within the
+    chosen time window, querying the local Master DB so no API calls are made.
 
     `weightings` is a list of (node_attribute, output_attribute) pairs, one per node
-    weighting to score. Each produces a per-article `score_<node_attribute>` column
-    and a per-node `<output_attribute>` CRS value, so any number of weightings can be
-    compared from a single pass over the corpus - the corpus scan dominates the cost,
-    so adding a weighting is far cheaper than re-running. The legacy
-    weight_key_1/2/3 arguments are folded into this list when it is not supplied.
+    weighting to score. Each produces a per-article `score_<node_attribute>` column and a
+    per-node `<output_attribute>` MRS (Mean Relevancy Score). Any number of weightings are
+    scored from a single corpus pass - the scan dominates the cost, so extras are cheap.
     """
-    if weightings is None:
-        weightings = [(w, f) for w, f in ((weight_key_1, final_key_1),
-                                          (weight_key_2, final_key_2),
-                                          (weight_key_3, final_key_3)) if w and f]
     if not weightings:
         raise ValueError("No node weightings supplied to relevance scoring.")
 
     if not calculate_full_centrality:
         print("\n[!] NOTICE: Betweenness centrality was estimated from a sampled subset of nodes "
               "rather than computed exactly. Eigenvector and PageRank centrality are unaffected, "
-              "and CRS still reflects topological relevance.\n")
+              "and MRS still reflects topological relevance.\n")
 
     print(f"\n<<< Loading Seed Terms from {os.path.basename(input_nodes_file)} >>>")
     n_w = len(weightings)
@@ -141,7 +134,7 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
     end_iso = parse_date_robust(end_date_param).strftime('%Y-%m-%d')
 
     print("\n" + "<"*30 + ">"*30)
-    print("<<< Calculating Contextual Relevance (Local Data Lake) >>>")
+    print("<<< Calculating Mean Relevancy (Local Data Lake) >>>")
     print("<"*30 + ">"*30)
     print(f"  Target Date Range: {start_iso} to {end_iso}")
 
@@ -284,26 +277,25 @@ def run_contextual_relevance_scoring(input_nodes_file: str, output_nodes_file: s
             "MeSH terms in the master database."
         )
 
-# Calculate final Contextual Relevance Scores (CRS) with Max-Scaling
-    print("\n<<< Calculating CRS (Evidence-Volume Weighting & Max-Scaling)... >>>")
+    # Calculate final Mean Relevancy Scores (MRS) with Max-Scaling
+    print("\n<<< Calculating MRS (Mean Relevancy Score & Max-Scaling)... >>>")
 
-    # S_contextual(i) = ( mean of S_article(A) over A in P_i ) * log10(|P_i| + 1)
-    #
-    # The evidence-volume term depends only on |P_i|, not on the weighting, so only
-    # the mean ARS differs between weightings.
+    # MRS(i) = mean of S_article(A) over A in P_i  (the articles containing term i).
+    # It is the plain mean article-relevance of a term, NOT adjusted for context: the
+    # evidence-volume (CF) and information-content (IC) factors of the former CRS were
+    # dropped because mean-ARS is already frequency-neutral by construction, so those
+    # terms only distorted the node ranking rather than sharpening it.
     final_node_weights = []
     for i, (w_key, _) in enumerate(weightings):
         raw_node_weights = {}
         for term, data in aggregators[i].items():
             if data['count'] > 0:
-                mean_ars = data['sum'] / data['count']            # (1/|P_i|) * sum S_article
-                evidence_volume = np.log10(data['count'] + 1)     # log10(|P_i| + 1)
-                raw_node_weights[term] = mean_ars * evidence_volume
+                raw_node_weights[term] = data['sum'] / data['count']   # mean S_article over P_i
 
-        # --- Apply Relative Max-Scaling Normalization [0.0 to 1.0] ---
-        max_crs = max(raw_node_weights.values()) if raw_node_weights else 1.0
+        # --- Relative max-scaling to [0.0, 1.0] (a display normalisation; rank-preserving) ---
+        max_mrs = max(raw_node_weights.values()) if raw_node_weights else 1.0
         final_node_weights.append(
-            {term: val / max_crs for term, val in raw_node_weights.items()} if max_crs else {}
+            {term: val / max_mrs for term, val in raw_node_weights.items()} if max_mrs else {}
         )
 
     print("\n<<< Generating Final Output JSON File >>>")

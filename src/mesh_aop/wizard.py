@@ -318,7 +318,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         if is_corrupt:
             if "OUTDATED SCHEMA" in db_status:
                 print("      The database schema is outdated (missing the pub_date column).")
-                print("      It MUST be deleted and rebuilt to support high-speed Contextual Relevance Scoring.")
+                print("      It MUST be deleted and rebuilt to support high-speed Mean Relevancy Scoring.")
             else:
                 print("      The database file is malformed (likely due to an interrupted build).")
                 print("      It must be deleted and rebuilt from your downloaded XML files.")
@@ -334,7 +334,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         else:
             params['_run_baseline_etl'] = False
             print("\n  [!] CRITICAL WARNING: You chose to skip Master Database compilation.")
-            print("      Step 3 (Contextual Relevance Scoring) will fail or return empty results without a valid database.")
+            print("      Step 3 (Mean Relevancy Scoring) will fail or return empty results without a valid database.")
 
     elif is_incomplete:
         print(f"  [!] Master DB is {db_status}")
@@ -351,7 +351,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         else:
             params['_run_baseline_etl'] = False
             print("\n  [!] CRITICAL WARNING: You chose to run with an incomplete Master Database.")
-            print("      Contextual Relevance Scores will be statistically inaccurate until fully compiled.")
+            print("      Mean Relevancy Scores will be statistically inaccurate until fully compiled.")
 
     else:
         if db_age_days > 330:
@@ -487,7 +487,7 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             params['analysis_parameters']['context_start_date'] = _prompt_override(
                 "Context Start Date", b4_preview["Context Start Date"], str,
-                "Scopes which articles are relevance-scored (ARS). Term specificity (IC) is always computed across the full corpus, independent of this window."
+                "Scopes which articles are relevance-scored (ARS), i.e. which articles enter each term's mean relevancy."
             )
             params['analysis_parameters']['context_end_date'] = _prompt_override(
                 "Context End Date", b4_preview["Context End Date"], str
@@ -666,6 +666,17 @@ def run_interactive_wizard(config, step: str) -> bool:
                     b7_preview["Target Edges"], str
                 )
 
+        # Network overlay comparison - its own section, default off.
+        if step in ['all', 'secondary']:
+            if _prompt_override("Compare networks?", sec_params.get('compare_networks', False), bool):
+                sec_params['compare_networks'] = True
+                sec_params['comparison_networks'] = _prompt_override(
+                    'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
+                    sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                )
+            else:
+                sec_params['compare_networks'] = False
+
     # ---------------------------------------------------------
     # BLOCK 8: Ground-Truth Validation & Benchmarking
     # ---------------------------------------------------------
@@ -702,7 +713,8 @@ def run_interactive_wizard(config, step: str) -> bool:
             ),
             "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
             "Bootstrap Resamples": bench_params.get('n_boot', 25),
-            "Permutations": bench_params.get('n_perm', 25)
+            "Permutations": bench_params.get('n_perm', 25),
+            "Node Validation Weight Key": bench_params.get('network_validation_weight_key', 'MRS_pagerank_centrality')
         }
         if _ask_block("Ground-Truth Validation & Benchmark Parameters", b8_preview):
             bench_params['run_ground_truth_analysis'] = _prompt_override(
@@ -724,6 +736,11 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             bench_params['n_perm'] = _prompt_override(
                 "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int
+            )
+            bench_params['network_validation_weight_key'] = _prompt_override(
+                "Node validation weight key",
+                bench_params.get('network_validation_weight_key', 'MRS_pagerank_centrality'), str,
+                "[MRS_]{betweenness|pagerank|eigenvector}[_subgraph]_centrality."
             )
 
     print("\n<<< Configuration Update Complete >>>\n")

@@ -222,7 +222,7 @@ def _bm25(X, doclen, n_total, k1=1.2, b=0.75):
 def _collect_weightings(node_data, terms, graph):
     """Every node weighting to evaluate, keyed by display label.
 
-    Raw centralities and their CRS counterparts come from the network file. Subgraph
+    Raw centralities and their MRS counterparts come from the network file. Subgraph
     eigenvector is recomputed here if an older network predates it, so the report
     still produces the full 3x2 grid rather than silently dropping a cell.
     """
@@ -230,7 +230,7 @@ def _collect_weightings(node_data, terms, graph):
     for cent in CENTRALITIES:
         for suffix, scope in SCOPES:
             raw_key = f"{cent}{suffix}_centrality"
-            crs_key = f"CRS_{raw_key}"
+            mrs_key = f"MRS_{raw_key}"
             vals = np.array([float(n.get(raw_key, 0.0) or 0.0) for n in node_data])
             if not vals.any() and suffix == "_subgraph" and cent == "eigenvector":
                 try:
@@ -243,11 +243,11 @@ def _collect_weightings(node_data, terms, graph):
                 weights[f"{cent} ({scope})"] = vals
             else:
                 missing.append(raw_key)
-            cvals = np.array([float(n.get(crs_key, 0.0) or 0.0) for n in node_data])
+            cvals = np.array([float(n.get(mrs_key, 0.0) or 0.0) for n in node_data])
             if cvals.any():
-                weights[f"CRS_{cent} ({scope})"] = cvals
+                weights[f"MRS_{cent} ({scope})"] = cvals
             else:
-                missing.append(crs_key)
+                missing.append(mrs_key)
     weights["uniform (count of network terms)"] = np.ones(len(terms))
     return weights, missing
 
@@ -360,9 +360,9 @@ def _paired_tests(scores_by_label, mask, is_pos, n_total_hint, n_boot, rng, fram
     pairs = []
     for cent in CENTRALITIES:
         for _, scope in SCOPES:
-            a, b = f"CRS_{cent} ({scope})", f"{cent} ({scope})"
+            a, b = f"MRS_{cent} ({scope})", f"{cent} ({scope})"
             if a in pos_cache and b in pos_cache:
-                pairs.append((a, b, "CRS vs raw centrality"))
+                pairs.append((a, b, "MRS vs raw centrality"))
     uni = "uniform (count of network terms)"
     for cent in CENTRALITIES:
         for _, scope in SCOPES:
@@ -687,8 +687,8 @@ def _make_figures(scores, is_pos, in_query, n_pool, rng, fig_dir, prefix):
     # 2. the query has a ceiling; the network does not
     if in_query.any():
         fig, ax = plt.subplots(figsize=(8, 5.5))
-        best = [k for k in scores if "(subgraph)" in k and not k.startswith("CRS")][:2] + \
-               [k for k in scores if k.startswith("CRS") and "(subgraph)" in k][:1]
+        best = [k for k in scores if "(subgraph)" in k and not k.startswith("MRS")][:2] + \
+               [k for k in scores if k.startswith("MRS") and "(subgraph)" in k][:1]
         for label in best:
             s = scores[label] + in_query * (float(scores[label].max()) + 1.0)
             pos, size = _positions(s, all_mask, is_pos, rng)

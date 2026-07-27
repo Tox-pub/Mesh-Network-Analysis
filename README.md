@@ -4,7 +4,7 @@
 
 This repository contains a comprehensive computational pipeline designed to construct, filter, and analyze knowledge graphs representing Adverse Outcome Pathways (**AOPs**) and biological flows. By leveraging the NCBI Entrez API and the complete offline NLM PubMed Baseline, the pipeline extracts primary literature associated with specific Medical Subject Headings (**MeSH**), maps multi-generational citation topologies, and calculates semantic co-occurrence networks.
 
-The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global-Local Filtering (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Contextual Relevance Scoring (CRS) to rank nodes and edges based on their impact within the global corpus of literature.
+The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global-Local Filtering (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Mean Relevancy Scoring (MRS) to rank nodes and edges based on their impact within the global corpus of literature.
 
 ---
 
@@ -44,7 +44,7 @@ Mesh-Network-Analysis-Main-Library/
 │   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
 │   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
-│   │   ├── relevance.py                # Contextual Relevance Scoring (Semantic Re-ranking)
+│   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
 │   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
 │   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
 │   │   ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
@@ -242,9 +242,9 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 ### 5. Analysis Parameters
 
 * **Calculate Full Centrality (Boolean):** Controls **how betweenness is computed, not whether centrality is computed at all**. If `True`, betweenness is calculated **exactly** over every node pair. If `False` (Default), it is **estimated** from a sample of `betweenness_k_samples` source nodes, which is dramatically faster and bounds memory on large graphs.
-  * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Contextual Relevance Scores (CRS) are produced normally in both modes. The only difference is that betweenness — and therefore the betweenness-weighted ARS/CRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
+  * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Mean Relevancy Scores (MRS) are produced normally in both modes. The only difference is that betweenness — and therefore the betweenness-weighted ARS/MRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
 * **Betweenness K-Samples:** Heuristic sampling limit for Centrality calculation. Lower values increase speed but reduce precision.
-* **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Contextual Relevance Scoring, allowing the simulation of historical network states.
+* **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Mean Relevancy Scoring, allowing the simulation of historical network states.
 * **Random Seed:** Integer seed passed to NetworkX and scikit-learn for reproducible t-SNE projections and community detection. Default: `42`.
 * **Eigenvector Max Iterations / Tolerance:** Power-iteration convergence controls for Eigenvector centrality. Increase `eigenvector_max_iter` (default `1000`) if convergence warnings appear on very large or sparse graphs.
 
@@ -311,7 +311,7 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 * **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
   When enabled, this **also** causes betweenness **and** PageRank to be recomputed on the filtered consensus subgraph, in addition to the whole-corpus versions, and scored as extra benchmark scorers (`betweenness (subgraph)`, `pagerank (subgraph)`). Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space. Computing both for both algorithms makes centrality **scope** and centrality **type** a full 2×2 rather than confounding them. Note the subgraph betweenness is computed **exactly** (the subgraph is small), unlike the whole-graph estimate. The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant — it is the single control for all four. Because this decision changes which centralities are computed, it is read at the **network** step, so the wizard offers the flag during `--step network` as well; the benchmark scores whichever `score_*` columns relevance actually produced.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
-* **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `CRS_pagerank_centrality`; set to `CRS_betweenness_centrality` to compare against the betweenness weighting instead.
+* **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `MRS_pagerank_centrality`; set to `MRS_betweenness_centrality` to compare against the betweenness weighting instead.
 * **`min_articles_per_node`:** Minimum number of ground-truth articles a term must appear in to become a node of the ground-truth co-occurrence network (default `2`, which suppresses singleton noise).
 * **`background_pool_size`:** Number of randomly sampled articles used to estimate corpus base rates and to build the permutation nulls (default `50000`). Larger is more precise but slower.
 
@@ -354,7 +354,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 * `*_cleaned_pmids.db`: The SQLite schema containing the hierarchical linkage of your extracted articles.
 * `*_full_network_data.json`: The raw, unfiltered NetworkX graphical representation.
 * `*_consensus_lcc_network.json`: The optimized graph containing the intersection of the GLF and SA algorithms, reduced to its Largest Connected Component (LCC).
-* `*_final_network_with_relevance.json`: The fully annotated terminal graph, populated with semantic Contextual Relevance Scores (CRS) and Louvain Community classifications.
+* `*_final_network_with_relevance.json`: The fully annotated terminal graph, populated with semantic Mean Relevancy Scores (MRS) and Louvain Community classifications.
 
 ### Analytical Exports (`results/`)
 
@@ -364,7 +364,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
 * **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
 * **Figure 3:** Community Composition bar charts detailing biological strata makeup per cluster.
-* **Figure 4:** CRS Centrality correlations (Betweenness vs PageRank).
+* **Figure 4:** MRS Centrality correlations (Betweenness vs PageRank).
 * **Figure 5:** t-SNE projection of the network colored by Louvain community.
 * **Figure 6:** AOP Alluvial/Sankey flows (The primary visualization connecting Stressors to Outcomes). *(Note: Provided as interactive `.html` files for deep pathway inspection).*
 * **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
@@ -452,7 +452,7 @@ Both levels are calibrated against a **permutation null of random article draws 
 * **Node level** — how many network nodes are attested in the ground truth, their enrichment over corpus base rates, and the Spearman correlation between a node's ground-truth prominence and its network weight.
 * **Edge level** — how many of the network's edges reappear as ground-truth co-occurrences.
 * **Misses** — ground-truth-frequent eligible terms that are *not* network nodes, which localize where the network under-covers the domain.
-* **Node-weighting comparison** — scores every available node weighting (each `CRS_*`, each raw centrality, `adjusted_node_weight`) against external ground-truth prominence, to test whether the CRS transformation adds node-importance information **over** the centrality it is built from. Because a CRS is derived from its centrality the two are collinear, so a plain comparison of their correlations is not sufficient; the table therefore reports a **partial correlation controlling for the raw centrality** and a **paired bootstrap CI on the difference**. A difference interval spanning zero means the transformation is not distinguishable from the centrality underneath it. Three criteria are reported side by side: correlation with GT article frequency, correlation with **enrichment** (base-rate corrected, which removes the frequency component CRS partly encodes through CF and is therefore the stricter test), and an AUC for ranking attested nodes above unattested ones across *all* nodes.
+* **Node-weighting comparison** — scores every available node weighting (each `MRS_*`, each raw centrality, `adjusted_node_weight`) against external ground-truth prominence, to test whether the MRS transformation adds node-importance information **over** the centrality it is built from. Because an MRS is derived from its centrality the two are collinear, so a plain comparison of their correlations is not sufficient; the table therefore reports a **partial correlation controlling for the raw centrality** and a **paired bootstrap CI on the difference**. A difference interval spanning zero means the transformation is not distinguishable from the centrality underneath it. Three criteria are reported side by side: correlation with GT article frequency, correlation with **enrichment** (base-rate corrected, which removes any residual frequency component and is therefore the stricter test), and an AUC for ranking attested nodes above unattested ones across *all* nodes.
 
 It runs *before* the ranking benchmark (it takes minutes rather than tens of minutes), so a long benchmark never blocks the structural result. Disable it with `benchmark.run_network_validation = false`.
 
@@ -488,7 +488,7 @@ from mesh_aop import (
     run_network_construction,
     run_consensus_filtering_and_lcc,
     run_community_detection,
-    run_contextual_relevance_scoring,
+    run_mean_relevancy_scoring,
     get_top_network_articles,
     plot_sankey_alluvial,
 )
@@ -519,7 +519,7 @@ run_network_construction(db_path_param=config.files['cleaned_db'],
                          output_json_path=config.files['full_network'], ...)
 run_consensus_filtering_and_lcc(...)
 run_community_detection(network_file_path=config.files['consensus_lcc'], ...)
-run_contextual_relevance_scoring(...)
+run_mean_relevancy_scoring(...)
 ```
 
 The full list of exported symbols is defined in `src/mesh_aop/__init__.py`.
@@ -602,7 +602,7 @@ Networks with `generations_n >= 2` can load several million records into RAM dur
 2. Reduce `betweenness_k_samples` (default `1000`) to lower the heuristic sampling budget.
 3. Reduce `target_num_edges` so GLF/SA operate on a smaller subgraph.
 
-Setting `calculate_full_centrality: false` does **not** disable centrality or prevent CRS from being calculated — eigenvector and PageRank are computed regardless, and only betweenness becomes a sampled estimate (see the Analysis Parameters section above).
+Setting `calculate_full_centrality: false` does **not** disable centrality or prevent MRS from being calculated — eigenvector and PageRank are computed regardless, and only betweenness becomes a sampled estimate (see the Analysis Parameters section above).
 
 ### SQLite Lock Errors on Network-Attached Storage
 

@@ -114,14 +114,14 @@ def _load_network(final_network_path: str, weight_key: str):
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 # Candidate node weightings, paired with the raw centrality each is derived from.
-# A CRS is a transformation of its centrality, so the question is never "which
+# An MRS is a transformation of its centrality, so the question is never "which
 # correlates better" in isolation but "does the transformation add anything the
 # centrality did not already carry" - hence the paired baseline.
 _WEIGHT_CANDIDATES = [
-    ("CRS_betweenness_centrality", "betweenness_centrality"),
-    ("CRS_pagerank_centrality", "pagerank_centrality"),
-    ("CRS_betweenness_subgraph_centrality", "betweenness_subgraph_centrality"),
-    ("CRS_pagerank_subgraph_centrality", "pagerank_subgraph_centrality"),
+    ("MRS_betweenness_centrality", "betweenness_centrality"),
+    ("MRS_pagerank_centrality", "pagerank_centrality"),
+    ("MRS_betweenness_subgraph_centrality", "betweenness_subgraph_centrality"),
+    ("MRS_pagerank_subgraph_centrality", "pagerank_subgraph_centrality"),
     ("betweenness_centrality", None),
     ("pagerank_centrality", None),
     ("betweenness_subgraph_centrality", None),
@@ -164,8 +164,8 @@ def _compare_node_weightings(node_attrs: dict, freq: Counter, n_gt: int,
 
     Three complementary criteria, because no single one is sufficient:
       * GT frequency  - how often ground-truth articles use the term (shared nodes);
-      * GT enrichment - the same, divided by the corpus base rate, which removes the
-        frequency component CRS partly encodes through CF and so is the stricter test;
+      * GT enrichment - the same, divided by the corpus base rate, which removes any
+        residual frequency component and so is the stricter test;
       * AUC           - whether the weighting ranks attested nodes above unattested
         ones across ALL nodes, using the terms the ground truth never mentions too.
     Paired weightings additionally get a partial correlation controlling for the raw
@@ -369,7 +369,7 @@ def _plot_nulls(node_null, obs_nodes, z_n, p_n, edge_null, obs_edges, z_e, p_e,
 def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
                               final_network_path: str, output_dir: str,
                               figures_dir: str, file_prefix: str = "network",
-                              weight_key: str = "CRS_pagerank_centrality",
+                              weight_key: str = "MRS_pagerank_centrality",
                               min_articles_per_node: int = 2,
                               pool_size: int = 50000,
                               n_perm_nodes: int = 1000,
@@ -493,7 +493,7 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
           f"   z={z_e:.1f}  p={p_e:.4f}")
 
     # <<< 5b. Which node weighting best tracks ground-truth prominence? >>>
-    # A CRS is derived from its centrality, so the two are collinear and comparing
+    # An MRS is derived from its centrality, so the two are collinear and comparing
     # their raw correlations alone would be misleading. The partial correlation and
     # the paired bootstrap difference are the parts that actually answer whether the
     # transformation contributes anything the centrality did not already carry.

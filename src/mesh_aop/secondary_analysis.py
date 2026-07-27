@@ -419,3 +419,177 @@ def convert_network_json_to_excel(input_json_path: str, output_excel_path: str):
 
     except Exception as e:
         raise RuntimeError(f"Failed to convert JSON to Excel: {e}")
+
+
+# Recognised graph formats besides the pipeline's own Cytoscape JSON, mapped to
+# their networkx reader. Anything else is attempted as Cytoscape JSON.
+_GRAPH_READERS = {
+    ".graphml": "read_graphml",
+    ".gml": "read_gml",
+    ".gexf": "read_gexf",
+    ".net": "read_pajek",
+    ".pajek": "read_pajek",
+    ".adjlist": "read_adjlist",
+    ".edgelist": "read_edgelist",
+}
+
+
+def _parse_network_list(raw: str) -> list:
+    """Split the wizard's comma-separated, quote-wrapped network list into names.
+
+    Accepts `"a.json","b.graphml"` or a bare `a.json, b.graphml`; surrounding
+    single/double quotes and whitespace are stripped and empties dropped.
+    """
+    if not raw:
+        return []
+    return [tok.strip().strip('"').strip("'").strip()
+            for tok in raw.split(",") if tok.strip().strip('"').strip("'").strip()]
+
+
+def _load_network_nodes(path: str) -> set:
+    """Return the set of node ids in a network file (Cytoscape JSON or a networkx format)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in _GRAPH_READERS:
+        import networkx as nx
+        graph = getattr(nx, _GRAPH_READERS[ext])(path)
+        return set(str(n) for n in graph.nodes())
+    # Default / fallback: the pipeline's Cytoscape JSON layout.
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {n.get("data", {}).get("id") for n in data.get("elements", {}).get("nodes", [])
+            if n.get("data", {}).get("id") is not None}
+
+
+def run_network_overlay_comparison(network_files, search_dir: str, results_dir: str,
+                                   file_prefix: str, random_seed: int = 42):
+    """Compare the node membership of an arbitrary set of networks.
+
+    `network_files` is a list of file names (or a raw comma-separated string). Bare
+    names are resolved against `search_dir` (data/processed, or data/reference_processed
+    when reference data is in use); names carrying their own path are used as given.
+    Networks may be the pipeline's Cytoscape JSON (default) or any networkx-readable
+    format (.graphml/.gml/.gexf/...). Writes a membership matrix, a pairwise
+    intersection/Jaccard table, and an overlay figure to `results_dir`. Non-JSON
+    outputs (the PNG) stay in the results section, never in data/.
+    """
+    print("\n<<< Network Overlay Comparison >>>")
+
+    names = _parse_network_list(network_files) if isinstance(network_files, str) else list(network_files)
+    if not names:
+        print("  [!] No networks were listed to compare; skipping.")
+        return
+
+    # Resolve each requested network and report the ones that cannot be found.
+    resolved, missing = {}, []
+    for name in names:
+        path = name if os.path.dirname(name) else os.path.join(search_dir, name)
+        if os.path.exists(path):
+            resolved[name] = path
+        else:
+            missing.append(name)
+
+    if missing:
+        print(f"  [!] WARNING: {len(missing)} network file(s) could not be found:")
+        for name in missing:
+            print(f"        - {name}")
+        print(f"      The system looked in: {os.path.abspath(search_dir)}")
+        print("      Check the spelling and location of the file names above (bare names are")
+        print("      resolved against that folder; include a path to load from elsewhere).")
+
+    if len(resolved) < 2:
+        print(f"  [!] Need at least two readable networks to compare; found {len(resolved)}. Skipping.")
+        return
+
+    # Load node sets, dropping any file that fails to parse (with a warning).
+    sets = {}
+    for name, path in resolved.items():
+        try:
+            sets[name] = _load_network_nodes(path)
+            print(f"  Loaded '{name}': {len(sets[name]):,} nodes")
+        except Exception as e:
+            print(f"  [!] WARNING: could not read '{name}' ({e}); excluded from the comparison.")
+    if len(sets) < 2:
+        print(f"  [!] Fewer than two networks could be read; skipping.")
+        return
+
+    labels = list(sets.keys())
+    os.makedirs(results_dir, exist_ok=True)
+
+    # --- Membership matrix: every node x every network (Y/N + kept-in-N count) ---
+    universe = sorted(set().union(*sets.values()))
+    rows = []
+    for node in universe:
+        row = {"node": node}
+        for lab in labels:
+            row[lab] = "Y" if node in sets[lab] else "N"
+        row["kept_in_N_networks"] = sum(node in sets[lab] for lab in labels)
+        rows.append(row)
+    membership_df = pd.DataFrame(rows, columns=["node"] + labels + ["kept_in_N_networks"])
+    membership_df = membership_df.sort_values(["kept_in_N_networks", "node"],
+                                              ascending=[False, True]).reset_index(drop=True)
+    membership_path = os.path.join(results_dir, f"{file_prefix}_network_overlap_membership.csv")
+    membership_df.to_csv(membership_path, index=False, encoding="utf-8-sig")
+
+    # --- Pairwise intersection count and Jaccard similarity ---
+    inter = pd.DataFrame(index=labels, columns=labels, dtype=float)
+    jacc = pd.DataFrame(index=labels, columns=labels, dtype=float)
+    for a in labels:
+        for b in labels:
+            common = len(sets[a] & sets[b])
+            union = len(sets[a] | sets[b])
+            inter.loc[a, b] = common
+            jacc.loc[a, b] = (common / union) if union else 0.0
+    matrix_path = os.path.join(results_dir, f"{file_prefix}_network_overlap_matrix.csv")
+    with open(matrix_path, "w", encoding="utf-8-sig", newline="") as f:
+        f.write("# Pairwise node-set intersection counts\n")
+        inter.astype(int).to_csv(f)
+        f.write("\n# Pairwise Jaccard similarity (|A n B| / |A u B|)\n")
+        jacc.round(4).to_csv(f)
+
+    # --- Figure: set sizes + pairwise Jaccard heatmap ---
+    fig_path = os.path.join(results_dir, f"{file_prefix}_Network_Overlap.png")
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        n = len(labels)
+        fig, (ax_bar, ax_hm) = plt.subplots(
+            1, 2, figsize=(max(9, 1.1 * n + 6), max(4.5, 0.5 * n + 3)),
+            gridspec_kw={"width_ratios": [1, 1.3]})
+
+        sizes = [len(sets[lab]) for lab in labels]
+        ax_bar.barh(range(n), sizes, color="#4C72B0")
+        ax_bar.set_yticks(range(n))
+        ax_bar.set_yticklabels(labels, fontsize=9)
+        ax_bar.invert_yaxis()
+        ax_bar.set_xlabel("Node count")
+        ax_bar.set_title("Network size")
+        for i, s in enumerate(sizes):
+            ax_bar.text(s, i, f" {s:,}", va="center", fontsize=8)
+
+        jvals = jacc.values.astype(float)
+        im = ax_hm.imshow(jvals, cmap="magma_r", vmin=0.0, vmax=1.0)
+        ax_hm.set_xticks(range(n)); ax_hm.set_yticks(range(n))
+        ax_hm.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+        ax_hm.set_yticklabels(labels, fontsize=8)
+        ax_hm.set_title("Pairwise Jaccard overlap")
+        for i in range(n):
+            for j in range(n):
+                ax_hm.text(j, i, f"{jvals[i, j]:.2f}", ha="center", va="center",
+                           fontsize=7, color="white" if jvals[i, j] > 0.5 else "black")
+        fig.colorbar(im, ax=ax_hm, fraction=0.046, pad=0.04)
+
+        fig.suptitle("Network node-overlap comparison", fontsize=13)
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        fig.savefig(fig_path, dpi=200)
+        plt.close(fig)
+    except Exception as e:
+        print(f"  [!] WARNING: overlap figure could not be generated ({e}); tables were still written.")
+        fig_path = None
+
+    print(f"  [+] Compared {len(sets)} networks over {len(universe):,} distinct nodes.")
+    print(f"      Membership matrix : {membership_path}")
+    print(f"      Overlap matrix    : {matrix_path}")
+    if fig_path:
+        print(f"      Overlay figure    : {fig_path}")
