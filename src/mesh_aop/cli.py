@@ -43,7 +43,7 @@ from .relevance import run_mean_relevancy_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles, run_network_overlay_comparison
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
 from .gt_network_validation import run_gt_network_validation
-from .validation_report import run_validation_report
+from .validation_report import run_validation_report, run_projection_comparison
 from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
@@ -693,6 +693,32 @@ def main():
                               f" continuing to the article ranking benchmark.")
                 else:
                     print("  [!] Skipping validation report: final network not found.")
+
+            # Article-scoring PROJECTION comparison (normalised vs plain sum vs
+            # MRS-weighted vs bipartite vs BM25/baselines). Reuses the validation
+            # report's scoring-pool cache; emits a CSV + figure only, no HTML.
+            if bench_params.get('run_projection_comparison', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_projection_comparison(
+                            final_network_file=str(config.files['final_network']),
+                            master_db_path=str(config.files['master_db']),
+                            pmid_db_path=str(config.files['pmids_db']),
+                            ground_truth_file=gt_path,
+                            output_dir=str(config.results_dir / 'validation'),
+                            project_prefix=f"{config.prefix}_",
+                            primary_query_term=bench_params.get(
+                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            n_boot=bench_params.get(
+                                'projection_comparison_n_boot',
+                                bench_params.get('validation_report_n_boot', 2000)),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: projection comparison failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping projection comparison: final network not found.")
 
             try:
                 run_benchmark(

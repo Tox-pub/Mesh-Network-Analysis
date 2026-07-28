@@ -90,6 +90,7 @@ class MeshConfig:
                 "n_boot": 25,
                 "n_perm": 25,
                 "run_network_validation": True,
+                "run_projection_comparison": True,
                 "network_validation_weight_key": "MRS_pagerank_centrality",
                 "min_articles_per_node": 2,
                 "background_pool_size": 50000

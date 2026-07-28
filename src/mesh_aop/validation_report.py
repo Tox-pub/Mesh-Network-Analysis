@@ -940,3 +940,182 @@ img{max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:6px;margin
                  "reported; see the README sheet of the workbook.</p>")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(parts))
+
+
+# ==========================================================================
+# PROJECTION COMPARISON  (ported from the sandbox ARS evaluation; no HTML)
+# ==========================================================================
+
+def _fig_projection_comparison(df, fig_dir, prefix):
+    """Grouped BEDROC bar chart with bootstrap-CI whiskers, one panel per frame."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    frames = list(dict.fromkeys(df["frame"]))
+    methods = list(dict.fromkeys(df["method"]))
+    fig, axes = plt.subplots(1, len(frames), figsize=(6.2 * len(frames), 5.4), sharey=True)
+    axes = np.atleast_1d(axes)
+    for ax, fr in zip(axes, frames):
+        sub = df[df["frame"] == fr].set_index("method").reindex(methods)
+        y = np.arange(len(methods))
+        err = np.vstack([(sub["BEDROC"] - sub["BEDROC_lo"]).to_numpy(),
+                         (sub["BEDROC_hi"] - sub["BEDROC"]).to_numpy()])
+        ax.barh(y, sub["BEDROC"].to_numpy(), xerr=np.abs(err), color="#00819C",
+                error_kw=dict(ecolor="#333", lw=1), height=.66)
+        ax.set_yticks(y); ax.set_yticklabels(methods, fontsize=8)
+        ax.invert_yaxis()
+        ax.set_xlabel("BEDROC (alpha = 20)")
+        ax.set_title(fr, fontsize=11)
+        ax.grid(True, axis="x", ls="--", alpha=.35)
+    fig.suptitle("Article-scoring projection comparison vs ground truth", fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    out = os.path.join(fig_dir, f"{prefix}fig_projection_comparison.png")
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
+                              ground_truth_file, output_dir, project_prefix="",
+                              primary_query_term="Dermatitis, Allergic Contact",
+                              seed_key="pagerank_subgraph_centrality",
+                              mrs_key="MRS_pagerank_subgraph_centrality",
+                              n_boot=2000, random_seed=42, cache_dir=None,
+                              make_figure=True):
+    """Compare article-scoring PROJECTIONS against the ground truth (CSV + figure, no HTML).
+
+    Complements run_validation_report: that asks "which node WEIGHTING (seed) ranks the
+    ground truth best?"; this fixes the seed and asks "which PROJECTION turns node weights
+    into an article score best?" - the symmetrically normalised projection vs the plain
+    sum vs mutual reinforcement vs the MRS re-weighting vs BM25 vs trivial baselines,
+    scored by BEDROC across three frames (whole pool / citation neighbourhood / within
+    query) with positives-only bootstrap CIs. This is the sandbox ARS evaluation ported
+    into the pipeline; the deprecated CRS-weighted scorer is replaced by the MRS-weighted
+    one, and only a table and a figure are emitted (no HTML).
+
+    Shares the on-disk scoring-pool cache with run_validation_report, so when both run in
+    the benchmark step the 9M-row corpus is scanned once. The mutual-reinforcement scorer
+    materialises one transient copy of the incidence matrix; run this when memory is free.
+    """
+    rng = np.random.default_rng(random_seed)
+    os.makedirs(output_dir, exist_ok=True)
+    fig_dir = os.path.join(output_dir, "figures")
+    os.makedirs(fig_dir, exist_ok=True)
+    cache_dir = cache_dir or os.path.join(output_dir, ".validation_cache")
+
+    print("\n" + "=" * 78)
+    print("PROJECTION COMPARISON (article-scoring methods)")
+    print("=" * 78)
+
+    with open(final_network_file, "r", encoding="utf-8") as f:
+        net = json.load(f)
+    node_data = [n["data"] for n in net["elements"]["nodes"]]
+    terms = [n["id"] for n in node_data]
+    nd = {d["id"]: d for d in node_data}
+
+    def w_of(k):
+        return np.array([float(nd[t].get(k, 0.0) or 0.0) for t in terms])
+
+    # Seed = the chosen node weighting; fall back to the whole-graph key if the subgraph
+    # one was never computed (i.e. ground-truth analysis was off at network-build time).
+    s = w_of(seed_key)
+    if not s.any():
+        s = w_of(seed_key.replace("_subgraph", ""))
+        print(f"  [i] '{seed_key}' is empty; using the whole-graph seed instead.")
+    mrs = w_of(mrs_key)
+    if not mrs.any():
+        mrs = w_of(mrs_key.replace("_subgraph", ""))
+
+    X, pmids, doclen, years = _build_or_load_cache(
+        master_db_path, terms, os.path.join(cache_dir, "pool"))
+    n_pool, M = X.shape
+    print(f"  scored pool: {n_pool:,} articles x {M} network terms")
+
+    deg_a = np.asarray(X.sum(1)).ravel()
+    deg_t = np.asarray(X.sum(0)).ravel()
+    with np.errstate(divide="ignore"):
+        da_isqrt = np.where(deg_a > 0, deg_a ** -0.5, 0.0)
+        dt_isqrt = np.where(deg_t > 0, deg_t ** -0.5, 0.0)
+        da_inv = np.where(deg_a > 0, 1.0 / deg_a, 0.0)
+
+    def _static(w):
+        return X @ w
+
+    def _normed(seed):
+        return da_isqrt * (X @ (dt_isqrt * seed))
+
+    def _reinforced(seed, a=0.5, it=1000, tol=1e-9):
+        Mop = np.asarray((X.T @ X.multiply(da_inv[:, None])).todense())
+        P = (dt_isqrt[:, None] * Mop) * dt_isqrt[None, :]
+        p = seed / seed.sum() if seed.sum() else seed
+        t = p.copy()
+        for _ in range(it):
+            tn = a * (P @ t) + (1 - a) * p
+            if np.abs(tn - t).sum() < tol:
+                break
+            t = tn
+        return da_isqrt * (X @ (dt_isqrt * tn))
+
+    scorers = {
+        "Normalised ARS":         _normed(s),
+        "ARS (unnormalised sum)": _static(s),
+        "ARS (MRS-weighted)":     _static(mrs),
+        "Bipartite reinforced":   _reinforced(s),
+        "BM25 (MeSH field)":      _bm25(X, doclen, n_pool),
+        "Uniform term count":     _static(np.ones(M)),
+        "Random":                 rng.random(n_pool),
+    }
+    if primary_query_term and primary_query_term in terms:
+        scorers[f"Naive query ('{primary_query_term}')"] = np.asarray(
+            X[:, terms.index(primary_query_term)].todense()).ravel()
+
+    gt = pd.read_excel(ground_truth_file)
+    pmid_col = next((c for c in gt.columns if c.strip().upper() == "PMID"), gt.columns[0])
+    gt_ids = {int(str(x).replace(".0", "")) for x in gt[pmid_col]
+              if str(x).replace(".0", "").isdigit()}
+    is_pos = np.isin(pmids, list(gt_ids))
+
+    in_q = np.zeros(n_pool, bool)
+    in_nb = np.ones(n_pool, bool)
+    try:
+        con = _open_resilient(pmid_db_path)
+        p0 = {r[0] for r in con.execute("SELECT pmid FROM pmids_table WHERE generation='P0'")}
+        nb = {r[0] for r in con.execute("SELECT pmid FROM pmids_table")}
+        con.close()
+        in_q = np.isin(pmids, list(p0))
+        in_nb = np.isin(pmids, list(nb))
+    except Exception as exc:
+        print(f"  [!] Could not read the query/neighbourhood sets ({exc}); "
+              f"only the whole-pool frame will be scored.")
+
+    frames = {"whole pool": np.ones(n_pool, bool),
+              "citation neighbourhood": in_nb,
+              "within query": in_q}
+    print(f"  ground truth: {int(is_pos.sum())} positives in pool "
+          f"({int((is_pos & in_q).sum())} within query, "
+          f"{int((is_pos & in_nb).sum())} in neighbourhood)")
+
+    rows = []
+    for fname, mask in frames.items():
+        if not mask.any() or not (is_pos & mask).any():
+            continue
+        size = int(mask.sum())
+        for lab, sc in scorers.items():
+            pos, _ = _positions(sc.astype(float), mask, is_pos, rng)
+            point, ci = _bootstrap_metrics(pos, size, n_boot, rng)
+            rows.append({"frame": fname, "method": lab, "n_articles": size,
+                         "n_positives": int(pos.size), "BEDROC": point["BEDROC"],
+                         "BEDROC_lo": ci["BEDROC"][0], "BEDROC_hi": ci["BEDROC"][1],
+                         "EF@0.01": point.get("EF@0.01", np.nan),
+                         "recall@1000": point.get("recall@1000", np.nan),
+                         "MAP": point.get("MAP", np.nan)})
+        print(f"  [{fname}] scored {len(scorers)} methods ({size:,} articles)")
+
+    df = pd.DataFrame(rows)
+    csv_path = os.path.join(output_dir, f"{project_prefix}projection_comparison.csv")
+    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+    print(f"  [+] table:  {csv_path}")
+
+    if make_figure and not df.empty:
+        print(f"  [+] figure: {_fig_projection_comparison(df, fig_dir, project_prefix)}")
+    return df
