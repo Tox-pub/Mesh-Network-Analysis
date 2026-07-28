@@ -45,6 +45,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+from matplotlib.colors import LinearSegmentedColormap
 
 from .mesh_stop_words import MESH_STOP_WORDS as _RAW_STOP_WORDS
 from .benchmark import validate_ground_truth, _open_readonly_resilient
@@ -259,32 +261,78 @@ def _sample_background_pool(master_db_path: str, pool_size: int, seed: int) -> l
 # FIGURES
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
+# Full paper colour palette (GIMP Fig1.gpl export), kept here so any figure can
+# reference the exact publication colours later. Order follows the .gpl file.
+FIG1_PALETTE = [
+    '#000000', '#003A46', '#00819C', '#1A1A1A', '#30526C', '#353564', '#39D0EE',
+    '#3C476C', '#4D4D4D', '#4D4D9F', '#55306C', '#666666', '#6CE9FF', '#6DDBC2',
+    '#85DB6D', '#8686BF', '#999999', '#AFAFDE', '#BB6DDB', '#C863B1', '#D7D7FF',
+    '#D8DA6C', '#D9F4F9', '#DAF4F9', '#DB6D78', '#DB6DC0', '#DBAC6D', '#E9E9FF',
+    '#FFFFFF',
+]
+
+# Semantic role -> colour for the three ground-truth validation figures, all taken
+# from FIG1_PALETTE. Change a role here to recolour every GT figure at once.
+GT_C_ATTESTED = '#00819C'   # teal      - in-network node / recovered edge
+GT_C_MISS     = '#DB6D78'   # coral     - ground-truth-only node / network miss
+GT_C_GT_EDGE  = '#DB6D78'   # coral     - ground-truth-only edge (coordinated with the miss nodes)
+GT_C_NULL     = '#8686BF'   # purple    - permutation-null histogram (lighter)
+GT_C_OBSERVED = '#1A1A1A'   # near-black - observed-statistic marker line
+# Sequential ramp for the GT-frequency scatter: slate -> teal -> gold (low -> high).
+GT_FREQ_CMAP  = LinearSegmentedColormap.from_list('gt_freq', ['#3C476C', '#00819C', '#DBAC6D'])
+
+
+def _adjust_labels(texts, ax):
+    """De-overlap a set of matplotlib text labels, if adjustText is installed.
+
+    adjustText is already a visualisation dependency; if it is somehow missing the
+    labels are simply left in place rather than failing the whole figure.
+    """
+    if not texts:
+        return
+    try:
+        import io
+        from contextlib import redirect_stdout
+        from adjustText import adjust_text
+        with redirect_stdout(io.StringIO()):
+            adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle='-', color='#999', lw=.5))
+    except Exception:
+        pass
+
+
 def _plot_node_validation(shared, freq, weights, gt_terms_df, rho, n_gt, figures_dir, prefix):
     """Scatter of ground-truth prominence vs network weight, plus the top-term bar."""
-    fig, ax = plt.subplots(1, 2, figsize=(15, 6.2))
+    fig, ax = plt.subplots(1, 2, figsize=(15.5, 6.6))
 
     xs = [freq[t] for t in shared]
     ys = [weights.get(t, 0.0) for t in shared]
-    ax[0].scatter(xs, ys, s=55, c=[freq[t] / n_gt for t in shared], cmap='viridis',
-                  edgecolors='k', linewidths=.3, zorder=3)
+    sc = ax[0].scatter(xs, ys, s=60, c=[freq[t] / n_gt for t in shared], cmap=GT_FREQ_CMAP,
+                       edgecolors='k', linewidths=.3, zorder=3)
     if any(y > 0 for y in ys):
         ax[0].set_yscale('log')
     ax[0].set_xlabel(f'Ground-truth article frequency (of {n_gt})')
     ax[0].set_ylabel('Network node weight (log)')
     ax[0].set_title(f'Shared nodes: GT prominence vs network weight\n'
                     f'Spearman rho = {rho:+.2f}  (n={len(shared)})')
-    for t in sorted(shared, key=lambda x: -freq[x])[:10]:
-        ax[0].annotate(t, (freq[t], weights.get(t, 0.0)), fontsize=7.5,
-                       xytext=(4, 2), textcoords='offset points')
+    cbar = fig.colorbar(sc, ax=ax[0], fraction=.046, pad=.02)
+    cbar.set_label('GT frequency (fraction of articles)', fontsize=9)
+    # Label only the ten most prominent shared terms, de-overlapped.
+    texts = [ax[0].text(freq[t], weights.get(t, 0.0), t, fontsize=7.5)
+             for t in sorted(shared, key=lambda x: -freq[x])[:10]]
+    _adjust_labels(texts, ax[0])
     ax[0].grid(True, ls='--', alpha=.35)
 
     top = gt_terms_df.head(22)[::-1]
-    cols = ['#3b7d3b' if v == 'Y' else '#b0b0b0' for v in top['in_network']]
+    cols = [GT_C_ATTESTED if v == 'Y' else GT_C_MISS for v in top['in_network']]
     ax[1].barh(range(len(top)), top['GT_articles'], color=cols)
     ax[1].set_yticks(range(len(top)))
     ax[1].set_yticklabels(top['term'], fontsize=8)
+    ax[1].set_ylim(-0.6, len(top) - 0.4)
     ax[1].set_xlabel('Ground-truth article frequency')
-    ax[1].set_title('Top eligible ground-truth terms\n(green = network node, grey = miss)')
+    ax[1].set_title('Top eligible ground-truth terms')
+    ax[1].legend(handles=[Patch(facecolor=GT_C_ATTESTED, label='network node'),
+                          Patch(facecolor=GT_C_MISS, label='network miss')],
+                 loc='lower right', fontsize=9, framealpha=.95)
     ax[1].grid(True, axis='x', ls='--', alpha=.35)
 
     plt.tight_layout()
@@ -296,32 +344,38 @@ def _plot_node_validation(shared, freq, weights, gt_terms_df, rho, n_gt, figures
 
 def _plot_gt_network(GT, freq, node_ids, net_edges, n_recovered, figures_dir, prefix, min_articles):
     """Draw the ground-truth co-occurrence network, coloured by overlap with ours."""
-    plt.figure(figsize=(13, 10.5))
+    plt.figure(figsize=(14, 11.5))
     ax = plt.gca()
-    pos = nx.spring_layout(GT, seed=42, k=0.55, iterations=200, weight='w')
+    # A slightly larger k spreads a dense (~100-node) graph so labels/edges breathe.
+    pos = nx.spring_layout(GT, seed=42, k=0.75, iterations=300, weight='w')
 
-    ncol = ['#2c7fb8' if n in node_ids else '#d95f0e' for n in GT.nodes()]
+    ncol = [GT_C_ATTESTED if n in node_ids else GT_C_MISS for n in GT.nodes()]
     nsize = [120 + freq[n] * 55 for n in GT.nodes()]
     ecol, ew = [], []
     for u, v in GT.edges():
         hit = frozenset((u, v)) in net_edges
-        ecol.append('#2c7fb8' if hit else '#cccccc')
-        ew.append(1.6 if hit else 0.6)
+        ecol.append(GT_C_ATTESTED if hit else GT_C_GT_EDGE)
+        ew.append(1.7 if hit else 0.7)
 
-    nx.draw_networkx_edges(GT, pos, edge_color=ecol, width=ew, alpha=.6, ax=ax)
-    nx.draw_networkx_nodes(GT, pos, node_color=ncol, node_size=nsize, alpha=.9,
+    nx.draw_networkx_edges(GT, pos, edge_color=ecol, width=ew, alpha=.55, ax=ax)
+    nx.draw_networkx_nodes(GT, pos, node_color=ncol, node_size=nsize, alpha=.92,
                            linewidths=.5, edgecolors='#333', ax=ax)
-    nx.draw_networkx_labels(GT, pos, labels={n: n for n in GT.nodes() if freq[n] >= 3},
-                            font_size=7.5, ax=ax)
+    # Label only the most prominent terms (top 22, freq>=3) with a white halo so a
+    # dense graph stays readable instead of a wall of overlapping text.
+    to_label = {n for n in sorted(GT.nodes(), key=lambda x: -freq[x])[:22] if freq[n] >= 3}
+    lbls = nx.draw_networkx_labels(GT, pos, labels={n: n for n in to_label},
+                                   font_size=7.5, ax=ax)
+    for t in lbls.values():
+        t.set_bbox(dict(facecolor='white', alpha=.55, edgecolor='none', pad=.4))
 
     ax.legend(handles=[
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#2c7fb8', markersize=11,
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=GT_C_ATTESTED, markersize=11,
                label='term IS a network node'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='#d95f0e', markersize=11,
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=GT_C_MISS, markersize=11,
                label='ground-truth-only term (network miss)'),
-        Line2D([0], [0], color='#2c7fb8', lw=2.2, label='edge present in our network (recovered)'),
-        Line2D([0], [0], color='#cccccc', lw=1.5, label='ground-truth-only co-occurrence'),
-    ], loc='upper left', fontsize=9, framealpha=.95)
+        Line2D([0], [0], color=GT_C_ATTESTED, lw=2.2, label='edge present in our network (recovered)'),
+        Line2D([0], [0], color=GT_C_GT_EDGE, lw=1.5, label='ground-truth-only co-occurrence'),
+    ], loc='upper left', fontsize=9, framealpha=.95, edgecolor='#cccccc').set_zorder(5)
 
     shared_n = len(set(GT.nodes()) & node_ids)
     ax.set_title(f'Ground-truth MeSH co-occurrence network (terms in >={min_articles} GT articles)\n'
@@ -344,16 +398,17 @@ def _plot_nulls(node_null, obs_nodes, z_n, p_n, edge_null, obs_edges, z_e, p_e,
         (edge_null, obs_edges, z_e, p_e, 'network edges recovered'),
     ]
     for a, (vals, obs, z, p, lab) in zip(ax, panels):
-        a.hist(vals, bins=30, color='#bdbdbd', edgecolor='w')
-        a.axvline(obs, color='#d7301f', lw=2.5)
+        a.hist(vals, bins=30, color=GT_C_NULL, edgecolor='w', label='permutation null')
+        a.axvline(obs, color=GT_C_OBSERVED, lw=2.5, label='observed')
         a.annotate(f'observed = {obs}\nnull {np.mean(vals):.0f}+/-{np.std(vals):.0f}\n'
                    f'z={z:.1f}, p={p:.3g}',
-                   xy=(obs, a.get_ylim()[1] * .9), xytext=(-10, 0),
-                   textcoords='offset points', ha='right', fontsize=10,
-                   bbox=dict(boxstyle='round', fc='white', ec='#d7301f'))
+                   xy=(obs, a.get_ylim()[1] * .78), xytext=(-12, 0),
+                   textcoords='offset points', ha='right', fontsize=9.5,
+                   bbox=dict(boxstyle='round', fc='white', ec=GT_C_OBSERVED, alpha=.95))
         a.set_xlabel(lab)
         a.set_ylabel('permutations')
         a.set_title(f'{lab} vs random {n_gt}-article draws')
+        a.legend(loc='upper left', fontsize=9, framealpha=.95)
     plt.suptitle('Convergent validity against a permutation null', fontsize=12)
     plt.tight_layout()
     out = os.path.join(figures_dir, f"{prefix}_GT_Permutation_Nulls.png")
