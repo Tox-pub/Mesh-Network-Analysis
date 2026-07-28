@@ -277,7 +277,10 @@ GT_C_ATTESTED = '#00819C'   # teal      - in-network node / recovered edge
 GT_C_MISS     = '#DB6D78'   # coral     - ground-truth-only node / network miss
 GT_C_GT_EDGE  = '#DB6D78'   # coral     - ground-truth-only edge (coordinated with the miss nodes)
 GT_C_NULL     = '#8686BF'   # purple    - permutation-null histogram (lighter)
-GT_C_OBSERVED = '#1A1A1A'   # near-black - observed-statistic marker line
+GT_C_OBSERVED = '#D62728'   # red       - observed-statistic line (deliberately NOT from
+                            #             Fig1.gpl: a strong red the eye can't mistake for
+                            #             the right axis spine, since the observed value sits
+                            #             far to the right of the null)
 # Sequential ramp for the GT-frequency scatter: slate -> teal -> gold (low -> high).
 GT_FREQ_CMAP  = LinearSegmentedColormap.from_list('gt_freq', ['#3C476C', '#00819C', '#DBAC6D'])
 
@@ -400,8 +403,8 @@ def _plot_nulls(node_null, obs_nodes, z_n, p_n, edge_null, obs_edges, z_e, p_e,
     for a, (vals, obs, z, p, lab) in zip(ax, panels):
         a.hist(vals, bins=30, color=GT_C_NULL, edgecolor='w', label='permutation null')
         a.axvline(obs, color=GT_C_OBSERVED, lw=2.5, label='observed')
-        a.annotate(f'observed = {obs}\nnull {np.mean(vals):.0f}+/-{np.std(vals):.0f}\n'
-                   f'z={z:.1f}, p={p:.3g}',
+        a.annotate(f'observed = {obs}\nnull = {np.mean(vals):.0f} +/- {np.std(vals):.0f} '
+                   f'(mean +/- SD)\nz={z:.1f}, p={p:.3g}',
                    xy=(obs, a.get_ylim()[1] * .78), xytext=(-12, 0),
                    textcoords='offset points', ha='right', fontsize=9.5,
                    bbox=dict(boxstyle='round', fc='white', ec=GT_C_OBSERVED, alpha=.95))
