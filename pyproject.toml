@@ -38,3 +38,9 @@ dependencies = [
 [project.scripts]
 mesh-check-env = "mesh_aop.check_env:main"
 mesh-pipeline = "mesh_aop.cli:main"
+
+# Explicit src-layout package discovery. setuptools already auto-discovers the single
+# package under src/, but stating it makes editable installs deterministic across
+# environments (e.g. cloud/Colab, where auto-discovery has occasionally been flaky).
+[tool.setuptools.packages.find]
+where = ["src"]
