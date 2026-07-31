@@ -52,6 +52,7 @@ class _ListSampleRandom(random.Random):
     k-sample estimate reproducible.
     """
     def sample(self, population, k, *args, **kwargs):
+        """Coerce the population to a list before sampling (NetworkX may pass a set/view)."""
         if not isinstance(population, (list, tuple)):
             population = list(population)
         return super().sample(population, k, *args, **kwargs)
@@ -141,6 +142,7 @@ def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
 
     print("  Vectorizing MeSH terms for aggregation...")
     def extract_main_mesh_terms(mesh_string):
+        """Main MeSH descriptors from a ';'-joined string: drop subheadings, strip the major-topic '*'."""
         if not isinstance(mesh_string, str):
             return []
         return [

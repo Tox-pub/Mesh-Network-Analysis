@@ -29,7 +29,6 @@ import json
 import sqlite3
 from collections import defaultdict
 
-import numpy as np
 from tqdm import tqdm
 
 # Relative package imports
@@ -74,12 +73,12 @@ def _extract_base_terms(mesh_str: str) -> set:
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
-                                     master_db_path: str, relevance_db_path: str,
-                                     id_key: str,
-                                     start_date_param: str, end_date_param: str,
-                                     weightings: list,
-                                     entrez_email: str = "", entrez_api_key: str = "",
-                                     calculate_full_centrality: bool = True):
+                               master_db_path: str, relevance_db_path: str,
+                               id_key: str,
+                               start_date_param: str, end_date_param: str,
+                               weightings: list,
+                               entrez_email: str = "", entrez_api_key: str = "",
+                               calculate_full_centrality: bool = True):
     """
     Scores each network node by how strongly the wider literature supports it within the
     chosen time window, querying the local Master DB so no API calls are made.
@@ -286,7 +285,7 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
     # dropped because mean-ARS is already frequency-neutral by construction, so those
     # terms only distorted the node ranking rather than sharpening it.
     final_node_weights = []
-    for i, (w_key, _) in enumerate(weightings):
+    for i in range(len(weightings)):
         raw_node_weights = {}
         for term, data in aggregators[i].items():
             if data['count'] > 0:

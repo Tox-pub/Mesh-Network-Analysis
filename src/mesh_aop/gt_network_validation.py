@@ -29,7 +29,6 @@ which localize where the network under-covers the domain.
 
 import os
 import json
-import sqlite3
 import random
 import datetime
 from collections import Counter
@@ -181,6 +180,7 @@ def _compare_node_weightings(node_attrs: dict, freq: Counter, n_gt: int,
     shared = present == 1
 
     def col(key):
+        """Column vector of one node attribute over the shared-node id list."""
         return np.array([float(node_attrs[t].get(key, 0.0) or 0.0) for t in ids])
 
     rows = []
@@ -497,9 +497,11 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
     n_pool = len(pool)
 
     def corpus_prev(t):
+        """A term's prevalence in the random background pool (fraction of its articles)."""
         return pool_freq.get(t, 0.5) / n_pool
 
     def enrichment(t):
+        """GT frequency of a term over its background prevalence (base-rate-corrected)."""
         return round((freq.get(t, 0) / n_gt) / corpus_prev(t), 2) if t in eligible else 0.0
 
     # <<< 4. Node level >>>

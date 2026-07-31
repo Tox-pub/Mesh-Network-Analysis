@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "mesh_aop_network"
 version = "2.2.0"
 description = "Pipeline for MeSH term AOP network generation and analysis"
-# Validated on Python 3.11-3.13. node2vec is no longer required (its embedding is
-# vendored in node2vec_embedding.py), so 3.13 is fully supported. Newer Python may
-# work but is untested - `mesh-check-env` warns at runtime; bump deliberately.
-requires-python = ">=3.11"
+# Validated on Python 3.11-3.13; capped at <3.14 to match environment.yml and the
+# validated stack (node2vec is vendored in node2vec_embedding.py, so 3.13 is fully
+# supported). Raise the cap deliberately to adopt a newer, untested Python.
+requires-python = ">=3.11,<3.14"
 # Upper bounds are pinned to the validated versions (the v2.2 numpy-2 / networkx-3
 # stack) so future minor/major releases cannot silently break the pipeline. Patch
 # updates are still allowed; raise a cap on purpose to adopt a newer minor/major

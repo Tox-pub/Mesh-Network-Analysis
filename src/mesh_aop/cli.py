@@ -203,6 +203,7 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool)
             run_dict = dict(zip(run_df['mesh_term'], run_df['aop_level']))
 
             def update_lvl(row):
+                """Prefer this run's AOP level for a term when it was actually assigned (not 'Unassigned')."""
                 term = row['mesh_term']
                 if term in run_dict and run_dict[term].strip().lower() != 'unassigned':
                     return run_dict[term]

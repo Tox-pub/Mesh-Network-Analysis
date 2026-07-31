@@ -59,7 +59,9 @@ CENTRALITIES = ("betweenness", "pagerank", "eigenvector")
 SCOPES = (("", "full"), ("_subgraph", "subgraph"))
 
 
-# ----------------------------------------------------------------------------- io
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# IO
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _open_resilient(path):
     """Read-only connection, falling back to a normal one when OneDrive has
     dehydrated the file (a placeholder reads back with an empty schema)."""
@@ -71,6 +73,7 @@ def _open_resilient(path):
 
 
 def _base_terms(mesh_str):
+    """Base MeSH descriptors of an article: drop subheadings and the major-topic '*'."""
     return {t.split('/')[0].lstrip('*').strip() for t in mesh_str.split(';') if t.strip()}
 
 
@@ -126,7 +129,9 @@ def _build_or_load_cache(master_db_path, terms, cache_path):
     return X, pmids, doclen, years
 
 
-# ------------------------------------------------------------------------ metrics
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# METRICS
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _bedroc_from_positions(pos, n_total, alpha=ALPHA_BEDROC):
     """BEDROC computed from the positives' rank positions.
 
@@ -193,7 +198,9 @@ def _positions(scores, mask, is_pos, rng):
     return rank[is_pos[mask]].astype(float), s.size
 
 
-# ------------------------------------------------------------------------ scorers
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# SCORERS
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _article_scores(X, weights):
     """ARS: the network-term weight mass an article carries, over the total.
 
@@ -269,7 +276,9 @@ def _evaluate_frame(scores_by_label, mask, is_pos, n_boot, rng, frame_name):
     return pd.DataFrame(rows)
 
 
-# --------------------------------------------------------------------- node level
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# NODE LEVEL
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _node_level_analysis(weights_by_label, attested, log_freq, n_boot, rng):
     """Do node weightings identify externally attested terms, and is it just frequency?
 
@@ -300,6 +309,7 @@ def _node_level_analysis(weights_by_label, attested, log_freq, n_boot, rng):
     edges = np.quantile(log_freq, np.linspace(0, 1, 4))
 
     def strat_auc(v):
+        """Frequency-stratified AUC of a weighting at separating attested from unattested nodes."""
         vals = []
         for i in range(3):
             hi_inclusive = (i == 2)
@@ -310,9 +320,11 @@ def _node_level_analysis(weights_by_label, attested, log_freq, n_boot, rng):
         return float(np.mean(vals)) if vals else np.nan
 
     def incremental(v):
+        """Incremental logistic-regression lift of a weighting once global frequency is controlled."""
         if sm is None:
             return np.nan
         def z(a):
+            """Standardise by the array's spread (mean / SD), guarding against a zero standard deviation."""
             sd = a.std()
             return (a - a.mean()) / sd if sd > 0 else a * 0.0
         design = sm.add_constant(np.column_stack([z(log_freq), z(v)]))
@@ -338,7 +350,9 @@ def _node_level_analysis(weights_by_label, attested, log_freq, n_boot, rng):
     return pd.DataFrame(rows).sort_values("AUC", ascending=False)
 
 
-# ------------------------------------------------------------------ paired testing
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# PAIRED TESTING
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _paired_tests(scores_by_label, mask, is_pos, n_total_hint, n_boot, rng, frame_name):
     """The comparisons the conclusions actually rest on.
 
@@ -388,7 +402,9 @@ def _paired_tests(scores_by_label, mask, is_pos, n_total_hint, n_boot, rng, fram
     return pd.DataFrame(rows)
 
 
-# --------------------------------------------------------------------- orchestrator
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# ORCHESTRATOR
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def run_validation_report(final_network_file, master_db_path, pmid_db_path,
                           ground_truth_file, output_dir, project_prefix="",
                           primary_query_term=None, n_boot=2000, random_seed=42,
@@ -535,8 +551,11 @@ def run_validation_report(final_network_file, master_db_path, pmid_db_path,
     return tables
 
 
-# ------------------------------------------------------------------------ outputs
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# OUTPUTS
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _fmt_ci(row, metric, pct=False):
+    """Format a metric with its bootstrap CI as 'point [lo, hi]' (optionally as percentages)."""
     v, lo, hi = row[metric], row.get(f"{metric}_lo"), row.get(f"{metric}_hi")
     if pct:
         return f"{100*v:.1f}% [{100*lo:.1f}, {100*hi:.1f}]"
@@ -544,6 +563,7 @@ def _fmt_ci(row, metric, pct=False):
 
 
 def _print_console_summary(tables):
+    """Print the headline per-frame scorer comparison to the console."""
     corpus = tables.get("corpus-wide")
     if corpus is None or corpus.empty:
         return
@@ -654,6 +674,7 @@ def _make_figures(scores, is_pos, in_query, n_pool, rng, fig_dir, prefix):
     all_mask = np.ones(n_pool, dtype=bool)
 
     def save(fig, stem, title):
+        """Save a figure under the run's figure directory (PNG, plus TIFF for print)."""
         png = os.path.join(fig_dir, f"{prefix}{stem}.png")
         fig.savefig(png, dpi=300, bbox_inches="tight")
         try:
@@ -743,8 +764,11 @@ def _fig_paired_forest(paired, fig_dir, prefix):
     return {"Paired comparisons (forest)": os.path.basename(png)}
 
 
-# --------------------------------------------------------------- narrative report
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# NARRATIVE REPORT
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _best(df, metric, exclude_prefix=None):
+    """Best-scoring row for a metric, optionally excluding scorers with a label prefix."""
     d = df if exclude_prefix is None else df[~df["scorer"].str.startswith(exclude_prefix)]
     d = d.dropna(subset=[metric])
     return d.loc[d[metric].idxmax()] if not d.empty else None
@@ -886,6 +910,7 @@ relative to the ground truth present in that pool rather than to the full curate
 
 
 def _df_to_html(df, max_rows=400):
+    """Render a DataFrame to an HTML table (capped at max_rows) for the report."""
     d = df.head(max_rows)
     fmt = {c: (lambda v: f"{v:.4f}" if isinstance(v, float) else v) for c in d.columns}
     return d.to_html(index=False, float_format=lambda v: f"{v:.4f}",
@@ -893,6 +918,7 @@ def _df_to_html(df, max_rows=400):
 
 
 def _write_html(tables, path, figures, prefix):
+    """Assemble the narrative HTML validation report from the tables and embedded figures."""
     css = """
 body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
  max-width:1180px;margin:0 auto;padding:32px 24px;line-height:1.65;color:#1a1a1a}
@@ -942,10 +968,9 @@ img{max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:6px;margin
         f.write("\n".join(parts))
 
 
-# ==========================================================================
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # PROJECTION COMPARISON  (ported from the sandbox ARS evaluation; no HTML)
-# ==========================================================================
-
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 def _fig_projection_comparison(df, fig_dir, prefix):
     """Grouped BEDROC bar chart with bootstrap-CI whiskers, one panel per frame."""
     import matplotlib
@@ -1014,6 +1039,7 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
     nd = {d["id"]: d for d in node_data}
 
     def w_of(k):
+        """Node-attribute vector over the network terms; missing or blank values count as 0."""
         return np.array([float(nd[t].get(k, 0.0) or 0.0) for t in terms])
 
     # Seed = the chosen node weighting; fall back to the whole-graph key if the subgraph
@@ -1039,12 +1065,15 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
         da_inv = np.where(deg_a > 0, 1.0 / deg_a, 0.0)
 
     def _static(w):
+        """Unnormalised projection: the summed seed weights of an article's network terms."""
         return X @ w
 
     def _normed(seed):
+        """Symmetrically normalised projection of the seed through the incidence matrix."""
         return da_isqrt * (X @ (dt_isqrt * seed))
 
     def _reinforced(seed, a=0.5, it=1000, tol=1e-9):
+        """Mutual-reinforcement fixed point of the seed, then the normalised projection."""
         Mop = np.asarray((X.T @ X.multiply(da_inv[:, None])).todense())
         P = (dt_isqrt[:, None] * Mop) * dt_isqrt[None, :]
         p = seed / seed.sum() if seed.sum() else seed
