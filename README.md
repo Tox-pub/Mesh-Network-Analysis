@@ -41,12 +41,15 @@ Mesh-Network-Analysis-Main-Library/
 │   │   ├── cli.py                      # Orchestrator and CLI entry point
 │   │   ├── config_parser.py            # Two-tier configuration engine
 │   │   ├── data_ops.py                 # SQLite and NCBI Entrez querying
+│   │   ├── gt_network_validation.py    # Node/edge convergent ground-truth validation
 │   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
 │   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
+│   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
 │   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
 │   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
 │   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
+│   │   ├── validation_report.py        # Consolidated node-weighting + projection evaluation
 │   │   ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
 │   │   └── wizard.py                   # Interactive configuration module
 │   └── mesh_aop_notebooks/             # Jupyter notebook equivalents of each module
@@ -83,7 +86,7 @@ This pipeline is computationally intensive and relies heavily on numerical array
 
 ### 1. System Requirements
 
-* **Python:** **3.11–3.13** (`requires-python = ">=3.11"`; validated against the 3.13 stack). Python 3.13 **is** supported — the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the `node2vec` package, which pinned `numpy<2.0` and had no 3.13 wheel, is no longer a dependency. Releases newer than 3.13 are untested.
+* **Python:** **3.11–3.13** (`requires-python = ">=3.11,<3.14"`; validated against the 3.13 stack). Python 3.13 **is** supported — the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the `node2vec` package, which pinned `numpy<2.0` and had no 3.13 wheel, is no longer a dependency. Releases newer than 3.13 are untested.
 * **Memory:** Minimum 16GB RAM; 32GB+ highly recommended for Step 0 (Database Compilation) and networks exceeding 1 citation generation.
 * **Storage:** 100GB+ free space (The NLM Baseline XMLs and resulting SQLite Master Database expand rapidly).
 * **Windows path length:** Create the virtual environment at a **short path** (e.g. `C:\Users\<you>\mesh_env`), *not* inside a deeply nested or OneDrive-synced project folder. Some dependencies (e.g. `statsmodels`) ship very long filenames that overflow the Windows 260-character `MAX_PATH` limit and abort the install. See **Troubleshooting**.
@@ -290,6 +293,7 @@ Executes highly targeted queries against the finalized network to extract specif
   * **Behavior:** Penalizing. The final output skews heavily toward the lower of the two input values. An article must possess both high topological relevance and high community impact to achieve a high score.
   * **Formula:** $2 \times \frac{ARS \times Cit}{ARS + Cit}$
 * **ARS Weight (`linear_weight_ars`):** The weight for **`Linear`** sorting metric of the ARS scores per article (0–1.0), with the remaining weight applied to incoming citations (*article popularity*). Default `0.5`.
+* **Compare Multiple Networks (`compare_networks`):** Off by default. When enabled, secondary analysis runs a **node-overlap comparison** across a set of saved networks you list in **Networks to Compare** (`comparison_networks`) — a comma-separated, quote-wrapped list such as `"Ex_Graph_1.json","Ex_Graph_2.graphml"`. Bare names are resolved against the processed data folder (or `data/reference_processed/` when `Use Reference Data` is on); explicit paths and non-JSON formats (`.graphml`, `.gml`, `.gexf`, …) are also accepted. Missing files trigger a warning naming where the pipeline looked. It writes a membership matrix, a pairwise intersection/Jaccard table, and an overlap figure to `results/`.
 
 ### 8. Benchmark Parameters
 
@@ -311,7 +315,8 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 * **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
   When enabled, this **also** causes betweenness **and** PageRank to be recomputed on the filtered consensus subgraph, in addition to the whole-corpus versions, and scored as extra benchmark scorers (`betweenness (subgraph)`, `pagerank (subgraph)`). Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space. Computing both for both algorithms makes centrality **scope** and centrality **type** a full 2×2 rather than confounding them. Note the subgraph betweenness is computed **exactly** (the subgraph is small), unlike the whole-graph estimate. The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant — it is the single control for all four. Because this decision changes which centralities are computed, it is read at the **network** step, so the wizard offers the flag during `--step network` as well; the benchmark scores whichever `score_*` columns relevance actually produced.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
-* **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `MRS_pagerank_centrality`; set to `MRS_betweenness_centrality` to compare against the betweenness weighting instead.
+* **`run_projection_comparison` (Boolean):** If `True` (default), also runs the article-scoring **projection comparison** — with the node seed fixed, it scores the alternative ways of turning node weights into an article score (normalised ARS, unnormalised sum, MRS-weighted, bipartite-reinforced, BM25, uniform, random, naive query) by BEDROC across three frames with positives-only bootstrap CIs, writing `{prefix}_projection_comparison.csv` and a figure to `results/validation/`. Set `False` to skip it.
+* **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `MRS_pagerank_centrality`; set to `MRS_betweenness_centrality` to compare against the betweenness weighting instead. The wizard also lets you choose any raw or MRS centrality (betweenness / pagerank / eigenvector, whole-graph or subgraph).
 * **`min_articles_per_node`:** Minimum number of ground-truth articles a term must appear in to become a node of the ground-truth co-occurrence network (default `2`, which suppresses singleton noise).
 * **`background_pool_size`:** Number of randomly sampled articles used to estimate corpus base rates and to build the permutation nulls (default `50000`). Larger is more precise but slower.
 
@@ -360,6 +365,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 
 * `*_export.xlsx`: A tabular summary of the final nodes and edges.
 * `*_Top_Network_Articles.csv`: The highest-scoring primary literature driving the network's structure.
+* `*_network_overlap_membership.csv` / `*_network_overlap_matrix.csv` / `*_Network_Overlap.png`: node-overlap comparison across the networks you named — produced only when **Compare Multiple Networks** is enabled.
 * **Figures (`results/figures/`)**:
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
 * **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
@@ -438,6 +444,8 @@ Written to `results/`:
 * `*_benchmark_results.json` — all metrics, confidence intervals, lift, and coverage figures, with the run's seed and configuration for reproducibility.
 * `*_benchmark_quarantined_pmids.csv` — ground-truth rows flagged as implausible, for manual adjudication.
 * `*_benchmark_enrichment.png` — cumulative recall (enrichment) curve: ground-truth recovery vs. fraction of the pool screened.
+* `validation/*_validation_report.xlsx` / `.html` + figures — the consolidated **node-weighting** comparison across four framings (corpus / within-query / outside / hybrid) with BEDROC and paired bootstraps (from `run_network_validation`).
+* `validation/*_projection_comparison.csv` + figure — the article-scoring **projection** comparison (normalised ARS vs unnormalised sum vs MRS-weighted vs bipartite vs BM25/baselines) by BEDROC across three frames (from `run_projection_comparison`).
 
 > **Note on incomplete judgments:** the non-ground-truth articles are *unjudged*, not confirmed negatives. This is why recall- and rank-based metrics (which only need positive positions) are the headline numbers, while precision/PR-AUC are interpreted with caution. For the most rigorous citation→PMID verification, cross-check publication years online via NCBI Entrez (not enabled by default, as it requires network access).
 
