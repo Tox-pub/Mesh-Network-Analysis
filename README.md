@@ -359,12 +359,12 @@ To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Diction
 3. **Open the Run Template:** Navigate to the `results/` directory and open your run-specific template: `[PREFIX]_run_annotations.csv`.
 4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata. *(Unsure how to categorize a term? Look up its official scope note and hierarchy in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/) — the official MeSH description is the best guide for determining the correct AOP stratum.)*
 * `Stressor` - External stimuli that initiate a biological reaction (e.g., `UV Rays`, `Chemicals`)
-* `Molecular` - Gene, protein, or receptor level events (e.g., `Receptors, Antigen, T-Cell`)
-* `Cellular` - Cellular level events (e.g., `Chemotaxis`, `Apoptosis`)
-* `Tissue` - Events localized to a subsection of tissue (e.g., `Necrosis`)
+* `Molecular` - Gene, protein, or receptor level events (e.g., `Receptors, Antigen`)
+* `Cellular` - Cellular level events (e.g., `Chemotaxis`, `Apoptosis`, `T-Cell`)
+* `Tissue` - Events localized to a subsection of tissue (e.g., `Necrosis`, `Skin Absorption`)
 * `Organ` - Organ level names or events (e.g., `Liver`, `Skin`)
-* `Adverse Outcome` - High-level disease outcomes (e.g., `Drug Hypersensitivity`)
-* `Uncategorized` - Broad biological terms that do not fall into a distinct AOP stratum.
+* `Adverse Outcome` - High-level disease outcomes and disease (e.g., `Drug Hypersensitivity`)
+* `Uncategorized` - Broad biological or non-biological terms that do not fall into a distinct AOP stratum.
 
 
 5. **Save the File:** Save the file, ensuring it remains **semicolon-delimited**.
