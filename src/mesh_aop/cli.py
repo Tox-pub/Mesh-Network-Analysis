@@ -643,6 +643,14 @@ def main():
 
             print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
 
+            # All --step benchmark artifacts (article-ranking benchmark, ground-truth
+            # node/edge validation with its figures, and the validation/projection
+            # report) are consolidated under results/benchmark/ so the outputs of this
+            # step live in one place rather than scattered across results/.
+            bench_dir = config.results_dir / 'benchmark'
+            os.makedirs(bench_dir, exist_ok=True)
+            os.makedirs(bench_dir / 'validation', exist_ok=True)
+
             # Node/edge convergent validation runs first: it takes minutes rather
             # than the benchmark's tens of minutes, and answers a different
             # question (is the network's vocabulary and wiring reproduced?), so a
@@ -654,8 +662,8 @@ def main():
                             ground_truth_path=gt_path,
                             master_db_path=str(config.files['master_db']),
                             final_network_path=str(config.files['final_network']),
-                            output_dir=str(config.results_dir),
-                            figures_dir=str(config.figures_dir),
+                            output_dir=str(bench_dir),
+                            figures_dir=str(bench_dir),
                             file_prefix=config.prefix,
                             weight_key=bench_params.get(
                                 'network_validation_weight_key', 'MRS_pagerank_centrality'),
@@ -682,7 +690,7 @@ def main():
                             master_db_path=str(config.files['master_db']),
                             pmid_db_path=str(config.files['pmids_db']),
                             ground_truth_file=gt_path,
-                            output_dir=str(config.results_dir / 'validation'),
+                            output_dir=str(bench_dir / 'validation'),
                             project_prefix=f"{config.prefix}_",
                             primary_query_term=bench_params.get(
                                 'primary_node', 'Dermatitis, Allergic Contact'),
@@ -706,7 +714,7 @@ def main():
                             master_db_path=str(config.files['master_db']),
                             pmid_db_path=str(config.files['pmids_db']),
                             ground_truth_file=gt_path,
-                            output_dir=str(config.results_dir / 'validation'),
+                            output_dir=str(bench_dir / 'validation'),
                             project_prefix=f"{config.prefix}_",
                             primary_query_term=bench_params.get(
                                 'primary_node', 'Dermatitis, Allergic Contact'),
@@ -725,7 +733,7 @@ def main():
                 run_benchmark(
                     resolved_csv_path=gt_path,
                     relevance_db_path=str(config.files['relevance_db']),
-                    output_dir=str(config.results_dir),
+                    output_dir=str(bench_dir),
                     file_prefix=f"{config.prefix}_benchmark",
                     primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
                     negative_control_csv=nc_path,

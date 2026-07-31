@@ -17,19 +17,23 @@ Mesh-Network-Analysis-Main-Library/
 │
 ├── data/                               # Data storage (auto-generated)
 │   ├── raw/                            # User-defined target inputs
-│   │   ├── desc2025.xml                # Required: MeSH XML source
+│   │   ├── desc2025.xml                # Required: MeSH XML source (you place this)
+│   │   ├── ground_truth_pmids.csv      # Optional: YOUR benchmark ground-truth set (you place this)
 │   │   ├── aop_annotations_master.csv  # Auto-generated Master Dictionary
+│   │   ├── master_mesh_database.db     # Auto-generated offline PubMed corpus
 │   │   ├── pubmed_baseline/            # Auto-downloaded NLM Baseline XMLs (~40GB)
 │   │   └── pubmed_updates/             # Auto-downloaded NLM Daily Update XMLs
 │   ├── processed/                      # Target pipeline databases and JSONs
-│   ├── reference_raw/                  # Curated reference inputs
-│   └── reference_processed/            # Curated reference outputs
+│   ├── reference_raw/                  # Curated reference inputs (bundled OECD ground truth)
+│   └── reference_processed/            # Curated reference outputs (bundled curated GT set)
 │
 ├── results/                            # Output artifacts (auto-generated)
-│   ├── figures/                        # High-resolution plots (.png, .tif, .html)
+│   ├── figures/                        # High-resolution pipeline plots (.png, .tif, .html)
+│   ├── benchmark/                      # All --step benchmark outputs (ranking + ground-truth)
+│   │   └── validation/                 # Node-weighting + projection report
 │   ├── logs/                           # System logs and failed fetch records
 │   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
-│   ├── *_relevance_*.csv               # Secondary analysis exports
+│   ├── *_Top_Network_Articles.csv      # Secondary analysis exports
 │   └── *_export.xlsx                   # Exported full network tables
 │
 ├── src/
@@ -401,7 +405,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 * `*_Top_Network_Articles.csv`: The highest-scoring primary literature driving the network's structure.
 * `*_run_annotations.csv`: The per-run biological-strata template you edit during the annotation pause.
 * `*_network_overlap_membership.csv` / `*_network_overlap_matrix.csv` / `*_Network_Overlap.png`: node-overlap comparison across the networks you named — produced only when **Compare Multiple Networks** is enabled.
-* **Benchmark & validation outputs** (`results/`, `results/validation/`, `results/figures/`): the ground-truth benchmark, node/edge convergent validation, and projection comparison each write their own files — see the **Validation & Benchmarking** section below for the complete list (`*_benchmark_results.json`, `*_benchmark_enrichment.png`, `*_benchmark_quarantined_pmids.csv`, `validation/*_validation_report.xlsx`/`.html`, `validation/*_projection_comparison.csv`, `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, and the GT figures).
+* **Benchmark & validation outputs** (all under `results/benchmark/`): everything the `--step benchmark` step produces is consolidated in one folder — the article-ranking benchmark, the node/edge convergent validation with its figures, and the node-weighting/projection report (nested in `results/benchmark/validation/`). See the **Validation & Benchmarking** section below for the complete list (`*_benchmark_results.json`, `*_benchmark_enrichment.png`, `*_benchmark_quarantined_pmids.csv`, `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, the `*_GT_*.png` figures, and `validation/*_validation_report.xlsx`/`.html` + `validation/*_projection_comparison.csv`).
 * `logs/`: run logs and failed-fetch records.
 * **Figures (`results/figures/`)**:
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
@@ -476,7 +480,7 @@ If no ground-truth file is found, the step prints the exact directory it searche
 
 ### Outputs
 
-Written to `results/`:
+Written to `results/benchmark/`:
 
 * `*_benchmark_results.json` — all metrics, confidence intervals, lift, and coverage figures, with the run's seed and configuration for reproducibility.
 * `*_benchmark_quarantined_pmids.csv` — ground-truth rows flagged as implausible, for manual adjudication.
@@ -501,7 +505,7 @@ Both levels are calibrated against a **permutation null of random article draws 
 
 It runs *before* the ranking benchmark (it takes minutes rather than tens of minutes), so a long benchmark never blocks the structural result. Disable it with `benchmark.run_network_validation = false`.
 
-**Outputs** (to `results/` and `results/figures/`):
+**Outputs** (to `results/benchmark/`):
 
 * `*_gt_network_validation.xlsx` — sheets: `summary`, `stopword_audit`, `network_nodes`, `GT_terms`, `GT_misses`, `network_edge_validation`, `node_weighting_comparison`
 * `*_gt_cooccurrence_network.json` — the ground-truth co-occurrence graph in **Cytoscape.js** format, every node and edge annotated with its overlap status (`shared` vs `GT_only_miss`, `recovered` vs `GT_only`), enrichment, and counts
