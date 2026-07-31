@@ -601,8 +601,12 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "Sort Metric": sec_params.get('sort_metric', 'F1'),
                 "Linear ARS Weight": sec_params.get('linear_weight_ars', 0.5),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),
-                "Exclude Review Articles": sec_params.get('exclude_reviews', True)
+                "Exclude Review Articles": sec_params.get('exclude_reviews', True),
+                "Compare Multiple Networks": sec_params.get('compare_networks', False)
             }
+            # Only surface the network list in the overview when comparison is on.
+            if sec_params.get('compare_networks', False):
+                b7_preview["Networks to Compare"] = sec_params.get('comparison_networks', '')
             if _ask_block("Secondary Analysis Parameters (Post-Pipeline Export)", b7_preview):
                 sec_params['export_limit'] = _prompt_override(
                     "Export Limit (Number of articles)", b7_preview["Export Limit"], int
@@ -624,6 +628,15 @@ def run_interactive_wizard(config, step: str) -> bool:
                         "Exclude Review Articles from exports?",
                         b7_preview["Exclude Review Articles"], bool
                     )
+                # Compare multiple networks - the network list is only asked when enabled.
+                sec_params['compare_networks'] = _prompt_override(
+                    "Compare multiple networks?", sec_params.get('compare_networks', False), bool
+                )
+                if sec_params['compare_networks']:
+                    sec_params['comparison_networks'] = _prompt_override(
+                        'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
+                        sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                    )
             sec_params['run_secondary_analysis'] = sec_params.get('export_top_articles', True)
             sec_params['target_nodes'] = ''
             sec_params['target_edges'] = ''
@@ -636,8 +649,12 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "Exclude Review Articles": sec_params.get('exclude_reviews', True),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),
                 "Target Nodes": sec_params.get('target_nodes', ''),
-                "Target Edges": sec_params.get('target_edges', '')
+                "Target Edges": sec_params.get('target_edges', ''),
+                "Compare Multiple Networks": sec_params.get('compare_networks', False)
             }
+            # Only surface the network list in the overview when comparison is on.
+            if sec_params.get('compare_networks', False):
+                b7_preview["Networks to Compare"] = sec_params.get('comparison_networks', '')
             if _ask_block("Secondary Analysis Parameters (Targeted)", b7_preview):
                 sec_params['run_secondary_analysis'] = True
                 sec_params['export_limit'] = _prompt_override(
@@ -665,17 +682,15 @@ def run_interactive_wizard(config, step: str) -> bool:
                     "Analyze Specific Edges (Format: NodeA - NodeB; NodeC - NodeD | Empty to skip)",
                     b7_preview["Target Edges"], str
                 )
-
-        # Network overlay comparison - its own section, default off.
-        if step in ['all', 'secondary']:
-            if _prompt_override("Compare networks?", sec_params.get('compare_networks', False), bool):
-                sec_params['compare_networks'] = True
-                sec_params['comparison_networks'] = _prompt_override(
-                    'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
-                    sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                # Compare multiple networks - the network list is only asked when enabled.
+                sec_params['compare_networks'] = _prompt_override(
+                    "Compare multiple networks?", sec_params.get('compare_networks', False), bool
                 )
-            else:
-                sec_params['compare_networks'] = False
+                if sec_params['compare_networks']:
+                    sec_params['comparison_networks'] = _prompt_override(
+                        'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
+                        sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                    )
 
     # ---------------------------------------------------------
     # BLOCK 8: Ground-Truth Validation & Benchmarking
