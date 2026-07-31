@@ -288,7 +288,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
   The four values must sum to `1.0`.
 
-* **Target Edges (`target_num_edges`):** The target subgraph size handed to the GLF and SA optimizers. Each selects a subgraph of about this many edges; their intersection (the consensus, reduced to its LCC) is typically somewhat smaller. *(Distinct from the `target_edges` node-pair query in §7 Secondary Analysis.)*
+* **Target Edges (`target_num_edges`):** The target subgraph size handed to the GLF and SA optimizers. Each selects a subgraph of about this many edges; their intersection (the consensus, reduced to its LCC) is typically somewhat smaller. *(Distinct from the `target_edges` in Secondary Analysis.)*
 * **GLF / SA Iterations:** Monte Carlo search and thermal cooling steps for the optimization heuristics.
 * **SA Temperature Start:** The initial thermal energy of the Simulated Annealing system (default `5000.0`). Higher values allow larger disruptive jumps early in the search.
 * **SA Cooling Rate:** The multiplicative decay applied to temperature each iteration (default `0.999995`). Values closer to `1.0` cool more slowly and explore more widely at the cost of run time.
@@ -301,7 +301,7 @@ Executes highly targeted queries against the finalized network to extract specif
 * **Export Limit:** Maximum number of articles returned per query (default `500`).
 * **Exclude Review Articles:** Filters out broad review articles to isolate primary literature.
 * **Target Nodes:** Evaluates the literature density of specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
-* **Target Edges (`target_edges`):** Evaluates literature specifically linking two concepts. Separate the two node names with a **space-padded hyphen** (` - `), and separate multiple edge queries with semicolons: `NodeA - NodeB; NodeC - NodeD`. *(Distinct from the numeric `target_num_edges` threshold in §6.)*
+* **Target Edges (`target_edges`):** Evaluates literature specifically linking two concepts. Separate the two node names with a **space-padded hyphen** (` - `), and separate multiple edge queries with semicolons: `NodeA - NodeB; NodeC - NodeD`. *(Distinct from the numeric `target_num_edges`)*
 * **Sort Metric (`sort_metric`):** Selects the ranking engine — `Linear` (compensatory weighted average) or `F1` (penalizing harmonic mean). Default `F1`.
 
   **1. Linear (Weighted Additive Model)**
