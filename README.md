@@ -74,9 +74,22 @@ The NLM has officially discontinued the MeSH ASCII format as of 2026. This pipel
 * **Download:** Navigate to the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/) and download `desc2025.xml` (or the most current yearly release).
 * **Placement:** Place this file directly into your `data/raw/` directory.
 
-### 2. Internet Connectivity Requirement
+### 2. Internet Connectivity & Disk Budget
 
-**Active internet connectivity is strictly required for the first execution.** The pipeline must connect to the NCBI FTP servers to download the full PubMed Baseline (thousands of `.xml.gz` files) and compile the ~30-million record local master database. Subsequent analytical runs can be performed completely offline. These baseline and daily-update archives are the official NLM/NCBI annual PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
+Internet access is required only for the steps that talk to NCBI; everything else runs against your local databases:
+
+| Pipeline step | Internet? | When |
+|---|---|---|
+| Step 0 — Master DB build (baseline FTP) | **Yes** | First run only; again only to refresh to a newer yearly baseline or apply daily updates |
+| Step 2 — Article collection (Entrez + citation links) | **Yes** | **Every** time you build a new query's citation database |
+| Step 3.5 — Secondary metadata hydration | **Yes** | Whenever you export top articles / run `--step secondary` |
+| Steps 1, 3, 4, benchmark | No | Run fully offline against the local databases |
+
+Once the master database is built, everyday analysis is offline — you only reconnect to build a **new query's** database (Step 2, which fetches the P0 cohort plus its incoming/outgoing citation links) or to update the master corpus. These baseline and daily-update archives are the official NLM/NCBI PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
+
+**Disk budget.** Set aside **~60–80 GB free** to build the master database the first time: the pipeline downloads the full set of NLM baseline `.xml.gz` archives (~40 GB) and expands them into the ~7 GB SQLite master database, with working headroom during extraction. This one-time bulk download plus local SQLite lookups is dramatically faster and more reliable than issuing millions of live Entrez queries per run, and is precisely what lets Steps 1/3/4/benchmark run fully offline. Once the master database is built and verified, you may **delete the `pubmed_baseline/` archives** to reclaim the ~40 GB — provided you keep `master_mesh_database.db` and do not intend to run local daily-update ingestion (which re-reads those archives).
+
+**Daily updates (optional).** Between annual baselines, NLM publishes daily update archives (`pubmed_updates/`). Applying them keeps the master corpus current with the newest PMIDs, but re-runs the multi-core ETL and requires the update archives to be present. A fresh yearly baseline supersedes accumulated daily updates, so for most analyses the annual baseline alone is sufficient — enable daily updates only if you specifically need very recent publications.
 
 ---
 
@@ -137,7 +150,7 @@ Run every pipeline command the same way — full path to `python.exe`, module fo
 
 *Note: The environment checker resolves the `community` / `python-louvain` namespace collision automatically — see Troubleshooting for the other Windows-specific errors.*
 
-### 2. Alternative Installation: via Mamba/Micromamba
+### 3. Alternative Installation: via Mamba/Micromamba
 
 This approach uses the provided `environment.yml` to fetch pre-compiled binaries via `conda-forge`, bypassing common OS-level compilation errors.
 
@@ -228,16 +241,26 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 ### 3. NCBI Credentials
 
-* **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, increasing Step 2 processing time exponentially. Sign in or create a free account at the [NCBI/NLM account portal](https://account.ncbi.nlm.nih.gov/) to obtain a key (found under *Account Settings → API Key Management*).
+* **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, roughly tripling Step 2 processing time. Sign in or create a free account at the [NCBI/NLM account portal](https://account.ncbi.nlm.nih.gov/) to obtain a key (found under *Account Settings → API Key Management*).
 
 ### 4. Search Parameters
 
-* **MeSH Search Term:** The primary indexing term used to retrieve the base (P0) cohort of articles from PubMed (e.g., `Dermatitis, Allergic Contact [Mesh]`).
+* **MeSH Search Term:** The PubMed query used to retrieve the base (P0) cohort. This string is sent **verbatim** to NCBI as the P0 `esearch` query, so any valid PubMed syntax is accepted — MeSH tags (`[Mesh]`, `[Majr]`), field tags (`[tiab]`, `[au]`), quoted phrases, and the boolean operators `AND` / `OR` / `NOT` with parentheses for grouping. Examples:
+  * Single MeSH heading — `Dermatitis, Allergic Contact [Mesh]`
+  * MeSH plus a free-text phrase — `"Dermatitis, Allergic Contact"[Mesh] OR "skin sensitization"[tiab]`
+  * Boolean combination — `(Dermatitis, Allergic Contact[Mesh]) AND (Haptens[Mesh])`
+
+  A few rules keep the query valid and the downstream steps consistent:
+  * Spell MeSH headings exactly as they appear in the [MeSH Browser](https://meshb.nlm.nih.gov/) — internal commas are fine here (the term is a single value, not a CSV field). A misspelled heading silently degrades to a free-text search.
+  * Wrap any multi-word heading or phrase in double quotes, e.g. `"Dermatitis, Allergic Contact"[Mesh]`.
+  * Boolean operators must be **uppercase** (`AND`, `OR`, `NOT`); lowercase is treated as an ordinary search word.
+  * The benchmark's `primary_node` defaults to this term's MeSH node. If you use a compound or free-text query rather than a single MeSH heading, set `benchmark.primary_node` explicitly so the "naive query" baseline and the topology-exclusive split resolve to a real node.
 * **Start / End Date:** Constrains the temporal boundaries of the initial P0 PubMed search.
-* **Citation Generations:** Controls the depth of the citation scrape.
-  * `0`: Only the base parental generation (P0) articles.
-  * `1`: P0 articles + all articles they cite + all articles that cite them (G1).
-  * *Warning:* Values $\ge 1$ result in exponential data growth.
+* **Citation Generations:** Controls the depth of the citation scrape. The value counts *levels including P0*, matching the wizard label (`P0=1, P0+G1=2, ...`).
+  * `1`: Only the base parental generation (P0) articles.
+  * `2`: P0 articles + all articles they cite + all articles that cite them (G1).
+  * `3`: The above + a further citation hop (G2), and so on.
+  * *Warning:* Values $\ge 2$ result in exponential data growth.
 * **Update MeSH Support Files:** If `True`, forces re-extraction of the MeSH term list and stop-word set from the XML file even if cached outputs already exist.
 
 
@@ -253,8 +276,8 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 ### 6. Network & Simulation Parameters
 
-* **Lambda Value:** The distance penalty decay factor applied to generational node weighting ($W = e^{-\lambda d}$).
-* **Node Weight Factors:** A four-component weighting dictionary that controls how a node's composite importance score is assembled prior to GLF/SA filtering. The four keys and their defaults are:
+* **Lambda Value:** The distance-decay factor for generational node weighting: a node's generation weight is $W = e^{-\lambda d}$, where $d$ is the citation-generation distance from the P0 seed set ($d = 0$ for P0, $1$ for G1, …). Larger $\lambda$ penalizes distant generations more steeply.
+* **Node Weight Factors:** A four-component dictionary combined into a single per-node `adjusted_node_weight` attribute recorded on the final network. It is a **user-tunable node-importance metric, not a driver of the GLF/SA filtering** — consensus filtering is driven by edge co-occurrence strength, independent of these factors. The attribute is reported on the final graph (and offered as one of the candidate weightings in the validation step), so it is available as a base metric for your own downstream analysis. The four keys and their defaults are:
 
   | Key | Default | Role |
   |-----|---------|------|
@@ -265,7 +288,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
   The four values must sum to `1.0`.
 
-* **Target Edges:** The hard threshold for the final consensus subgraph size. The optimization algorithms will prune the graph until exactly this number of edges remains.
+* **Target Edges (`target_num_edges`):** The target subgraph size handed to the GLF and SA optimizers. Each selects a subgraph of about this many edges; their intersection (the consensus, reduced to its LCC) is typically somewhat smaller. *(Distinct from the `target_edges` node-pair query in §7 Secondary Analysis.)*
 * **GLF / SA Iterations:** Monte Carlo search and thermal cooling steps for the optimization heuristics.
 * **SA Temperature Start:** The initial thermal energy of the Simulated Annealing system (default `5000.0`). Higher values allow larger disruptive jumps early in the search.
 * **SA Cooling Rate:** The multiplicative decay applied to temperature each iteration (default `0.999995`). Values closer to `1.0` cool more slowly and explore more widely at the cost of run time.
@@ -278,21 +301,21 @@ Executes highly targeted queries against the finalized network to extract specif
 * **Export Limit:** Maximum number of articles returned per query (default `500`).
 * **Exclude Review Articles:** Filters out broad review articles to isolate primary literature.
 * **Target Nodes:** Evaluates the literature density of specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
-* **Target Edges:** Evaluates literature specifically linking two concepts. Format with a dash-space-dash: `NodeA - NodeB; NodeC - NodeD`.
-* **Sort Metric:** The alternative options for the `sort_metric` parameter is **`F1`** or **`Linear`**.
+* **Target Edges (`target_edges`):** Evaluates literature specifically linking two concepts. Separate the two node names with a **space-padded hyphen** (` - `), and separate multiple edge queries with semicolons: `NodeA - NodeB; NodeC - NodeD`. *(Distinct from the numeric `target_num_edges` threshold in §6.)*
+* **Sort Metric (`sort_metric`):** Selects the ranking engine — `Linear` (compensatory weighted average) or `F1` (penalizing harmonic mean). Default `F1`.
 
   **1. Linear (Weighted Additive Model)**
 
-  * **Mechanism:** Calculates the arithmetic weighted average of the normalized Article Relevance Score (ARS) and the normalized Citation Score.
+  * **Mechanism:** Calculates the arithmetic weighted average of the normalized Article Relevance Score (ARS) and the normalized citation rate.
   * **Behavior:** Compensatory. A high score in one metric can offset a low score in the other, governed by the user-defined `linear_weight_ars`.
   * **Formula:** $(ARS \times w) + (Cit \times (1 - w))$
 
   **2. F1 (Harmonic Mean)**
 
-  * **Mechanism:** Calculates the strict harmonic mean of the normalized ARS and the normalized Citation Score.
+  * **Mechanism:** Calculates the strict harmonic mean of the normalized ARS and the normalized citation rate.
   * **Behavior:** Penalizing. The final output skews heavily toward the lower of the two input values. An article must possess both high topological relevance and high community impact to achieve a high score.
   * **Formula:** $2 \times \frac{ARS \times Cit}{ARS + Cit}$
-* **ARS Weight (`linear_weight_ars`):** The weight for **`Linear`** sorting metric of the ARS scores per article (0–1.0), with the remaining weight applied to incoming citations (*article popularity*). Default `0.5`.
+* **ARS Weight (`linear_weight_ars`):** Weight given to the normalized ARS in the `Linear` metric (0–1.0); the remaining `1 − w` weights the normalized **citation rate** (citations per year, which corrects the age bias that otherwise favors older papers purely for having accumulated citations longer). Default `0.5`.
 * **Compare Multiple Networks (`compare_networks`):** Off by default. When enabled, secondary analysis runs a **node-overlap comparison** across a set of saved networks you list in **Networks to Compare** (`comparison_networks`) — a comma-separated, quote-wrapped list such as `"Ex_Graph_1.json","Ex_Graph_2.graphml"`. Bare names are resolved against the processed data folder (or `data/reference_processed/` when `Use Reference Data` is on); explicit paths and non-JSON formats (`.graphml`, `.gml`, `.gexf`, …) are also accepted. Missing files trigger a warning naming where the pipeline looked. It writes a membership matrix, a pairwise intersection/Jaccard table, and an overlap figure to `results/`.
 
 ### 8. Benchmark Parameters
@@ -304,14 +327,14 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 * **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
 * **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations behind the confidence intervals and the random-ranking null. Default `25` each. Each bootstrap resample re-ranks the full article pool, so runtime scales linearly with both this value and the size of that pool. Measured on a ~9-million-article pool:
 
-  | `n_boot` / `n_perm` | Approx. runtime | Use |
-  | --- | --- | --- |
-  | `25` *(default)* | ~15 min | routine runs |
-  | `50` | ~30 min | tighter intervals |
-  | `100` | ~1 hour | thorough |
-  | `200` | ~2 hours | publication-grade |
+  | `n_boot` / `n_perm` | Approx. runtime |
+  | --- | --- |
+  | `25` *(default)* | ~15 min |
+  | `50` | ~30 min |
+  | `100` | ~1 hour |
+  | `200` | ~2 hours |
 
-  Interval precision is bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
+  Increasing the count tightens the bootstrap confidence intervals and stabilizes the permutation p-value, but runtime grows proportionally; decreasing it runs faster at the cost of noisier, less reliable estimates. The default (`25`) is a practical balance. Interval precision is ultimately bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
 * **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
   When enabled, this **also** causes betweenness **and** PageRank to be recomputed on the filtered consensus subgraph, in addition to the whole-corpus versions, and scored as extra benchmark scorers (`betweenness (subgraph)`, `pagerank (subgraph)`). Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space. Computing both for both algorithms makes centrality **scope** and centrality **type** a full 2×2 rather than confounding them. Note the subgraph betweenness is computed **exactly** (the subgraph is small), unlike the whole-graph estimate. The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant — it is the single control for all four. Because this decision changes which centralities are computed, it is read at the **network** step, so the wizard offers the flag during `--step network` as well; the benchmark scores whichever `score_*` columns relevance actually produced.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
@@ -332,7 +355,7 @@ To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Diction
 ### How to Annotate Your Network:
 
 1. **Enable Pausing:** In the Wizard, ensure `Pause for Annotation` is set to `True`.
-2. **Run the Pipeline:** Let the pipeline run. It will execute Steps 0 through 3 (Network Construction), output AOP-independent figures (like distributions and convergence trajectories), and then pause.
+2. **Run the Pipeline:** Let the pipeline run. It will execute Steps 0 through 3 (Network Construction), output AOP-independent figures (like distributions and convergence trajectories), and then pause — after the node set is final but before any biological Sankey/alluvial figures are rendered (Step 4).
 3. **Open the Run Template:** Navigate to the `results/` directory and open your run-specific template: `[PREFIX]_run_annotations.csv`.
 4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata. *(Unsure how to categorize a term? Look up its official scope note and hierarchy in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/) — the official MeSH description is the best guide for determining the correct AOP stratum.)*
 * `Stressor` - External stimuli that initiate a biological reaction (e.g., `UV Rays`, `Chemicals`)
@@ -347,6 +370,13 @@ To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Diction
 5. **Save the File:** Save the file, ensuring it remains **semicolon-delimited**.
 6. **Resume the Pipeline:** Run `mesh-pipeline --step viz`. The pipeline will ask if you want to sync your new annotations to the Master Dictionary for future runs, and then generate the final biological figures.
 
+### What "syncing to the Master Dictionary" does
+
+When you resume (`--step viz`), the pipeline offers to write your run's annotations back to the **Master Dictionary** (`data/raw/aop_annotations_master.csv`). Saying yes merges every `term → stratum` assignment from this run into that master file:
+
+* The assignments become **persistent in your copy of the repository** — every future run pre-fills these terms automatically, so you never re-annotate the same MeSH heading twice, and you can re-export your curated strata at any time from the master file.
+* The Master Dictionary ships **partially pre-seeded**: a subset of terms relevant to the bundled Dermatitis, Allergic Contact (DAC / AOP 40) query are already annotated from prior curation. **Most MeSH terms are not annotated** and will appear as `Unassigned` in your run template — you must assign those yourself for the biological Sankey/alluvial flows to be meaningful. Anything left `Unassigned` (or run in AFK mode) is treated as `Uncategorized`.
+
 ---
 
 ## Output Artifacts
@@ -356,16 +386,23 @@ Upon successful completion of the pipeline, the following critical files are gen
 ### Data & Network Artifacts (`data/processed/`)
 
 * `master_mesh_database.db`: A persistent offline cache of all PubMed IDs and MeSH annotations.
-* `*_cleaned_pmids.db`: The SQLite schema containing the hierarchical linkage of your extracted articles.
+* `*_pmids.db` / `*_cleaned_pmids.db`: The raw and de-duplicated SQLite schemas holding the hierarchical citation linkage of your extracted articles.
+* `mesh_terms.csv`: The MeSH vocabulary extracted from the XML in Step 1.
 * `*_full_network_data.json`: The raw, unfiltered NetworkX graphical representation.
+* `*_glf_optimal_subgraph.json` / `*_sa_optimal_subgraph.json`: The two independent optimizer solutions whose intersection forms the consensus subgraph.
+* `*_optimization_history.json`: The GLF/SA score trajectory (feeds the optimization-trajectory figure).
 * `*_consensus_lcc_network.json`: The optimized graph containing the intersection of the GLF and SA algorithms, reduced to its Largest Connected Component (LCC).
 * `*_final_network_with_relevance.json`: The fully annotated terminal graph, populated with semantic Mean Relevancy Scores (MRS) and Louvain Community classifications.
+* `*_mean_relevancy.db`: The per-article Mean Relevancy Scoring database — the `score_*` columns behind ARS/MRS and the secondary/benchmark steps.
 
 ### Analytical Exports (`results/`)
 
 * `*_export.xlsx`: A tabular summary of the final nodes and edges.
 * `*_Top_Network_Articles.csv`: The highest-scoring primary literature driving the network's structure.
+* `*_run_annotations.csv`: The per-run biological-strata template you edit during the annotation pause.
 * `*_network_overlap_membership.csv` / `*_network_overlap_matrix.csv` / `*_Network_Overlap.png`: node-overlap comparison across the networks you named — produced only when **Compare Multiple Networks** is enabled.
+* **Benchmark & validation outputs** (`results/`, `results/validation/`, `results/figures/`): the ground-truth benchmark, node/edge convergent validation, and projection comparison each write their own files — see the **Validation & Benchmarking** section below for the complete list (`*_benchmark_results.json`, `*_benchmark_enrichment.png`, `*_benchmark_quarantined_pmids.csv`, `validation/*_validation_report.xlsx`/`.html`, `validation/*_projection_comparison.csv`, `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, and the GT figures).
+* `logs/`: run logs and failed-fetch records.
 * **Figures (`results/figures/`)**:
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
 * **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
