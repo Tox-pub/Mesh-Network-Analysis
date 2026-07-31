@@ -400,7 +400,7 @@ Amino Acid Chloromethyl Ketones;Unassigned
 Amino Acid Isomerases;Unassigned
 Amino Acid Metabolism, Inborn Errors;Unassigned
 Amino Acid Oxidoreductases;Unassigned
-Amino Acid Sequence;Unassigned
+Amino Acid Sequence;Molecular
 Amino Acids;Unassigned
 Amino Acids, Branched-Chain;Unassigned
 Amino Acids, Cyclic;Unassigned
@@ -617,14 +617,14 @@ Antibodies, Bacterial;Unassigned
 Antibodies, Fungal;Unassigned
 Antibodies, Helminth;Unassigned
 Antibodies, Heterophile;Unassigned
-Antibodies, Monoclonal;Unassigned
+Antibodies, Monoclonal;Molecular
 Antibodies, Neoplasm;Unassigned
 Antibodies, Protozoan;Unassigned
 Antibodies, Viral;Unassigned
 Antibody Affinity;Unassigned
 Antibody Diversity;Unassigned
 Antibody Formation;Unassigned
-Antibody Specificity;Unassigned
+Antibody Specificity;Molecular
 Antibody-Dependent Cell Cytotoxicity;Unassigned
 Antibody-Producing Cells;Unassigned
 Immunotoxins;Unassigned
@@ -643,14 +643,14 @@ Antifoaming Agents;Unassigned
 Antifungal Agents;Stressor
 Antigen-Antibody Complex;Unassigned
 Antigen-Antibody Reactions;Unassigned
-Antigen-Presenting Cells;Unassigned
+Antigen-Presenting Cells;Cellular
 Epitopes;Unassigned
 Antigenic Variation;Unassigned
 Antigens;Unassigned
 Antigens, Bacterial;Unassigned
-Antigens, Differentiation;Unassigned
+Antigens, Differentiation;Molecular
 Antigens, Differentiation, B-Lymphocyte;Unassigned
-Antigens, Differentiation, T-Lymphocyte;Unassigned
+Antigens, Differentiation, T-Lymphocyte;Cellular
 Antigens, Fungal;Unassigned
 Antigens, Helminth;Unassigned
 Histocompatibility Antigens Class II;Unassigned
@@ -676,14 +676,14 @@ Antinematodal Agents;Unassigned
 Antineoplastic Agents;Unassigned
 Antineoplastic Agents, Phytogenic;Unassigned
 Antibodies, Antinuclear;Unassigned
-Antioxidants;Unassigned
+Antioxidants;Molecular
 Antipain;Unassigned
 Antiparasitic Agents;Unassigned
 Antiparkinson Agents;Unassigned
 alpha-2-Antiplasmin;Unassigned
 Antiplatyhelmintic Agents;Unassigned
 Antiprotozoal Agents;Unassigned
-Antipruritics;Unassigned
+Antipruritics;Stressor
 Antipyrine;Unassigned
 Antisickling Agents;Unassigned
 Antispermatogenic Agents;Unassigned
@@ -952,7 +952,7 @@ Aztreonam;Unassigned
 Azure Stains;Unassigned
 Azurin;Unassigned
 Azygos Vein;Unassigned
-B-Lymphocytes;Unassigned
+B-Lymphocytes;Cellular
 Babesiosis;Unassigned
 Reflex, Babinski;Unassigned
 Bacitracin;Unassigned
@@ -995,11 +995,11 @@ Basal Ganglia;Unassigned
 Basal Ganglia Diseases;Unassigned
 Basal Metabolism;Unassigned
 Base Composition;Unassigned
-Base Sequence;Unassigned
+Base Sequence;Molecular
 Basement Membrane;Unassigned
 Basilar Artery;Unassigned
 Basilar Membrane;Unassigned
-Basophils;Unassigned
+Basophils;Cellular
 Batrachotoxins;Unassigned
 3-Pyridinecarboxylic acid, 1,4-dihydro-2,6-dimethyl-5-nitro-4-(2-(trifluoromethyl)phenyl)-, Methyl ester;Unassigned
 BCG Vaccine;Unassigned
@@ -1316,7 +1316,7 @@ Bromouracil;Unassigned
 Brompheniramine;Unassigned
 Bromphenol Blue;Unassigned
 Bromthymol Blue;Unassigned
-Bronchi;Unassigned
+Bronchi;Organ
 Bronchial Arteries;Unassigned
 Bronchial Diseases;Unassigned
 Bronchial Fistula;Unassigned
@@ -1544,7 +1544,7 @@ Carcinoma, Non-Small-Cell Lung;Unassigned
 Carcinoma, Papillary;Unassigned
 Carcinoma, Renal Cell;Unassigned
 Adenocarcinoma, Scirrhous;Unassigned
-Carcinoma, Squamous Cell;Unassigned
+Carcinoma, Squamous Cell;Adverse Outcome
 Carcinoma, Transitional Cell;Unassigned
 Carcinosarcoma;Unassigned
 Cardanolides;Unassigned
@@ -1652,7 +1652,7 @@ Cell Communication;Unassigned
 Cell Compartmentation;Unassigned
 Cell Count;Unassigned
 Cell Cycle;Unassigned
-Cell Differentiation;Unassigned
+Cell Differentiation;Cellular
 Cell Division;Unassigned
 Cell Extracts;Unassigned
 Cell Fusion;Unassigned
@@ -2859,7 +2859,7 @@ Dosage Compensation, Genetic;Unassigned
 Dosage Forms;Unassigned
 Dose-Response Relationship, Drug;Uncategorized
 Dose-Response Relationship, Immunologic;Unassigned
-Dose-Response Relationship, Radiation;Unassigned
+Dose-Response Relationship, Radiation;Uncategorized
 Dothiepin;Unassigned
 Double Outlet Right Ventricle;Unassigned
 Douglas' Pouch;Unassigned
@@ -3132,7 +3132,7 @@ Enzymes, Immobilized;Unassigned
 Eosine Yellowish-(YS);Unassigned
 Eosinophilia;Unassigned
 Eosinophilic Granuloma;Unassigned
-Eosinophils;Unassigned
+Eosinophils;Cellular
 Ependyma;Unassigned
 Ependymoma;Unassigned
 Ephedrine;Unassigned
@@ -3520,7 +3520,7 @@ Fibrinolytic Agents;Unassigned
 Fibrinopeptide A;Unassigned
 Fibrinopeptide B;Unassigned
 Fibroblast Growth Factors;Unassigned
-Fibroblasts;Unassigned
+Fibroblasts;Cellular
 Fibrocystic Breast Disease;Unassigned
 Fibroins;Unassigned
 Fibroma;Unassigned
@@ -3647,7 +3647,7 @@ Foot Rot;Unassigned
 Foot-and-Mouth Disease;Unassigned
 Foramen Magnum;Unassigned
 Forced Expiratory Flow Rates;Unassigned
-Forced Expiratory Volume;Unassigned
+Forced Expiratory Volume;Organ
 Forearm;Unassigned
 Forearm Injuries;Unassigned
 Forefoot, Human;Unassigned
@@ -3820,7 +3820,7 @@ Gelatin;Unassigned
 Gels;Unassigned
 Gene Amplification;Unassigned
 Gene Conversion;Unassigned
-Gene Expression Regulation;Unassigned
+Gene Expression Regulation;Molecular
 Gene Frequency;Unassigned
 Gene Pool;Unassigned
 Genes;Unassigned
@@ -4410,7 +4410,7 @@ Histamine;Unassigned
 Histamine Antagonists;Stressor
 Histamine H1 Antagonists;Unassigned
 Histamine H2 Antagonists;Unassigned
-Histamine Release;Unassigned
+Histamine Release;Cellular
 Histamine N-Methyltransferase;Unassigned
 Histidine Ammonia-Lyase;Unassigned
 Histidine;Unassigned
@@ -4714,12 +4714,12 @@ Immersion Foot;Unassigned
 Immune Complex Diseases;Unassigned
 Immune Sera;Unassigned
 Immune System;Unassigned
-Immune Tolerance;Unassigned
+Immune Tolerance;Organ
 Immunity;Unassigned
 Immunity, Active;Unassigned
-Immunity, Cellular;Unassigned
+Immunity, Cellular;Cellular
 Immunity, Maternally-Acquired;Unassigned
-Immunity, Innate;Unassigned
+Immunity, Innate;Organ
 Immunoblastic Lymphadenopathy;Unassigned
 Immunocompetence;Unassigned
 Immunoglobulin Allotypes;Unassigned
@@ -4749,7 +4749,7 @@ Immunologic Capping;Unassigned
 Immunologic Deficiency Syndromes;Unassigned
 Immune System Diseases;Unassigned
 Immunologic Factors;Unassigned
-Immunologic Memory;Unassigned
+Immunologic Memory;Tissue
 Immunologic Surveillance;Unassigned
 Immunoproliferative Disorders;Unassigned
 Immunoproliferative Small Intestinal Disease;Unassigned
@@ -4844,13 +4844,13 @@ Intercostal Muscles;Unassigned
 Intercostal Nerves;Unassigned
 Interferon Inducers;Unassigned
 Interferon Type I;Unassigned
-Interferon-gamma;Unassigned
+Interferon-gamma;Molecular
 Interferons;Unassigned
-Interleukin-1;Unassigned
-Interleukin-2;Unassigned
+Interleukin-1;Molecular
+Interleukin-2;Molecular
 Interleukin-3;Unassigned
 Interleukins;Unassigned
-Intermediate Filament Proteins;Unassigned
+Intermediate Filament Proteins;Molecular
 Intermediate Filaments;Unassigned
 Intermittent Claudication;Unassigned
 Interneurons;Unassigned
@@ -5300,7 +5300,7 @@ Lipolysis;Unassigned
 Lipoma;Unassigned
 Lipomatosis;Unassigned
 Lipomatosis, Multiple Symmetrical;Unassigned
-Lipopolysaccharides;Unassigned
+Lipopolysaccharides;Stressor
 Lipoprotein Lipase;Unassigned
 Hyperlipoproteinemia Type I;Unassigned
 Lipoprotein-X;Unassigned
@@ -5367,7 +5367,7 @@ Lumicolchicines;Unassigned
 Luminescent Proteins;Unassigned
 Luminol;Unassigned
 Lumpy Skin Disease;Unassigned
-Lung;Unassigned
+Lung;Organ
 Lung Abscess;Unassigned
 Lung Compliance;Unassigned
 Lung Diseases;Unassigned
@@ -5406,7 +5406,7 @@ Lymphedema;Unassigned
 Lymphocele;Unassigned
 Lymphocyte Cooperation;Unassigned
 Lymphocyte Activation;Cellular
-Lymphocytes;Unassigned
+Lymphocytes;Cellular
 Lymphocytes, Null;Unassigned
 Lymphocytic Choriomeningitis;Unassigned
 Lymphocytosis;Unassigned
@@ -5440,9 +5440,9 @@ Lysine-tRNA Ligase;Unassigned
 Waldenstrom Macroglobulinemia;Unassigned
 Macroglobulins;Unassigned
 Macroglossia;Unassigned
-Macrophage Activation;Unassigned
+Macrophage Activation;Cellular
 Macrophage Migration-Inhibitory Factors;Unassigned
-Macrophages;Unassigned
+Macrophages;Cellular
 Macrostomia;Unassigned
 Macula Lutea;Unassigned
 Acoustic Maculae;Unassigned
@@ -5523,7 +5523,7 @@ Margarine;Unassigned
 Marine Toxins;Unassigned
 Markov Chains;Unassigned
 Masseter Muscle;Unassigned
-Mast Cells;Unassigned
+Mast Cells;Cellular
 Mastication;Unassigned
 Masticatory Muscles;Unassigned
 Mastitis;Unassigned
@@ -5596,7 +5596,7 @@ Meigs Syndrome;Unassigned
 Meiosis;Unassigned
 Melanins;Unassigned
 Melanocytes;Unassigned
-Melanoma;Unassigned
+Melanoma;Adverse Outcome
 Melanoma, Experimental;Unassigned
 Melanophores;Unassigned
 Melanosis;Unassigned
@@ -5613,7 +5613,7 @@ Melphalan;Unassigned
 Memantine;Unassigned
 Membrane Fluidity;Unassigned
 Membrane Fusion;Unassigned
-Membrane Glycoproteins;Unassigned
+Membrane Glycoproteins;Molecular
 Membrane Lipids;Unassigned
 Membrane Potentials;Unassigned
 Membrane Proteins;Unassigned
@@ -6004,7 +6004,7 @@ Mushroom Poisoning;Unassigned
 Mustard Compounds;Unassigned
 Mustard Gas;Unassigned
 Mutagens;Unassigned
-Mutation;Unassigned
+Mutation;Molecular
 Mutism;Unassigned
 Muzolimine;Unassigned
 Myasthenia Gravis;Unassigned
@@ -6016,7 +6016,7 @@ Mycophenolic Acid;Unassigned
 Mycoplasma Infections;Unassigned
 Mycoplasmatales Infections;Unassigned
 Mycoses;Unassigned
-Mycosis Fungoides;Unassigned
+Mycosis Fungoides;Stressor
 Mycotoxins;Unassigned
 Mydriatics;Stressor
 Myelin Proteins;Unassigned
@@ -6156,7 +6156,7 @@ Multiple Endocrine Neoplasia;Unassigned
 Neoplasms, Multiple Primary;Unassigned
 Neoplasms, Muscle Tissue;Unassigned
 Neoplasms, Nerve Tissue;Unassigned
-Neoplasms, Radiation-Induced;Unassigned
+Neoplasms, Radiation-Induced;Adverse Outcome
 Neoplasms, Unknown Primary;Unassigned
 Neoplasms, Vascular Tissue;Unassigned
 Paraneoplastic Endocrine Syndromes;Unassigned
@@ -6584,7 +6584,7 @@ Otorhinolaryngologic Neoplasms;Unassigned
 Otosclerosis;Unassigned
 Ouabain;Unassigned
 Oval Window, Ear;Unassigned
-Ovalbumin;Unassigned
+Ovalbumin;Molecular
 Ovarian Cysts;Unassigned
 Ovarian Diseases;Unassigned
 Ovarian Neoplasms;Unassigned
@@ -6805,7 +6805,7 @@ Penicillin G Procaine;Unassigned
 Penicillin Resistance;Unassigned
 Penicillin V;Unassigned
 Penicillinase;Unassigned
-Penicillins;Unassigned
+Penicillins;Stressor
 Penile Diseases;Unassigned
 Penile Erection;Unassigned
 Penile Induration;Unassigned
@@ -6902,7 +6902,7 @@ Peritoneal Diseases;Unassigned
 Peritoneal Neoplasms;Unassigned
 Peritoneum;Unassigned
 Peritonitis;Unassigned
-Permeability;Unassigned
+Permeability;Tissue
 Peroneal Nerve;Unassigned
 Peroxidases;Unassigned
 Peroxides;Unassigned
@@ -7060,7 +7060,7 @@ Phosphorylase a;Unassigned
 Phosphorylase b;Unassigned
 Phosphorylase Kinase;Unassigned
 Phosphorylase Phosphatase;Unassigned
-Phosphorylation;Unassigned
+Phosphorylation;Molecular
 Phosphorylcholine;Unassigned
 Phosphoserine;Unassigned
 Phosphothreonine;Unassigned
@@ -7175,7 +7175,7 @@ Plant Extracts;Stressor
 Plant Growth Regulators;Unassigned
 Plant Oils;Stressor
 Plant Poisoning;Unassigned
-Plant Proteins;Unassigned
+Plant Proteins;Stressor
 Plant Tumors;Unassigned
 Plasma;Unassigned
 Plasma Cells;Unassigned
@@ -7244,7 +7244,7 @@ Poliomyelitis;Unassigned
 Poliomyelitis, Bulbar;Unassigned
 Poliovirus Vaccine, Inactivated;Unassigned
 Poliovirus Vaccine, Oral;Unassigned
-Pollen;Unassigned
+Pollen;Stressor
 Polonium;Unassigned
 Poloxalene;Unassigned
 Poly A;Unassigned
@@ -7814,7 +7814,7 @@ Receptors, Androgen;Unassigned
 Receptors, Angiotensin;Unassigned
 Receptors, Antigen;Unassigned
 Receptors, Antigen, B-Cell;Unassigned
-Receptors, Antigen, T-Cell;Unassigned
+Receptors, Antigen, T-Cell;Cellular
 Receptors, Cholecystokinin;Unassigned
 Receptors, Cholinergic;Unassigned
 Receptors, Complement;Unassigned
@@ -7983,7 +7983,7 @@ Rheumatic Nodule;Unassigned
 Rheumatic Diseases;Unassigned
 Rheumatoid Factor;Unassigned
 Rheumatoid Nodule;Unassigned
-Rhinitis;Unassigned
+Rhinitis;Adverse Outcome
 Rhinitis, Allergic, Perennial;Adverse Outcome
 Rhinitis, Atrophic;Unassigned
 Rhinitis, Vasomotor;Unassigned
@@ -8052,7 +8052,7 @@ RNA, Bacterial;Unassigned
 RNA, Double-Stranded;Unassigned
 RNA, Fungal;Unassigned
 RNA, Heterogeneous Nuclear;Unassigned
-RNA, Messenger;Unassigned
+RNA, Messenger;Molecular
 RNA, Neoplasm;Unassigned
 RNA, Ribosomal;Unassigned
 RNA, Ribosomal, 16S;Unassigned
@@ -8378,7 +8378,7 @@ Skatole;Unassigned
 Skeleton;Unassigned
 Skin;Organ
 Skin Abnormalities;Unassigned
-Skin Absorption;Unassigned
+Skin Absorption;Organ
 Skin Diseases;Adverse Outcome
 Skin Diseases, Vesiculobullous;Unassigned
 Skin Diseases, Genetic;Unassigned
@@ -8387,7 +8387,7 @@ Skin Diseases, Metabolic;Unassigned
 Skin Diseases, Parasitic;Unassigned
 Skin Manifestations;Unassigned
 Skin Neoplasms;Adverse Outcome
-Skin Physiological Phenomena;Unassigned
+Skin Physiological Phenomena;Tissue
 Skin Pigmentation;Unassigned
 Skin Temperature;Unassigned
 Skin Ulcer;Unassigned
@@ -8759,7 +8759,7 @@ Sulfurtransferases;Unassigned
 Sulindac;Unassigned
 Suloctidil;Unassigned
 Sulpiride;Unassigned
-Sunburn;Unassigned
+Sunburn;Adverse Outcome
 Sunlight;Stressor
 Sunscreening Agents;Stressor
 Sunstroke;Unassigned
@@ -9424,7 +9424,7 @@ Tuftsin;Unassigned
 Tularemia;Unassigned
 Tumor Cells, Cultured;Unassigned
 Biomarkers, Tumor;Unassigned
-Tumor Necrosis Factor-alpha;Unassigned
+Tumor Necrosis Factor-alpha;Molecular
 Neoplastic Stem Cells;Unassigned
 Tumor Virus Infections;Unassigned
 Tungsten;Unassigned
@@ -9769,7 +9769,7 @@ Wolfram Syndrome;Unassigned
 Wood;Stressor
 Wool;Unassigned
 Work of Breathing;Unassigned
-Wound Healing;Unassigned
+Wound Healing;Organ
 Wound Infection;Unassigned
 Wounds and Injuries;Unassigned
 Wounds, Gunshot;Unassigned
@@ -10109,7 +10109,7 @@ HTLV-I Infections;Unassigned
 HTLV-II Infections;Unassigned
 Paraparesis, Tropical Spastic;Unassigned
 Salivary Gland Calculi;Unassigned
-CD4-Positive T-Lymphocytes;Unassigned
+CD4-Positive T-Lymphocytes;Cellular
 Renal Tubular Transport, Inborn Errors;Unassigned
 Chloramphenicol O-Acetyltransferase;Unassigned
 Drugs, Investigational;Unassigned
@@ -10144,7 +10144,7 @@ Roxithromycin;Unassigned
 Hyperostosis;Unassigned
 Retinal Drusen;Unassigned
 Optic Disk Drusen;Unassigned
-Skin Aging;Unassigned
+Skin Aging;Adverse Outcome
 Pregnancy Complications, Parasitic;Unassigned
 Keratinocytes;Cellular
 Cowpox;Unassigned
@@ -10200,7 +10200,7 @@ Genomic Library;Unassigned
 HIV Envelope Protein gp120;Unassigned
 HIV Envelope Protein gp41;Unassigned
 Near Drowning;Unassigned
-Antigens, CD;Unassigned
+Antigens, CD;Molecular
 CD4 Antigens;Unassigned
 HN Protein;Unassigned
 Corneal Edema;Unassigned
@@ -10306,10 +10306,10 @@ Serpins;Unassigned
 Heparin Cofactor II;Unassigned
 Tonic Pupil;Unassigned
 Monokines;Unassigned
-Interleukin-4;Unassigned
-Interleukin-5;Unassigned
+Interleukin-4;Molecular
+Interleukin-5;Molecular
 Plasminogen Inactivators;Unassigned
-Interleukin-6;Unassigned
+Interleukin-6;Molecular
 Interleukin-7;Unassigned
 Eukaryotic Initiation Factor-2;Unassigned
 Cysteine Proteinase Inhibitors;Unassigned
@@ -10322,7 +10322,7 @@ Panuveitis;Unassigned
 Uveitis, Posterior;Unassigned
 Uveitis, Intermediate;Unassigned
 Pars Planitis;Unassigned
-Gene Expression;Unassigned
+Gene Expression;Molecular
 Anisocoria;Unassigned
 Miosis;Unassigned
 Mydriasis;Unassigned
@@ -10437,7 +10437,7 @@ Accelerated Idioventricular Rhythm;Unassigned
 Torsades de Pointes;Unassigned
 Macrophage Colony-Stimulating Factor;Unassigned
 B-Lymphocyte Subsets;Unassigned
-T-Lymphocyte Subsets;Unassigned
+T-Lymphocyte Subsets;Cellular
 Macrophage-1 Antigen;Unassigned
 Granulocyte-Macrophage Colony-Stimulating Factor;Unassigned
 Granulocyte Colony-Stimulating Factor;Unassigned
@@ -10519,7 +10519,7 @@ HIV Enhancer;Unassigned
 Sequence Tagged Sites;Unassigned
 HIV Long Terminal Repeat;Unassigned
 Extracellular Matrix Proteins;Unassigned
-NF-kappa B;Unassigned
+NF-kappa B;Molecular
 Sp1 Transcription Factor;Unassigned
 HIV Protease;Unassigned
 Genes, vpr;Unassigned
@@ -10696,7 +10696,7 @@ Minor Lymphocyte Stimulatory Loci;Unassigned
 Minor Lymphocyte Stimulatory Antigens;Unassigned
 Stiff-Person Syndrome;Unassigned
 Hepatitis E;Unassigned
-Interleukin-10;Unassigned
+Interleukin-10;Molecular
 Proto-Oncogene Proteins c-jun;Unassigned
 Immunoglobulins, Intravenous;Unassigned
 Death, Sudden, Cardiac;Unassigned
@@ -10838,7 +10838,7 @@ Myocardial Ischemia;Unassigned
 Angelman Syndrome;Unassigned
 Spirurida Infections;Unassigned
 Strongylida Infections;Unassigned
-Apoptosis;Unassigned
+Apoptosis;Cellular
 Root Caries;Unassigned
 Gastric Outlet Obstruction;Unassigned
 Dentin-Bonding Agents;Unassigned
@@ -10947,10 +10947,10 @@ Quinolinic Acid;Unassigned
 Hypertrophy, Left Ventricular;Unassigned
 Hypertrophy, Right Ventricular;Unassigned
 Spliceosomes;Unassigned
-Reactive Oxygen Species;Unassigned
+Reactive Oxygen Species;Stressor
 Sequence Deletion;Unassigned
 Sequence Homology;Unassigned
-Sequence Homology, Amino Acid;Unassigned
+Sequence Homology, Amino Acid;Molecular
 Thiobarbituric Acid Reactive Substances;Unassigned
 RNA Editing;Unassigned
 RNA, Guide, Kinetoplastida;Unassigned
@@ -10990,7 +10990,7 @@ Receptors, Somatomedin;Unassigned
 Receptors, IgG;Unassigned
 Dermatitis, Irritant;Adverse Outcome
 Dermatitis, Photoallergic;Adverse Outcome
-Receptors, IgE;Unassigned
+Receptors, IgE;Molecular
 Adenovirus Early Proteins;Unassigned
 Receptors, Albumin;Unassigned
 Receptors, Amino Acid;Unassigned
@@ -11225,7 +11225,7 @@ Phosphites;Unassigned
 Antiporters;Unassigned
 Sodium-Hydrogen Exchangers;Unassigned
 Genes, Reporter;Unassigned
-DNA Primers;Unassigned
+DNA Primers;Molecular
 Peripheral Nervous System;Unassigned
 Cytochrome a Group;Unassigned
 Cytochrome d Group;Unassigned
@@ -11233,7 +11233,7 @@ Nitric Acid;Unassigned
 Retinal Rod Photoreceptor Cells;Unassigned
 Retinal Cone Photoreceptor Cells;Unassigned
 Ganglia, Sensory;Unassigned
-Antigen Presentation;Unassigned
+Antigen Presentation;Cellular
 Ganglia, Invertebrate;Unassigned
 Isocyanates;Stressor
 Photoreceptor Cells, Invertebrate;Unassigned
@@ -11335,7 +11335,7 @@ Chloride Channels;Unassigned
 Stavudine;Unassigned
 Finasteride;Unassigned
 Receptors, Cytokine;Unassigned
-B7-1 Antigen;Unassigned
+B7-1 Antigen;Molecular
 Receptors, Interleukin;Unassigned
 Receptors, Tumor Necrosis Factor;Unassigned
 Receptors, Transforming Growth Factor beta;Unassigned
@@ -11524,7 +11524,7 @@ Cardiovascular Abnormalities;Unassigned
 Neurotransmitter Agents;Unassigned
 Thyroid Hormone Resistance Syndrome;Unassigned
 Bay-Region, Polycyclic Aromatic Hydrocarbon;Unassigned
-Oxidative Stress;Unassigned
+Oxidative Stress;Molecular
 Centrosome;Unassigned
 Kinetochores;Unassigned
 Codon, Initiator;Unassigned
@@ -11540,7 +11540,7 @@ Virus Physiological Phenomena;Unassigned
 Bacterial Physiological Phenomena;Unassigned
 Foot Injuries;Unassigned
 Pneumonia, Bacterial;Unassigned
-CD8-Positive T-Lymphocytes;Unassigned
+CD8-Positive T-Lymphocytes;Cellular
 Th1 Cells;Cellular
 Th2 Cells;Cellular
 Primate Diseases;Unassigned
@@ -11596,7 +11596,7 @@ DNA, Helminth;Unassigned
 RNA, Helminth;Unassigned
 Parasitemia;Unassigned
 Plant Structures;Unassigned
-Plant Leaves;Unassigned
+Plant Leaves;Stressor
 Pulvinus;Unassigned
 Plant Roots;Unassigned
 Plant Root Cap;Unassigned
@@ -11657,7 +11657,7 @@ Muscle Fibers, Fast-Twitch;Unassigned
 Muscle Fibers, Slow-Twitch;Unassigned
 Ventricular Septal Rupture;Unassigned
 Adrenergic Agents;Unassigned
-Interleukin-12;Unassigned
+Interleukin-12;Molecular
 Adrenergic Antagonists;Unassigned
 Tooth Injuries;Unassigned
 Cholinergic Agents;Unassigned
@@ -11763,7 +11763,7 @@ Molecular Chaperones;Unassigned
 Chaperonins;Unassigned
 Chaperonin 60;Unassigned
 Chaperonin 10;Unassigned
-Inflammation Mediators;Unassigned
+Inflammation Mediators;Molecular
 HSP70 Heat-Shock Proteins;Unassigned
 HSP90 Heat-Shock Proteins;Unassigned
 Cyclin-Dependent Kinases;Unassigned
@@ -11896,7 +11896,7 @@ Prostatic Intraepithelial Neoplasia;Unassigned
 Depression, Postpartum;Unassigned
 HIV Enteropathy;Unassigned
 Evoked Potentials, Motor;Unassigned
-No-Observed-Adverse-Effect Level;Unassigned
+No-Observed-Adverse-Effect Level;Uncategorized
 Receptors, Polymeric Immunoglobulin;Unassigned
 src-Family Kinases;Unassigned
 Cell Adhesion Molecules, Neuron-Glia;Unassigned
@@ -14400,7 +14400,7 @@ Trimethyl Ammonium Compounds;Unassigned
 Phenylammonium Compounds;Unassigned
 Benzylammonium Compounds;Unassigned
 Lipid Metabolism;Unassigned
-T-Lymphocytes, Regulatory;Unassigned
+T-Lymphocytes, Regulatory;Cellular
 Arteriolosclerosis;Unassigned
 Monckeberg Medial Calcific Sclerosis;Unassigned
 TRPP Cation Channels;Unassigned
@@ -14753,7 +14753,7 @@ Desmocollins;Unassigned
 Plectin;Unassigned
 Plakophilins;Unassigned
 Receptors, Pattern Recognition;Unassigned
-Toll-Like Receptors;Unassigned
+Toll-Like Receptors;Molecular
 Toll-Like Receptor 1;Unassigned
 Toll-Like Receptor 2;Unassigned
 Toll-Like Receptor 3;Unassigned
@@ -15073,7 +15073,7 @@ Centromere Protein B;Unassigned
 Dopamine and cAMP-Regulated Phosphoprotein 32;Unassigned
 Munc18 Proteins;Unassigned
 Phytochrome B;Unassigned
-B7-2 Antigen;Unassigned
+B7-2 Antigen;Molecular
 fms-Like Tyrosine Kinase 3;Unassigned
 Phytochrome A;Unassigned
 Antennapedia Homeodomain Protein;Unassigned
@@ -15112,7 +15112,7 @@ Benzothiazoles;Stressor
 Azulenes;Unassigned
 Kidney Diseases, Cystic;Unassigned
 Cephalopelvic Disproportion;Unassigned
-Antigens, Plant;Unassigned
+Antigens, Plant;Stressor
 Hydrocolpos;Unassigned
 Ferrosoferric Oxide;Unassigned
 Glucagon-Like Peptide 1;Unassigned
@@ -16238,7 +16238,7 @@ Costello Syndrome;Unassigned
 Prolactin-Releasing Hormone;Unassigned
 Prebiotics;Unassigned
 Propionic Acidemia;Unassigned
-Adaptive Immunity;Unassigned
+Adaptive Immunity;Organ
 Immunity, Humoral;Unassigned
 von Willebrand Disease, Type 1;Unassigned
 Endangered Species;Unassigned
@@ -17402,7 +17402,7 @@ Amylin Receptor Agonists;Unassigned
 Antidiuretic Hormone Receptor Antagonists;Unassigned
 beta-Lactamase Inhibitors;Unassigned
 Bradykinin B2 Receptor Antagonists;Unassigned
-Calcineurin Inhibitors;Unassigned
+Calcineurin Inhibitors;Stressor
 Calcium Chelating Agents;Unassigned
 Carbamoyl Phosphate Synthetase I Activators;Unassigned
 Catechol O-Methyltransferase Inhibitors;Unassigned
@@ -18793,7 +18793,7 @@ Tiagabine;Unassigned
 Felbamate;Unassigned
 Oxcarbazepine;Unassigned
 Lacosamide;Unassigned
-Epidermal Cells;Unassigned
+Epidermal Cells;Cellular
 Allogeneic Cells;Unassigned
 Meat Proteins;Unassigned
 Poultry Proteins;Unassigned
@@ -19232,7 +19232,7 @@ Angiopoietin-Like Protein 6;Unassigned
 Psychogenic Nonepileptic Seizures;Unassigned
 Endoplasmic Reticulum Chaperone BiP;Unassigned
 Organocopper Compounds;Unassigned
-Filaggrin Proteins;Unassigned
+Filaggrin Proteins;Molecular
 Protein Glutamine gamma Glutamyltransferase 2;Unassigned
 Tripeptidyl-Peptidase 1;Unassigned
 PCSK9 Inhibitors;Unassigned
@@ -19369,7 +19369,7 @@ Aortic Root Aneurysm;Unassigned
 Dissection, Thoracic Aorta;Unassigned
 Dissection, Ascending Aorta;Unassigned
 Dissection, Abdominal Aorta;Unassigned
-Thymic Stromal Lymphopoietin;Unassigned
+Thymic Stromal Lymphopoietin;Molecular
 beta-Galactoside alpha-2,3-Sialyltransferase;Unassigned
 Seminal Proteins;Unassigned
 Dissection, Blood Vessel;Unassigned
@@ -19699,3 +19699,5 @@ RNA, Z-Form;Unassigned
 Specialized Pro-Resolving Mediators;Unassigned
 Advanced Maternal Age;Unassigned
 Peripartum Cardiomyopathy;Unassigned
+Basal Cell Carcinoma;Adverse Outcome
+CD69 Antigens;Molecular
