@@ -8,6 +8,49 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
 
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Repository Structure](#repository-structure)
+- [Data Acquisition & Prerequisites](#data-acquisition--prerequisites)
+  - [The MeSH XML File (automatic)](#1-the-mesh-xml-file-automatic)
+  - [Internet Connectivity & Disk Budget](#2-internet-connectivity--disk-budget)
+- [User-Provided Files — Quick Reference](#user-provided-files--quick-reference)
+- [Environment Setup & Installation](#environment-setup--installation)
+  - [System Requirements](#1-system-requirements)
+  - [Standard Pip/Venv install](#2-installation-standard-pipvenv)
+  - [Alternative: Mamba/Micromamba](#3-alternative-installation-via-mambamicromamba)
+  - [Verification](#4-verification)
+- [Execution Guide](#execution-guide)
+  - [CLI Flags](#cli-flags)
+  - [Running the Complete Pipeline](#running-the-complete-pipeline)
+  - [Running Individual Modules](#running-individual-modules)
+- [Configuration Wizard Parameter Glossary](#configuration-wizard-parameter-glossary)
+  - [1. Control Flags & Directories](#1-control-flags--directories)
+  - [2. Master Database Status](#2-master-database-status-step-0-etl)
+  - [3. NCBI Credentials](#3-ncbi-credentials)
+  - [4. Search Parameters](#4-search-parameters)
+  - [5. Analysis Parameters](#5-analysis-parameters)
+  - [6. Network & Simulation Parameters](#6-network--simulation-parameters)
+  - [7. Secondary Analysis Parameters](#7-secondary-analysis-parameters)
+  - [8. Benchmark Parameters](#8-benchmark-parameters)
+- [The AOP Annotation Workflow](#the-aop-annotation-workflow-biological-strata)
+  - [How to Annotate Your Network](#how-to-annotate-your-network)
+  - [Syncing to the Master Dictionary](#what-syncing-to-the-master-dictionary-does)
+- [Output Artifacts](#output-artifacts)
+- [Validation & Benchmarking](#validation--benchmarking)
+  - [The Bundled OECD Ground Truth](#the-bundled-oecd-ground-truth)
+  - [Supplying Your Own Ground Truth](#supplying-your-own-ground-truth)
+  - [What It Reports](#what-it-reports)
+  - [Node/Edge Convergent Validation](#nodeedge-convergent-validation)
+- [Jupyter Notebook Interface](#jupyter-notebook-interface)
+- [Programmatic API Usage](#programmatic-api-usage)
+- [Troubleshooting](#troubleshooting)
+- [Citation](#citation)
+- [License](#license)
+
+---
+
 ## Repository Structure
 
 The package assumes and enforces the following directory architecture. The required MeSH XML input file must be placed in the raw data directory prior to execution.
