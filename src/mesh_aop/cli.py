@@ -621,12 +621,17 @@ def main():
                 print("      Set benchmark.run_ground_truth_analysis to true to force it on.")
 
         if gt_enabled:
-            configured_gt = bench_params.get('ground_truth_csv', '')
+            # Own-data runs leave ground_truth_csv empty and auto-detect a file the
+            # user dropped in data/raw/ (a recognized name from KNOWN_GT_FILENAMES).
+            # The bundled OECD curated set is substituted ONLY when running against
+            # the reference corpus, so a user's own file is never silently shadowed.
+            configured_gt = bench_params.get('ground_truth_csv', '') or (
+                'data/reference_processed/oecd_ground_truth_curated.xlsx' if use_reference else '')
 
-            # Resolve the ground-truth file from the ACTIVE raw directory. This is
-            # data/reference_raw/ when 'Use Reference Data' is True, and data/raw/
-            # when False -- so users supply their own PMID list by dropping a file
-            # named e.g. 'ground_truth_pmids.csv' into data/raw/.
+            # Resolve the ground-truth file. A configured name may be a bare filename
+            # (looked up in the ACTIVE raw directory -- data/raw/ for own data,
+            # data/reference_raw/ under reference data), an absolute path, or a path
+            # relative to the project root. Empty triggers auto-detection in raw/.
             gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt, root=config.root)
             if not gt_path:
                 print("\n" + "<"*30 + ">"*30)

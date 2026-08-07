@@ -84,7 +84,11 @@ class MeshConfig:
                 "sa_cooling_rate": 0.999995
             },
             "benchmark": {
-                "ground_truth_csv": "data/reference_processed/oecd_ground_truth_curated.xlsx",
+                # Empty by default so an own-data run auto-detects a file dropped in
+                # data/raw/ (e.g. ground_truth_pmids.csv). The bundled OECD curated
+                # set is substituted by the CLI only when 'Use Reference Data' is on,
+                # so a user's own file is never silently shadowed.
+                "ground_truth_csv": "",
                 "negative_control_csv": "",
                 "primary_node": "Dermatitis, Allergic Contact",
                 "n_boot": 25,

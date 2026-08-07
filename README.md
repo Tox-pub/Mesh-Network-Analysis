@@ -19,6 +19,7 @@ Mesh-Network-Analysis-Main-Library/
 │   ├── raw/                            # Inputs for a run
 │   │   ├── aop_annotations_master.csv  # Ships w/ repo: AOP strata dictionary (pre-seeded; grows each run)
 │   │   ├── desc2025.xml                # Auto-downloaded from NLM if missing (or place manually); not in repo
+│   │   ├── ground_truth_pmids.template.csv # Ships w/ repo: copy+fill for your own benchmark set
 │   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Supplying Your Own Ground Truth")
 │   │   ├── master_mesh_database.db     # Auto-generated: offline PubMed corpus (Step 0)
 │   │   ├── pubmed_baseline/            # Auto-downloaded: NLM Baseline XMLs (~40GB, Step 0)
@@ -97,6 +98,23 @@ Once the master database is built, everyday analysis is offline — you only rec
 **Disk budget.** Set aside **~60–80 GB free** to build the master database the first time: the pipeline downloads the full set of NLM baseline `.xml.gz` archives (~40 GB) and expands them into the ~7 GB SQLite master database, with working headroom during extraction. This one-time bulk download plus local SQLite lookups is dramatically faster and more reliable than issuing millions of live Entrez queries per run, and is precisely what lets Steps 1/3/4/benchmark run fully offline. Once the master database is built and verified, you may **delete the `pubmed_baseline/` archives** to reclaim the ~40 GB — provided you keep `master_mesh_database.db` and do not intend to run local daily-update ingestion (which re-reads those archives).
 
 **Daily updates (optional).** Between annual baselines, NLM publishes daily update archives (`pubmed_updates/`). Applying them keeps the master corpus current with the newest PMIDs, but re-runs the multi-core ETL and requires the update archives to be present. A fresh yearly baseline supersedes accumulated daily updates, so for most analyses the annual baseline alone is sufficient — enable daily updates only if you specifically need very recent publications.
+
+---
+
+## User-Provided Files — Quick Reference
+
+Everything a user supplies, where it goes, and how the pipeline picks it up. Most inputs are automatic or optional: only the MeSH XML (auto-downloaded) is always needed, plus a ground-truth list **if** you benchmark your own data.
+
+| File | Where it goes | How it's picked up | Format / structure |
+|---|---|---|---|
+| **MeSH descriptor XML** | `data/raw/descYYYY.xml` | Auto-downloaded from NLM if missing (§1); or place manually | Unmodified NLM MeSH descriptor XML |
+| **Ground-truth PMIDs** (benchmark) | `data/raw/` (own data), or a path | Auto-detected by name, or `benchmark.ground_truth_csv`; requires `run_ground_truth_analysis = true` | `PMID` column required — see the template and **Supplying Your Own Ground Truth** |
+| **Negative-control PMIDs** (optional) | `data/raw/`, or a path | `benchmark.negative_control_csv` (filename or path) | Same structure as ground truth |
+| **Comparison networks** (optional) | `data/processed/`, or a path | `comparison_networks` list when `compare_networks` is on | Pipeline network JSON (Cytoscape) or a networkx-readable graph — **reuse `*_consensus_lcc_network.json` outputs; do not hand-author** |
+| **AOP strata annotations** | `results/*_run_annotations.csv` (generated) | You edit the generated template during the Step-3 pause | Semicolon-delimited; assign one of the 7 strata |
+| **Entrez credentials** | wizard, or environment variables | `MESH_ENTREZ_EMAIL` / `MESH_ENTREZ_API_KEY`, or the wizard | Email + NCBI API key |
+
+**Templates** for the files you create yourself ship next to where they belong (e.g. [`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv)) — copy, rename, and fill. Everything else in `data/processed/`, the network JSONs, the relevance databases, and all figures is **generated** — never hand-authored.
 
 ---
 
@@ -329,8 +347,8 @@ Executes highly targeted queries against the finalized network to extract specif
 
 Controls the optional `--step benchmark` evaluation (see the **Validation & Benchmarking** section below). Configured under the `benchmark` block of `mesh_config.json`.
 
-* **`ground_truth_csv`:** Filename of your ground-truth PMID set inside the active raw directory. Leave **empty** (default) to auto-detect a recognized filename; set it to pin a specific file.
-* **`negative_control_csv`:** Optional filename of an *unrelated* ground-truth set used as a specificity check (it should score near random). Empty disables the control.
+* **`ground_truth_csv`:** Ground-truth PMID set. Leave **empty** (default) to auto-detect a recognized filename in `data/raw/`; set it to pin a specific filename or path. When `Use Reference Data` is on, the bundled OECD set is used automatically. See **Supplying Your Own Ground Truth** for the required structure and the template.
+* **`negative_control_csv`:** Optional *unrelated* ground-truth set used as a specificity check (it should score near random). Same location, resolution, and structure as `ground_truth_csv` (drop it in `data/raw/` or give a path). Empty (default) disables the control.
 * **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
 * **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations behind the confidence intervals and the random-ranking null. Default `25` each. Each bootstrap resample re-ranks the full article pool, so runtime scales linearly with both this value and the size of that pool. Measured on a ~9-million-article pool:
 
@@ -448,31 +466,38 @@ The repository ships a curated positive set derived from the reference bibliogra
 
 ### Supplying Your Own Ground Truth
 
-The benchmark reads its ground-truth file from the **active raw directory**, which follows the `Use Reference Data` flag:
+Two steps to benchmark against your own citations:
 
-* `Use Reference Data = True`  → reads from `data/reference_raw/` (the bundled OECD set).
-* `Use Reference Data = False` → reads from **`data/raw/`** — drop your own file here.
+1. **Enable it.** Set `benchmark.run_ground_truth_analysis = true`. It defaults to *off* for your own data and *on* only for the bundled reference corpus, so this switch is required.
+2. **Provide the file.** Drop a file into **`data/raw/`** using one of these recognized names — it is auto-detected in order, **no config edit needed**:
 
-To benchmark against your own citations, save a file into `data/raw/` using one of these recognized names (searched in order; no config edit required):
+   ```text
+   ground_truth_pmids.csv
+   ground_truth_pmids.txt
+   ground_truth.csv
+   ground_truth.txt
+   ```
 
-```text
-ground_truth_pmids.csv
-ground_truth_pmids.txt
-ground_truth.csv
-ground_truth.txt
-```
+   Or point `benchmark.ground_truth_csv` at any filename or path. When `Use Reference Data` is on, the bundled OECD set is substituted automatically — your own file and the bundled one never shadow each other.
 
-Alternatively, pin an explicit filename via the `benchmark.ground_truth_csv` config key.
+**Required structure.** A ready-to-fill template ships at [`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv) — copy it to one of the names above and replace the example rows. The only hard requirement is a **`PMID` column**:
 
-**Accepted formats** (auto-detected, with delimiter and encoding sniffing):
+| Column | Required? | Notes |
+|---|---|---|
+| `PMID` | **Yes** | One PubMed ID per row. Aliases `pmids`, `pubmed_id`, `id` are also accepted. Use integer digits only — `19033392`, **not** `19033392.0`. |
+| `Reference` (or any 2nd column) | Optional | Free-text citation string. When present it enables the publication-year sanity check that flags citation→PMID mis-resolution. Quote any value containing a comma. |
+
+**Accepted file shapes** (auto-detected, with delimiter/encoding sniffing):
 
 * An **`.xlsx` workbook** with a `PMID` column (the format of the bundled curated set).
-* A CSV/TSV with a **`PMID`** column (aliases such as `pmids`, `pubmed_id`, `id` are recognized) and an optional reference/citation column.
-* The bundled `Raw_Reference;PMID` semicolon-delimited format.
+* A **CSV/TSV** with a `PMID` column and an optional reference/citation column.
+* The bundled `Raw_Reference;PMID` **semicolon-delimited** format.
 * A **single column of PMIDs**, with or without a header.
-* A plain **`.txt` list** with one PMID per line.
+* A plain **`.txt` list**, one PMID per line (simplest — no delimiter concerns).
 
-If no ground-truth file is found, the step prints the exact directory it searched, the accepted filenames, and the accepted formats.
+If no ground-truth file is found, the step prints the exact directory it searched, the accepted filenames, and these formats.
+
+**Negative control (optional).** `benchmark.negative_control_csv` takes an *unrelated* ground-truth set (which should score near random) as a specificity check. It uses the **same location, name-or-path resolution, and structure** as the ground truth above — drop it in `data/raw/` (or give a path) and set the config key to its filename; the template applies unchanged. Empty (default) disables it.
 
 ### What It Reports
 

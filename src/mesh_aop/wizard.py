@@ -723,9 +723,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         _use_ref = bool(params.get('control_flags', {}).get('use_reference_data', False))
         b8_preview = {
             "Run Ground-Truth Analysis": bench_params.get('run_ground_truth_analysis', _use_ref),
-            "Ground Truth File": bench_params.get(
-                'ground_truth_csv', 'data/reference_processed/oecd_ground_truth_curated.xlsx'
-            ),
+            "Ground Truth File": bench_params.get('ground_truth_csv', ''),
             "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
             "Bootstrap Resamples": bench_params.get('n_boot', 25),
             "Permutations": bench_params.get('n_perm', 25),
@@ -739,7 +737,10 @@ def run_interactive_wizard(config, step: str) -> bool:
             bench_params['ground_truth_csv'] = _prompt_override(
                 "Ground Truth File (.csv/.xlsx; filename or path)",
                 b8_preview["Ground Truth File"], str,
-                "The curated positives retrieval is scored against. Leave as-is for the bundled OECD AOP40 set."
+                "Leave EMPTY to auto-detect a file you dropped in data/raw/ "
+                "(e.g. ground_truth_pmids.csv), or the bundled OECD AOP-40 set when "
+                "'Use Reference Data' is on. Otherwise give a filename or path. "
+                "See data/raw/ground_truth_pmids.template.csv for the required structure."
             )
             bench_params['primary_node'] = _prompt_override(
                 "Primary Disease Node", b8_preview["Primary Node"], str,
