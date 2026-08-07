@@ -15,10 +15,15 @@ Specifically it:
 """
 
 import os
+import re
+import glob
+import datetime
 import traceback
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 import pandas as pd
+import requests
+from tqdm import tqdm
 from pathlib import Path
 
 # <<< Constants >>>
@@ -45,6 +50,109 @@ def _get_missing_nlm_file_message(expected_path: str) -> str:
         "2. Download the 'desc2025.xml' file.\n"
         "3. Place it in your raw data directory and ensure the configuration matches."
     )
+
+# <<< MeSH descriptor XML acquisition (auto-download if missing or superseded) >>>
+
+MESH_XML_URL_TEMPLATE = "https://nlmpubs.nlm.nih.gov/projects/mesh/{year}/xmlmesh/desc{year}.xml"
+
+
+def _probe_remote_mesh_xml(year: int):
+    """Return (url, content_length) if a genuine desc<year>.xml is published at NLM, else None.
+
+    NLM answers requests for unpublished years with HTTP 200 but redirects to an
+    HTML 'bad_url' page, so a bare status check is not enough - we confirm the
+    response is really the XML file (xml content-type, no bad_url redirect).
+    """
+    url = MESH_XML_URL_TEMPLATE.format(year=year)
+    try:
+        resp = requests.get(url, stream=True, timeout=30, allow_redirects=True)
+        is_real = (resp.status_code == 200
+                   and 'xml' in resp.headers.get('Content-Type', '').lower()
+                   and 'bad_url' not in resp.url)
+        length = int(resp.headers.get('Content-Length', 0) or 0)
+        resp.close()
+        return (url, length) if is_real else None
+    except requests.RequestException:
+        return None
+
+
+def _newest_remote_mesh_year():
+    """Probe NLM for the newest published descriptor year.
+
+    Returns (year, url, content_length), or None when NLM cannot be reached (the
+    caller then falls back to a local copy). Checks next year first so a freshly
+    released annual file is adopted as soon as it appears.
+    """
+    this_year = datetime.date.today().year
+    for year in range(this_year + 1, this_year - 3, -1):
+        found = _probe_remote_mesh_xml(year)
+        if found:
+            return (year, found[0], found[1])
+    return None
+
+
+def _newest_local_mesh_xml(raw_dir: str):
+    """Return the path to the newest desc<year>.xml already present in raw_dir, or None."""
+    candidates = []
+    for path in glob.glob(os.path.join(raw_dir, "desc*.xml")):
+        match = re.search(r'desc(\d{4})\.xml$', os.path.basename(path))
+        if match:
+            candidates.append((int(match.group(1)), path))
+    return max(candidates)[1] if candidates else None
+
+
+def _download_mesh_xml(url: str, target_path: str, expected_size: int = 0):
+    """Stream a large descriptor XML to target_path with a progress bar and atomic rename."""
+    tmp_path = target_path + ".part"
+    with requests.get(url, stream=True, timeout=60) as resp:
+        resp.raise_for_status()
+        total = int(resp.headers.get('Content-Length', expected_size) or 0) or None
+        with open(tmp_path, 'wb') as handle, tqdm(
+                total=total, unit='B', unit_scale=True, unit_divisor=1024,
+                desc=os.path.basename(target_path)) as bar:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                if chunk:
+                    handle.write(chunk)
+                    bar.update(len(chunk))
+    os.replace(tmp_path, target_path)
+
+
+def ensure_mesh_descriptor_xml(raw_dir: str) -> str:
+    """Guarantee a current MeSH descriptor XML exists in raw_dir and return its path.
+
+    Downloads the newest annual desc<year>.xml from NLM when it is missing, only
+    partially present, or superseded by a newer release - no user action needed.
+    When NLM is unreachable it falls back to the newest local copy, and only
+    raises when no usable file exists at all.
+    """
+    os.makedirs(raw_dir, exist_ok=True)
+    newest = _newest_remote_mesh_year()
+
+    if newest is None:
+        local = _newest_local_mesh_xml(raw_dir)
+        if local:
+            print(f"    [!] Could not reach NLM to check for MeSH updates; "
+                  f"using existing {os.path.basename(local)}.")
+            return local
+        raise FileNotFoundError(
+            "MeSH descriptor XML is missing and NLM could not be reached to download it.\n"
+            "Connect to the internet and re-run, or manually place a descYYYY.xml from\n"
+            "https://nlmpubs.nlm.nih.gov/projects/mesh/ into: " + raw_dir)
+
+    year, url, size = newest
+    target = os.path.join(raw_dir, f"desc{year}.xml")
+
+    if os.path.exists(target) and (size == 0 or os.path.getsize(target) == size):
+        print(f"    [+] MeSH descriptor XML is current: {os.path.basename(target)}")
+        return target
+
+    action = "Updating to" if _newest_local_mesh_xml(raw_dir) else "Downloading"
+    approx = f" (~{size / 1e6:.0f} MB)" if size else ""
+    print(f"    [>] {action} newest MeSH descriptor XML desc{year}.xml{approx} from NLM...")
+    _download_mesh_xml(url, target, size)
+    print(f"    [+] Saved {os.path.basename(target)} to {raw_dir}")
+    return target
+
 
 def write_stopwords_to_python(output_path: str, grouped_stopwords: dict, missing_tns: list) -> bool:
     """Writes the categorized stop words to a properly formatted Python module."""

@@ -15,17 +15,18 @@ The package assumes and enforces the following directory architecture. The requi
 ```text
 Mesh-Network-Analysis-Main-Library/
 │
-├── data/                               # Data storage (auto-generated)
-│   ├── raw/                            # User-defined target inputs
-│   │   ├── desc2025.xml                # Required: MeSH XML source (you place this)
-│   │   ├── ground_truth_pmids.csv      # Optional: YOUR benchmark ground-truth set (you place this)
-│   │   ├── aop_annotations_master.csv  # Auto-generated Master Dictionary
-│   │   ├── master_mesh_database.db     # Auto-generated offline PubMed corpus
-│   │   ├── pubmed_baseline/            # Auto-downloaded NLM Baseline XMLs (~40GB)
-│   │   └── pubmed_updates/             # Auto-downloaded NLM Daily Update XMLs
-│   ├── processed/                      # Target pipeline databases and JSONs
-│   ├── reference_raw/                  # Curated reference inputs (bundled OECD ground truth)
-│   └── reference_processed/            # Curated reference outputs (bundled curated GT set)
+├── data/                               # Data storage
+│   ├── raw/                            # Inputs for a run
+│   │   ├── aop_annotations_master.csv  # Ships w/ repo: AOP strata dictionary (pre-seeded; grows each run)
+│   │   ├── desc2025.xml                # Auto-downloaded from NLM if missing (or place manually); not in repo
+│   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Supplying Your Own Ground Truth")
+│   │   ├── master_mesh_database.db     # Auto-generated: offline PubMed corpus (Step 0)
+│   │   ├── pubmed_baseline/            # Auto-downloaded: NLM Baseline XMLs (~40GB, Step 0)
+│   │   └── pubmed_updates/             # Auto-downloaded: NLM Daily Update XMLs (optional)
+│   ├── processed/                      # Auto-generated: pipeline databases and JSONs (starts empty)
+│   ├── reference_raw/                  # Ships w/ repo: bundled reference inputs
+│   │   └── oecd_resolved_citations.csv # OECD AOP-40 citation->PMID table (the bundled ground-truth source)
+│   └── reference_processed/            # Ships w/ repo: curated OECD ground-truth set + bundled reference network
 │
 ├── results/                            # Output artifacts (auto-generated)
 │   ├── figures/                        # High-resolution pipeline plots (.png, .tif, .html)
@@ -60,8 +61,9 @@ Mesh-Network-Analysis-Main-Library/
 │       └── *.ipynb                     # One notebook per module for interactive exploration
 │
 ├── environment.yml                     # Mamba/Conda cross-platform dependency resolution
-├── mesh_config.json                    # Auto-generated user configuration file
 ├── pyproject.toml                      # Modern Python package specification
+├── mesh_config.json                    # Runtime user config (auto-generated; git-ignored, not in repo)
+├── LICENSE                             # MIT License
 └── README.md                           # This document
 
 
@@ -71,12 +73,12 @@ Mesh-Network-Analysis-Main-Library/
 
 ## Data Acquisition & Prerequisites
 
-### 1. Acquiring the MeSH XML File
+### 1. The MeSH XML File (automatic)
 
 The NLM has officially discontinued the MeSH ASCII format as of 2026. This pipeline now utilizes the computational gold-standard **MeSH XML format**.
 
-* **Download:** Navigate to the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/) and download `desc2025.xml` (or the most current yearly release).
-* **Placement:** Place this file directly into your `data/raw/` directory.
+* **Automatic download (default):** You do **not** need to fetch this file by hand. When Step 1 builds the MeSH support files, it checks `data/raw/` for the current descriptor XML and, if it is missing or a newer annual release has appeared, downloads the latest `descYYYY.xml` straight from NLM into `data/raw/` (verifying it is the genuine ~300 MB file, not an error page). The year advances automatically — `desc2025.xml` today, `desc2026.xml` once NLM publishes it.
+* **Manual placement (optional / offline):** If you prefer, or if the build machine has no internet, download `descYYYY.xml` yourself from the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/) and drop it into `data/raw/`. An existing local copy is always reused, and is the offline fallback when NLM cannot be reached.
 
 ### 2. Internet Connectivity & Disk Budget
 
@@ -87,7 +89,8 @@ Internet access is required only for the steps that talk to NCBI; everything els
 | Step 0 — Master DB build (baseline FTP) | **Yes** | First run only; again only to refresh to a newer yearly baseline or apply daily updates |
 | Step 2 — Article collection (Entrez + citation links) | **Yes** | **Every** time you build a new query's citation database |
 | Step 3.5 — Secondary metadata hydration | **Yes** | Whenever you export top articles / run `--step secondary` |
-| Steps 1, 3, 4, benchmark | No | Run fully offline against the local databases |
+| Step 1 — MeSH support-file build | Only if XML absent | Downloads `descYYYY.xml` from NLM when it is missing or superseded; fully offline once the file is present |
+| Steps 3, 4, benchmark | No | Run fully offline against the local databases |
 
 Once the master database is built, everyday analysis is offline — you only reconnect to build a **new query's** database (Step 2, which fetches the P0 cohort plus its incoming/outgoing citation links) or to update the master corpus. These baseline and daily-update archives are the official NLM/NCBI PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
 

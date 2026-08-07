@@ -22,7 +22,7 @@ __version__ = "2.2.0"
 from .config_parser import MeshConfig
 
 # --- 2. Data Processing (MARC/ASCII) ---
-from .mesh_data_processor import process_raw_mesh_data
+from .mesh_data_processor import process_raw_mesh_data, ensure_mesh_descriptor_xml
 
 # --- 3. Database Operations & Entrez Fetching ---
 from .data_ops import (
@@ -81,6 +81,7 @@ from .viz import (
 __all__ = [
     "MeshConfig",
     "process_raw_mesh_data",
+    "ensure_mesh_descriptor_xml",
     "run_initial_data_collection",
     "clean_database",
     "populate_master_mesh_database",

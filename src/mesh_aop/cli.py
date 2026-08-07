@@ -30,7 +30,7 @@ from importlib.metadata import version, PackageNotFoundError
 
 from .config_parser import MeshConfig
 from .wizard import run_interactive_wizard
-from .mesh_data_processor import process_raw_mesh_data
+from .mesh_data_processor import process_raw_mesh_data, ensure_mesh_descriptor_xml
 from .baseline_manager import PubMedBaselineManager
 from .data_ops import (
     run_initial_data_collection,
@@ -314,10 +314,20 @@ def main():
         if args.step in ['all', 'process']:
             print("\n>>> STARTING: Step 1 - MeSH Raw Data Processing")
 
-            xml_file_path = config.files.get('mesh_xml', os.path.join(config.active_raw_dir, 'desc2025.xml'))
-
-            if config.get('search_parameters', 'update_mesh_support_files') or not os.path.exists(config.files['mesh_terms_csv']):
-                _ensure_prerequisites({"MeSH XML": xml_file_path}, "Step 1 (Raw Data Processing)")
+            # The descriptor XML is only read when the support files are being
+            # (re)built. When that is the case, guarantee a current desc<year>.xml
+            # is present - auto-downloading it from NLM if missing or superseded -
+            # so users never have to fetch it by hand. Otherwise extraction is
+            # skipped and the path is a harmless placeholder.
+            needs_support_build = (
+                config.get('search_parameters', 'update_mesh_support_files')
+                or not os.path.exists(config.files['mesh_terms_csv'])
+                or not os.path.exists(config.files['mesh_stopwords_py'])
+            )
+            if needs_support_build:
+                xml_file_path = ensure_mesh_descriptor_xml(str(config.active_raw_dir))
+            else:
+                xml_file_path = os.path.join(config.active_raw_dir, 'desc2025.xml')
 
             process_raw_mesh_data(
                 xml_file=xml_file_path,
