@@ -6,12 +6,29 @@ Re-scores the network's nodes by how strongly they are supported across the
 wider literature within a chosen time window, querying the local master database
 so the calculation needs no API calls.
 
-For each surviving node it aggregates per-article term-overlap scores into a
+For each surviving node it aggregates per-article relevance scores into a
 Mean Relevancy Score (MRS) - the plain mean article-relevance of a term:
 
-    MRS(i) = mean(S_article(A) for A in P_i)
+    ARS(A) = D_a^-1/2 . X . D_t^-1/2 . w        (symmetrically normalised)
+    MRS(i) = mean(ARS(A) for A in P_i)
 
 then writes both the per-article scores and the relevance-annotated network to disk.
+
+ARS uses the SYMMETRICALLY NORMALISED projection: each seed weight is damped by
+the square root of that term's in-window document frequency, and each article
+total by the square root of how many network terms it carries. A term therefore
+cannot dominate merely by being common, nor an article merely by being broadly
+indexed. This replaces the earlier plain sum over a constant denominator
+(w-sum / total-w), which the projection comparison showed to be the weakest of
+the projections tested; seeding MRS from it left MRS unable to beat the raw
+centrality it was built from. Consequences of the change:
+  - document frequency must be known before any article can be scored, so the
+    corpus is now traversed TWICE (pass 1 counts, pass 2 scores). The scan
+    dominates this step, so expect roughly double the previous runtime.
+  - the resulting scores are ~1e-6 rather than ~1e-2, so each score column is
+    max-scaled to [0, 1] after the pass. That is rank-preserving (the same
+    convention already applied to MRS) and keeps ars_score on the range
+    secondary_analysis assumes when blending it against a citation score.
 
 Two multiplicative adjustments that earlier versions layered on top of this mean were
 both dropped, leaving the mean itself (hence "non-adjusted for context"):
@@ -25,6 +42,7 @@ conditional analysis at validation time, not by a multiplicative penalty here.
 """
 
 import os
+import math
 import json
 import sqlite3
 from collections import defaultdict
@@ -162,6 +180,9 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
         print(f"  Found {total_articles_in_range:,} articles in window; scoring them now...")
 
         aggregators = [defaultdict(lambda: {'sum': 0.0, 'count': 0}) for _ in range(n_w)]
+        # Peak score per weighting, so the normalised ARS can be max-scaled to
+        # [0, 1] once the pass finishes (see the rescale step below).
+        max_score = [0.0] * n_w
 
         # Article scores are streamed straight into SQLite in batches rather than
         # accumulated in a list and converted to a DataFrame at the end. On a corpus
@@ -186,10 +207,38 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
         batch = []
         rows_written = 0
 
+        # <<< PASS 1 of 2: document frequency per seed term >>>
+        # The symmetrically normalised projection divides each seed weight by the
+        # square root of the number of in-window articles carrying that term, so
+        # every df must be known before ANY article can be scored. That forces a
+        # second corpus pass; the scan dominates Step 3, so expect roughly double
+        # the previous runtime for this step.
+        print("  Pass 1/2: counting document frequency per seed term ...")
+        doc_freq = defaultdict(int)
+        m_cursor.execute(
+            "SELECT mesh_terms FROM master_mesh_annotations "
+            "WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
+        pbar_df = tqdm(total=total_articles_in_range, desc="Counting terms")
+        while True:
+            rows = m_cursor.fetchmany(100000)
+            if not rows:
+                break
+            for (mesh_terms_str,) in rows:
+                if not mesh_terms_str:
+                    continue
+                for term in _extract_base_terms(mesh_terms_str).intersection(seed_terms):
+                    doc_freq[term] += 1
+            pbar_df.update(len(rows))
+        pbar_df.close()
+        # A term absent from the window would divide by zero; 1 leaves its weight
+        # untouched, which is the correct no-information default.
+        inv_sqrt_df = {t: 1.0 / math.sqrt(doc_freq.get(t, 0) or 1) for t in seed_terms}
+        print(f"    document frequencies collected for {len(doc_freq):,} seed terms")
+
+        # <<< PASS 2 of 2: article scoring >>>
         # Only in-window articles are needed: they form each term's P_i, which drives
-        # both the mean ARS and the evidence-volume term. Filtering in SQL rather than
-        # scanning all 33M records and discarding in Python is what dropping the
-        # global-specificity term buys back.
+        # the mean ARS. Filtering in SQL rather than scanning all 33M records and
+        # discarding in Python is what dropping the global-specificity term buys back.
         m_cursor.execute(
             "SELECT pmid, pub_date, mesh_terms FROM master_mesh_annotations "
             "WHERE pub_date BETWEEN ? AND ?", (start_iso, end_iso))
@@ -212,12 +261,27 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
                 if not matching_seeds:
                     continue
 
+                # Symmetric degree normalisation: 1/sqrt(number of network terms the
+                # article carries), applied once per article.
+                inv_sqrt_deg_a = 1.0 / math.sqrt(len(matching_seeds))
+
                 record = [pmid]
                 for i, (w_key, _) in enumerate(weightings):
                     score = 0.0
                     if total_weight[i] > 0:
-                        score = sum(seed_weights[i].get(term, 0)
-                                    for term in matching_seeds) / total_weight[i]
+                        # ARS = D_a^-1/2 . X . D_t^-1/2 . w
+                        # Each seed weight is damped by the square root of its own
+                        # document frequency, so a term cannot dominate simply by
+                        # being common, and the article total is damped by how many
+                        # network terms it carries, so long articles cannot dominate
+                        # by breadth alone. This is the projection that performs best
+                        # in the projection comparison; the previous plain sum over
+                        # a constant denominator is its unnormalised counterpart.
+                        score = inv_sqrt_deg_a * sum(
+                            seed_weights[i].get(term, 0.0) * inv_sqrt_df[term]
+                            for term in matching_seeds)
+                        if score > max_score[i]:
+                            max_score[i] = score
                         agg = aggregators[i]
                         for term in matching_seeds:
                             agg[term]['sum'] += score
@@ -245,6 +309,23 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
 
         pbar.close()
         master_conn.close()
+
+        # <<< Max-scale the stored ARS to [0, 1] >>>
+        # The normalised projection produces values around 1e-6, whereas the old
+        # plain sum sat near 1e-2. Downstream consumers are not all scale-free:
+        # secondary_analysis blends ars_score directly against a [0, 1] citation
+        # score and clips at a dynamic floor, so an unscaled column would be
+        # clipped flat and the relevance signal lost. Max-scaling is rank-
+        # preserving (the same convention already used for MRS) and puts ARS on
+        # the [0, 1] range those blends assume.
+        for i, (w_key, _) in enumerate(weightings):
+            if max_score[i] > 0:
+                col = f"score_{w_key}"
+                out_conn.execute(
+                    f'UPDATE article_relevance_scores SET "{col}" = "{col}" / ?',
+                    (max_score[i],))
+        out_conn.commit()
+        print(f"  Max-scaled {n_w} ARS column(s) to [0, 1].")
 
     except Exception as e:
         raise RuntimeError(f"ERROR calculating scores from Master DB: {e}")
