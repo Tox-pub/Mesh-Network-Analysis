@@ -496,6 +496,14 @@ mesh-pipeline --step benchmark
 
 The repository ships a curated positive set derived from the reference bibliography of the **OECD Adverse Outcome Pathway for skin sensitisation (AOP 40)**. It is the default target of `benchmark.ground_truth_csv`.
 
+**Source document.** The bibliography is taken from:
+
+> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment, No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
+
+[Direct PDF](https://www.oecd.org/content/dam/oecd/en/publications/reports/2014/09/the-adverse-outcome-pathway-for-skin-sensitisation-initiated-by-covalent-binding-to-proteins_g1g48567/9789264221444-en.pdf) · [DOI landing page](https://doi.org/10.1787/9789264221444-en)
+
+Cite this document, not this repository, as the origin of the ground-truth set: the curated files below are a PMID resolution of its reference list, not an independent literature selection. If you replace the ground truth with your own, cite whatever source your positives came from in its place.
+
 | File | Location | Contents |
 | --- | --- | --- |
 | `oecd_ground_truth_curated.xlsx` | `data/reference_processed/` | **96 curated positives** — primary research articles with resolved PMIDs |
@@ -739,7 +747,14 @@ On sparse or disconnected graphs, the power-iteration solver may not converge wi
 If you use this code or methodology, please cite:
 
 > *[To be updated after publication]*
-> [](https://doi.org/10.5281/zenodo.18662959)
+
+Archived release: [10.5281/zenodo.18662959](https://doi.org/10.5281/zenodo.18662959)
+
+**If you also use the bundled ground truth**, cite its source document as well — the curated PMID set is a resolution of this bibliography, not an independent selection:
+
+> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment, No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
+
+See [The Bundled OECD Ground Truth](#the-bundled-oecd-ground-truth) for how the set was derived from it.
 
 ## License
 
