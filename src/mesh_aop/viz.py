@@ -546,29 +546,62 @@ def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
     finally:
         plt.close('all')
 
+def _overlay_loglog_fits(ax, plot_df: pd.DataFrame, x_col: str, y_col: str, min_points: int = 3):
+    """Draw per-stratum power-law trend lines on an axis that is already log-log.
+
+    Seaborn fits in LINEAR space, and its `logx` option fits only y ~ log(x), so
+    letting lmplot draw the line here produced a straight line in linear units
+    rendered on log axes: it looked like a power law, was dominated by the few
+    largest-x points, and its slope was not the exponent quoted in the caption.
+    Fitting log10(y) on log10(x) makes the drawn line and the reported exponent
+    the same object. Colours come from AOP_COLOR_MAP, which is built from the same
+    magma_r ramp lmplot uses for the points, so line and markers stay matched.
+    """
+    fits = []
+    for level in AOP_ORDER:
+        grp = plot_df[plot_df['aop_level'] == level]
+        if len(grp) < min_points:
+            if len(grp) > 0:
+                print(f"      {level:<18} n={len(grp):<4} (fewer than {min_points} points, not fitted)")
+            continue
+        lx = np.log10(grp[x_col].to_numpy(dtype=float))
+        ly = np.log10(grp[y_col].to_numpy(dtype=float))
+        slope, intercept = np.polyfit(lx, ly, 1)
+        ss_tot = float(((ly - ly.mean()) ** 2).sum())
+        r2 = 1.0 - float(((ly - (intercept + slope * lx)) ** 2).sum()) / ss_tot if ss_tot > 0 else float('nan')
+        xs = np.linspace(lx.min(), lx.max(), 50)
+        ax.plot(10 ** xs, 10 ** (intercept + slope * xs), color=AOP_COLOR_MAP.get(level),
+                lw=2.0, alpha=0.9, zorder=4)
+        fits.append((level, len(grp), slope, r2))
+        print(f"      {level:<18} n={len(grp):<4} slope {slope:+.3f}   R2 {r2:.3f}")
+    return fits
+
+
 def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
     """Figure 8: log-log scatter panels of each raw centrality against its mean relevancy score."""
     print("\n<<< Figure 8: Centrality Scatter Plots (MRS vs Raw) >>>")
     try:
         print("  - Generating Panel C: Raw Betweenness vs MRS (Betweenness)...")
         plot_df_b = node_df[(node_df['betweenness_centrality'] > 0) & (node_df['MRS_betweenness'] > 0)]
-        g_b = sns.lmplot(data=plot_df_b, x='betweenness_centrality', y='MRS_betweenness', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
+        g_b = sns.lmplot(data=plot_df_b, x='betweenness_centrality', y='MRS_betweenness', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
         ax_b = g_b.ax
         ax_b.set_xscale('log'); ax_b.set_yscale('log')
+        _overlay_loglog_fits(ax_b, plot_df_b, 'betweenness_centrality', 'MRS_betweenness')
         ax_b.set_xlabel('Raw Betweenness Centrality (Log Scale)', fontsize=12)
         ax_b.set_ylabel('MRS (Betweenness) (Log Scale)', fontsize=12)
         ax_b.grid(True, which="both", ls="--", alpha=0.5)
         os.makedirs(output_dir, exist_ok=True)
         out_b = os.path.join(output_dir, f"{file_prefix}_Panel_C_Scatter_Betweenness.tif")
-        plt.savefig(out_b, dpi=1200, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
+        plt.savefig(out_b, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
         print(f"    Saved: {os.path.basename(out_b)}")
         plt.close()
 
         print("  - Generating Panel D: Raw PageRank vs MRS (PageRank)...")
         plot_df_p = node_df[(node_df['pagerank_centrality'] > 0) & (node_df['MRS_pagerank'] > 0)]
-        g_p = sns.lmplot(data=plot_df_p, x='pagerank_centrality', y='MRS_pagerank', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
+        g_p = sns.lmplot(data=plot_df_p, x='pagerank_centrality', y='MRS_pagerank', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
         ax_p = g_p.ax
         ax_p.set_xscale('log'); ax_p.set_yscale('log')
+        _overlay_loglog_fits(ax_p, plot_df_p, 'pagerank_centrality', 'MRS_pagerank')
         ax_p.set_xlabel('Raw PageRank Centrality (Log Scale)', fontsize=12)
         ax_p.set_ylabel('MRS (PageRank) (Log Scale)', fontsize=12)
         ax_p.grid(True, which="both", ls="--", alpha=0.5)
