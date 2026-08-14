@@ -79,18 +79,56 @@ def save_high_res(filename_base: str, output_dir: str, file_prefix: str):
     except Exception as e:
         print(f"    [!] Error saving high-res image {filename_base}: {e}")
 
-def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: str):
+# <<< Download resolution for the interactive HTML figures >>>
+# Plotly's camera button captures the plot at its ON-SCREEN pixel size unless it
+# is told otherwise, so a figure that looks sharp in the browser downloads at
+# roughly screen resolution (~96 ppi) and is unusable in print. The export is
+# pinned here instead: an explicit width/height in CSS pixels makes the exported
+# canvas deterministic regardless of the viewer's window size, and `scale`
+# multiplies the raster on top of it.
+#
+# Sankey node coordinates are normalised, so a reader who drags nodes into the
+# arrangement they want before pressing download keeps that arrangement - it is
+# re-rendered at the larger size rather than recomputed.
+HTML_EXPORT_DPI = 600
+HTML_EXPORT_SIZE_IN = (11.0, 7.5)   # intended print size of the downloaded image
+_CSS_PPI = 96                        # the reference pixels-per-inch Plotly assumes
+
+
+def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: str,
+                         export_dpi: int = HTML_EXPORT_DPI,
+                         export_size_in: tuple = HTML_EXPORT_SIZE_IN):
     """
     Bypasses the broken Kaleido static exporter entirely to avoid Python 3.12
     compatibility hangs. Outputs a highly stable, interactive HTML dashboard instead.
+
+    The embedded download button is configured to emit `export_size_in` inches at
+    `export_dpi`; at the defaults that is 11.0 x 7.5 in at 600 dpi (6600 x 4500 px).
     """
     os.makedirs(output_dir, exist_ok=True)
     html_path = os.path.join(output_dir, f"{file_prefix}_{filename_base}.html")
 
+    w_px = int(round(export_size_in[0] * _CSS_PPI))
+    h_px = int(round(export_size_in[1] * _CSS_PPI))
+    scale = export_dpi / _CSS_PPI
+    config = {
+        "toImageButtonOptions": {
+            "format": "png",
+            "filename": f"{file_prefix}_{filename_base}",
+            "width": w_px,
+            "height": h_px,
+            "scale": scale,
+        },
+        "displaylogo": False,
+        "responsive": True,
+    }
+
     try:
         # HTML generation relies on pure Python string formatting (100% stable on Py 3.12)
-        fig.write_html(html_path)
-        print(f"    [+] Saved interactive HTML figure: {os.path.basename(html_path)}")
+        fig.write_html(html_path, config=config)
+        print(f"    [+] Saved interactive HTML figure: {os.path.basename(html_path)}"
+              f"  (downloads at {export_size_in[0]:g}x{export_size_in[1]:g} in / "
+              f"{export_dpi} dpi = {int(w_px * scale):,}x{int(h_px * scale):,} px)")
     except Exception as e:
         print(f"    [!] HTML export failed: {e}")
 
