@@ -711,6 +711,8 @@ def main():
                                 'primary_node', 'Dermatitis, Allergic Contact'),
                             n_boot=bench_params.get('validation_report_n_boot', 2000),
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                            start_date=config.get('analysis_parameters', 'context_start_date'),
+                            end_date=config.get('analysis_parameters', 'context_end_date'),
                         )
                     except Exception as e:
                         print(f"\n  [!] WARNING: validation report failed ({e});"
@@ -737,6 +739,8 @@ def main():
                                 'projection_comparison_n_boot',
                                 bench_params.get('validation_report_n_boot', 2000)),
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                            start_date=config.get('analysis_parameters', 'context_start_date'),
+                            end_date=config.get('analysis_parameters', 'context_end_date'),
                         )
                     except Exception as e:
                         print(f"\n  [!] WARNING: projection comparison failed ({e});"

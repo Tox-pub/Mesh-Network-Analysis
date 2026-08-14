@@ -11,10 +11,13 @@ WHY FOUR EVALUATION FRAMES
 A single "how well does it rank the corpus" number conflates two different things a
 network can contribute: ordering ability, and reach. A MeSH query is not a ranking
 method - it is a filter that returns a topic-restricted set with no internal order -
-so comparing it to a ranked 9M-article corpus at a fixed cut credits it for scope
+so comparing it to the ranked corpus at a fixed cut credits it for scope
 restriction rather than for ordering. The frames separate these:
 
-  CORPUS   every article, ranked. The headline retrieval task.
+  CORPUS   every article in the scoring pool, ranked. The headline retrieval task.
+           The pool is the set of articles carrying >=1 network term WITHIN the
+           configured publication-date window - the same corpus definition the
+           relevance database uses, so the two never diverge.
   WITHIN   only the query's own hits, so the article set is IDENTICAL for every
            scorer and only the ordering differs. Isolates ranking ability.
   OUTSIDE  only articles the query cannot return. Isolates reach - the ground-truth
@@ -25,7 +28,7 @@ restriction rather than for ordering. The frames separate these:
 WHY POSITIVES-ONLY AND PAIRED BOOTSTRAPS
 
 Every early-recognition metric depends only on WHERE the positives land, so the
-resampling unit is the ground-truth positives, not the fixed 9M-article pool -
+resampling unit is the ground-truth positives, not the fixed multi-million pool -
 resampling the pool mostly reshuffles negatives and reports intervals that are far
 too tight. And because two scorers are evaluated on the SAME positives, comparing
 their marginal intervals is underpowered; the paired bootstrap resamples once per
@@ -77,24 +80,61 @@ def _base_terms(mesh_str):
     return {t.split('/')[0].lstrip('*').strip() for t in mesh_str.split(';') if t.strip()}
 
 
-def _build_or_load_cache(master_db_path, terms, cache_path):
+def _iso_window(start_date, end_date):
+    """Normalise the configured context window to the ISO form pub_date is stored in."""
+    if not start_date or not end_date:
+        return None, None
+    from .data_ops import parse_date_robust
+    return (parse_date_robust(start_date).strftime('%Y-%m-%d'),
+            parse_date_robust(end_date).strftime('%Y-%m-%d'))
+
+
+def _build_or_load_cache(master_db_path, terms, cache_path,
+                         start_date=None, end_date=None):
     """Article x term incidence over network terms, plus document length and year.
 
+    Restricted to the configured publication-date context window, which is the
+    same filter relevance.py applies when it builds the relevance database. The
+    two therefore describe one corpus rather than two: evaluating retrieval over
+    articles the scoring database does not contain cannot validate the pipeline
+    the user actually ran. Passing no window scans everything, which is the old
+    behaviour and is kept only for direct callers that have no config.
+
     Cached because the corpus scan dominates runtime and the report is typically
-    re-run several times while wording and figures are settled.
+    re-run several times while wording and figures are settled. The cache key is
+    the node set AND the window - a cache built under a different window is not
+    interchangeable, and silently reusing one would reintroduce exactly the
+    mismatch this filter exists to remove.
     """
     idx = {t: i for i, t in enumerate(terms)}
+    lo, hi = _iso_window(start_date, end_date)
+    window_key = np.array([lo or "", hi or ""], dtype=object)
     if os.path.exists(cache_path + "_X.npz"):
         meta = np.load(cache_path + "_meta.npz", allow_pickle=True)
-        if list(meta["terms"]) == list(terms):
+        cached_window = (list(meta["window"]) if "window" in meta.files
+                         else ["", ""])
+        if list(meta["terms"]) != list(terms):
+            print("  [i] Cached matrix was built for a different node set; rebuilding.")
+        elif cached_window != list(window_key):
+            print(f"  [i] Cached matrix was built for window "
+                  f"{cached_window[0] or 'none'}..{cached_window[1] or 'none'}, "
+                  f"need {lo or 'none'}..{hi or 'none'}; rebuilding.")
+        else:
             return (sparse.load_npz(cache_path + "_X.npz"),
                     meta["pmids"], meta["doclen"], meta["years"])
-        print("  [i] Cached matrix was built for a different node set; rebuilding.")
 
-    print("  Scanning master database for network-term incidence...")
+    if lo:
+        print(f"  Scanning master database for network-term incidence "
+              f"({lo} to {hi})...")
+    else:
+        print("  Scanning master database for network-term incidence (no date filter)...")
     con = _open_resilient(master_db_path)
     cur = con.cursor()
-    cur.execute("SELECT pmid, mesh_terms, pub_date FROM master_mesh_annotations")
+    if lo:
+        cur.execute("SELECT pmid, mesh_terms, pub_date FROM master_mesh_annotations "
+                    "WHERE pub_date BETWEEN ? AND ?", (lo, hi))
+    else:
+        cur.execute("SELECT pmid, mesh_terms, pub_date FROM master_mesh_annotations")
     blocks, pm, dl, yr = [], [], [], []
     while True:
         rows = cur.fetchmany(200000)
@@ -125,7 +165,7 @@ def _build_or_load_cache(master_db_path, terms, cache_path):
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     sparse.save_npz(cache_path + "_X.npz", X)
     np.savez(cache_path + "_meta.npz", pmids=pmids, doclen=doclen, years=years,
-             terms=np.array(terms, dtype=object))
+             terms=np.array(terms, dtype=object), window=window_key)
     return X, pmids, doclen, years
 
 
@@ -408,7 +448,7 @@ def _paired_tests(scores_by_label, mask, is_pos, n_total_hint, n_boot, rng, fram
 def run_validation_report(final_network_file, master_db_path, pmid_db_path,
                           ground_truth_file, output_dir, project_prefix="",
                           primary_query_term=None, n_boot=2000, random_seed=42,
-                          cache_dir=None):
+                          cache_dir=None, start_date=None, end_date=None):
     """Build the full validation report: workbook, HTML narrative, figures, console.
 
     Returns the dict of DataFrames it wrote, so callers can inspect results without
@@ -441,7 +481,8 @@ def run_validation_report(final_network_file, master_db_path, pmid_db_path,
             print(f"      - {m}")
 
     X, pmids, doclen, years = _build_or_load_cache(
-        master_db_path, terms, os.path.join(cache_dir, "pool"))
+        master_db_path, terms, os.path.join(cache_dir, "pool"),
+        start_date=start_date, end_date=end_date)
     n_pool = X.shape[0]
     print(f"  scored pool: {n_pool:,} articles carrying >=1 network term")
 
@@ -1006,7 +1047,7 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
                               seed_key="pagerank_subgraph_centrality",
                               mrs_key="MRS_pagerank_subgraph_centrality",
                               n_boot=2000, random_seed=42, cache_dir=None,
-                              make_figure=True):
+                              make_figure=True, start_date=None, end_date=None):
     """Compare article-scoring PROJECTIONS against the ground truth (CSV + figure, no HTML).
 
     Complements run_validation_report: that asks "which node WEIGHTING (seed) ranks the
@@ -1053,7 +1094,8 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
         mrs = w_of(mrs_key.replace("_subgraph", ""))
 
     X, pmids, doclen, years = _build_or_load_cache(
-        master_db_path, terms, os.path.join(cache_dir, "pool"))
+        master_db_path, terms, os.path.join(cache_dir, "pool"),
+        start_date=start_date, end_date=end_date)
     n_pool, M = X.shape
     print(f"  scored pool: {n_pool:,} articles x {M} network terms")
 
