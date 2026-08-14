@@ -592,6 +592,42 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
     print(f"\n  GT co-occurrence network ...... {GT.number_of_nodes()} nodes / "
           f"{GT.number_of_edges()} edges / {n_comp} component(s), LCC={lcc}")
 
+    # <<< 6b. Set-overlap between the two networks >>>
+    # Precision / recall / F1 with the ground-truth network as the reference and the
+    # consensus network as the prediction. All three are reported rather than F1
+    # alone: the two networks are built from corpora differing by orders of
+    # magnitude, so a consensus term the ground-truth articles never mention is not
+    # necessarily an error. Precision and recall keep that asymmetry visible where a
+    # single harmonic mean would hide it. Jaccard is included because it is the
+    # measure already used elsewhere for the GLF/SA intersection.
+    def _prf(n_shared: int, n_pred: int, n_ref: int):
+        """Precision (of the prediction), recall (of the reference), and their F1."""
+        p = n_shared / n_pred if n_pred else 0.0
+        r = n_shared / n_ref if n_ref else 0.0
+        f = (2 * p * r / (p + r)) if (p + r) else 0.0
+        return round(p, 4), round(r, 4), round(f, 4)
+
+    gt_edge_set = {frozenset(e) for e in GT.edges()}
+    shared_nodes_net = node_ids & gt_node_set
+    shared_edges_net = net_edges & gt_edge_set
+    p_nn, r_nn, f_nn = _prf(len(shared_nodes_net), len(node_ids), len(gt_node_set))
+    p_ne, r_ne, f_ne = _prf(obs_nodes, len(node_ids), len(eligible))
+    p_ee, r_ee, f_ee = _prf(len(shared_edges_net), len(net_edges), len(gt_edge_set))
+    union_n = node_ids | gt_node_set
+    union_e = net_edges | gt_edge_set
+    jacc_n = round(len(shared_nodes_net) / len(union_n), 4) if union_n else 0.0
+    jacc_e = round(len(shared_edges_net) / len(union_e), 4) if union_e else 0.0
+
+    print("\n  <<< NETWORK OVERLAP >>>  (reference = GT network, prediction = consensus)")
+    print(f"    nodes vs GT network ({len(gt_node_set)})".ljust(38)
+          + f"shared {len(shared_nodes_net):4d}   P {p_nn:.3f}  R {r_nn:.3f}  "
+            f"F1 {f_nn:.3f}  Jaccard {jacc_n:.3f}")
+    print(f"    nodes vs eligible GT terms ({len(eligible)})".ljust(38)
+          + f"shared {obs_nodes:4d}   P {p_ne:.3f}  R {r_ne:.3f}  F1 {f_ne:.3f}")
+    print(f"    edges vs GT network ({len(gt_edge_set)})".ljust(38)
+          + f"shared {len(shared_edges_net):4d}   P {p_ee:.3f}  R {r_ee:.3f}  "
+            f"F1 {f_ee:.3f}  Jaccard {jacc_e:.3f}")
+
     # <<< 7. Tables >>>
     gt_terms_df = pd.DataFrame([
         {'term': t, 'GT_articles': c, 'GT_prevalence': round(c / n_gt, 4),
@@ -638,6 +674,23 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
         ('edge_overlap_z_p', f"{z_e:.1f} / {p_e:.4f}"),
         ('gt_network_nodes_edges_lcc', f"{GT.number_of_nodes()} / {GT.number_of_edges()} / {lcc}"),
         ('gt_frequent_misses', len(misses_df)),
+        # Overlap of the two networks, one scalar per row so each value can be
+        # referenced directly. Precision is over the consensus network, recall
+        # over the ground-truth reference; both are reported because the corpora
+        # differ in size by orders of magnitude (see section 6b).
+        ('node_overlap_shared', len(shared_nodes_net)),
+        ('node_overlap_precision', p_nn),
+        ('node_overlap_recall', r_nn),
+        ('node_overlap_f1', f_nn),
+        ('node_overlap_jaccard', jacc_n),
+        ('node_overlap_precision_vs_eligible_terms', p_ne),
+        ('node_overlap_recall_vs_eligible_terms', r_ne),
+        ('node_overlap_f1_vs_eligible_terms', f_ne),
+        ('edge_overlap_shared', len(shared_edges_net)),
+        ('edge_overlap_precision', p_ee),
+        ('edge_overlap_recall', r_ee),
+        ('edge_overlap_f1', f_ee),
+        ('edge_overlap_jaccard', jacc_e),
     ], columns=['metric', 'value'])
 
     xlsx_path = os.path.join(output_dir, f"{file_prefix}_gt_network_validation.xlsx")
