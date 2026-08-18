@@ -79,18 +79,56 @@ def save_high_res(filename_base: str, output_dir: str, file_prefix: str):
     except Exception as e:
         print(f"    [!] Error saving high-res image {filename_base}: {e}")
 
-def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: str):
+# <<< Download resolution for the interactive HTML figures >>>
+# Plotly's camera button captures the plot at its ON-SCREEN pixel size unless it
+# is told otherwise, so a figure that looks sharp in the browser downloads at
+# roughly screen resolution (~96 ppi) and is unusable in print. The export is
+# pinned here instead: an explicit width/height in CSS pixels makes the exported
+# canvas deterministic regardless of the viewer's window size, and `scale`
+# multiplies the raster on top of it.
+#
+# Sankey node coordinates are normalised, so a reader who drags nodes into the
+# arrangement they want before pressing download keeps that arrangement - it is
+# re-rendered at the larger size rather than recomputed.
+HTML_EXPORT_DPI = 600
+HTML_EXPORT_SIZE_IN = (11.0, 7.5)   # intended print size of the downloaded image
+_CSS_PPI = 96                        # the reference pixels-per-inch Plotly assumes
+
+
+def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: str,
+                         export_dpi: int = HTML_EXPORT_DPI,
+                         export_size_in: tuple = HTML_EXPORT_SIZE_IN):
     """
     Bypasses the broken Kaleido static exporter entirely to avoid Python 3.12
     compatibility hangs. Outputs a highly stable, interactive HTML dashboard instead.
+
+    The embedded download button is configured to emit `export_size_in` inches at
+    `export_dpi`; at the defaults that is 11.0 x 7.5 in at 600 dpi (6600 x 4500 px).
     """
     os.makedirs(output_dir, exist_ok=True)
     html_path = os.path.join(output_dir, f"{file_prefix}_{filename_base}.html")
 
+    w_px = int(round(export_size_in[0] * _CSS_PPI))
+    h_px = int(round(export_size_in[1] * _CSS_PPI))
+    scale = export_dpi / _CSS_PPI
+    config = {
+        "toImageButtonOptions": {
+            "format": "png",
+            "filename": f"{file_prefix}_{filename_base}",
+            "width": w_px,
+            "height": h_px,
+            "scale": scale,
+        },
+        "displaylogo": False,
+        "responsive": True,
+    }
+
     try:
         # HTML generation relies on pure Python string formatting (100% stable on Py 3.12)
-        fig.write_html(html_path)
-        print(f"    [+] Saved interactive HTML figure: {os.path.basename(html_path)}")
+        fig.write_html(html_path, config=config)
+        print(f"    [+] Saved interactive HTML figure: {os.path.basename(html_path)}"
+              f"  (downloads at {export_size_in[0]:g}x{export_size_in[1]:g} in / "
+              f"{export_dpi} dpi = {int(w_px * scale):,}x{int(h_px * scale):,} px)")
     except Exception as e:
         print(f"    [!] HTML export failed: {e}")
 
@@ -108,8 +146,8 @@ def load_and_prepare_data(json_path: str, annotation_path: str):
     node_df.rename(columns={
         'id': 'mesh_term',
         'adjusted_node_weight': 'ARS',
-        'CRS_betweenness_centrality': 'CRS_betweenness',
-        'CRS_eigenvector_centrality': 'CRS_eigenvector'
+        'MRS_betweenness_centrality': 'MRS_betweenness',
+        'MRS_pagerank_centrality': 'MRS_pagerank'
     }, inplace=True)
     node_df.set_index('mesh_term', inplace=True)
 
@@ -338,13 +376,13 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
         plt.close('all')
 
 def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 4: joint scatter + marginal histograms of betweenness vs eigenvector CRS."""
-    print("\n<<< Generating Figure 4: CRS Correlation Joint Plot >>>")
+    """Figure 4: joint scatter + marginal histograms of betweenness vs PageRank MRS."""
+    print("\n<<< Generating Figure 4: MRS Correlation Joint Plot >>>")
     try:
-        plot_df = node_df[(node_df['CRS_betweenness'] > 0) & (node_df['CRS_eigenvector'] > 0)].copy()
+        plot_df = node_df[(node_df['MRS_betweenness'] > 0) & (node_df['MRS_pagerank'] > 0)].copy()
 
         if plot_df.empty:
-            print("[!] Error: No strictly positive CRS values available.")
+            print("[!] Error: No strictly positive MRS values available.")
             return
 
         fig = plt.figure(figsize=(12, 12))
@@ -359,21 +397,21 @@ def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
         ax_histx.tick_params(axis="x", which="both", bottom=True, labelbottom=False)
         ax_histy.tick_params(axis="y", which="both", left=True, labelleft=False)
 
-        sns.scatterplot(data=plot_df, x='CRS_betweenness', y='CRS_eigenvector', hue='aop_level', style='aop_level', markers=MARKERS_LIST, palette='magma_r', hue_order=AOP_ORDER, s=60, alpha=0.7, ax=ax_scat)
+        sns.scatterplot(data=plot_df, x='MRS_betweenness', y='MRS_pagerank', hue='aop_level', style='aop_level', markers=MARKERS_LIST, palette='magma_r', hue_order=AOP_ORDER, s=60, alpha=0.7, ax=ax_scat)
         
         ax_scat.grid(True, which="both", ls="--", alpha=0.5)
         ax_histx.grid(True, axis="x", which="both", ls="--", alpha=0.5)
         ax_histy.grid(True, axis="y", which="both", ls="--", alpha=0.5)
 
         ax_scat.legend(title=r"$\bf{AOP\ Level}$", bbox_to_anchor=(1.02, 1), loc='lower left')
-        ax_scat.set_xlabel('CRS (Betweenness)', fontsize=12)
-        ax_scat.set_ylabel('CRS (Eigenvector)', fontsize=12)
+        ax_scat.set_xlabel('MRS (Betweenness)', fontsize=12)
+        ax_scat.set_ylabel('MRS (PageRank)', fontsize=12)
 
-        sns.histplot(data=plot_df, x='CRS_betweenness', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histx, log_scale=True, bins=15)
-        sns.histplot(data=plot_df, y='CRS_eigenvector', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histy, log_scale=True, bins=15)
+        sns.histplot(data=plot_df, x='MRS_betweenness', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histx, log_scale=True, bins=15)
+        sns.histplot(data=plot_df, y='MRS_pagerank', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histy, log_scale=True, bins=15)
 
-        top = pd.concat([plot_df.nlargest(5, 'CRS_betweenness'), plot_df.nlargest(5, 'CRS_eigenvector')]).drop_duplicates()
-        texts = [ax_scat.text(row['CRS_betweenness'], row['CRS_eigenvector'], idx, fontsize=9) for idx, row in top.iterrows()]
+        top = pd.concat([plot_df.nlargest(5, 'MRS_betweenness'), plot_df.nlargest(5, 'MRS_pagerank')]).drop_duplicates()
+        texts = [ax_scat.text(row['MRS_betweenness'], row['MRS_pagerank'], idx, fontsize=9) for idx, row in top.iterrows()]
 
         with redirect_stdout(io.StringIO()):
             adjust_text(texts, ax=ax_scat, arrowprops=dict(arrowstyle="-", color='black', lw=0.5))
@@ -416,7 +454,7 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
         perplexity = min(30, max(2, N - 1))
         tsne = TSNE(n_components=2, perplexity=perplexity, metric='precomputed', init='random', random_state=42)
         emb = tsne.fit_transform(dist)
-        df_tsne = pd.DataFrame(emb, index=nodes, columns=['X', 'Y']).join(node_df[['filtered_louvain_community_id', 'CRS_betweenness']])
+        df_tsne = pd.DataFrame(emb, index=nodes, columns=['X', 'Y']).join(node_df[['filtered_louvain_community_id', 'MRS_betweenness']])
 
         plt.figure(figsize=(12, 10))
         ax = plt.gca()
@@ -443,7 +481,7 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
                 except Exception:
                     continue
 
-        sns.scatterplot(data=df_tsne, x='X', y='Y', hue='filtered_louvain_community_id', palette=comm_map, size='CRS_betweenness', sizes=(20, 300), alpha=0.9, legend=False, ax=ax)
+        sns.scatterplot(data=df_tsne, x='X', y='Y', hue='filtered_louvain_community_id', palette=comm_map, size='MRS_betweenness', sizes=(20, 300), alpha=0.9, legend=False, ax=ax)
         legend_patches = [mpatches.Patch(color=comm_map[cid], label=community_labels[cid], alpha=0.9) for cid in unique_comms]
         ax.legend(handles=legend_patches, title='Louvain Communities & Topics', loc='upper right', frameon=True, facecolor='white', edgecolor='black', framealpha=0.95, fontsize=10, title_fontsize=11)
         ax.set_xlim(right=15)
@@ -510,18 +548,18 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
         print(f"[!] Error generating Figure 6 (Alluvial Flow): {e}")
 
 def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 7: dumbbell plot of the nodes with the largest shift between betweenness and eigenvector CRS."""
+    """Figure 7: dumbbell plot of the nodes with the largest shift between betweenness and PageRank MRS."""
     print("\n<<< Figure 7: Dumbbell Plot >>>")
     try:
         df_plot = node_df.copy()
-        df_plot['diff'] = (df_plot['CRS_betweenness'] - df_plot['CRS_eigenvector']).abs()
-        top_diff = df_plot.nlargest(20, 'diff').sort_values('CRS_betweenness')
+        df_plot['diff'] = (df_plot['MRS_betweenness'] - df_plot['MRS_pagerank']).abs()
+        top_diff = df_plot.nlargest(20, 'diff').sort_values('MRS_betweenness')
 
         plt.figure(figsize=(10, 8))
-        plt.hlines(y=top_diff.index, xmin=top_diff['CRS_betweenness'], xmax=top_diff['CRS_eigenvector'], color='gray', alpha=0.5, linewidth=1.5, zorder=1)
+        plt.hlines(y=top_diff.index, xmin=top_diff['MRS_betweenness'], xmax=top_diff['MRS_pagerank'], color='gray', alpha=0.5, linewidth=1.5, zorder=1)
         colors = ["#2C3E50", "#B0B0B0"]
-        plt.scatter(top_diff['CRS_betweenness'], top_diff.index, color=colors[0], s=100, zorder=2, label='Betweenness')
-        plt.scatter(top_diff['CRS_eigenvector'], top_diff.index, color=colors[1], s=100, zorder=2, label='Eigenvector')
+        plt.scatter(top_diff['MRS_betweenness'], top_diff.index, color=colors[0], s=100, zorder=2, label='Betweenness')
+        plt.scatter(top_diff['MRS_pagerank'], top_diff.index, color=colors[1], s=100, zorder=2, label='PageRank')
 
         ax = plt.gca()
         for lbl in ax.get_yticklabels():
@@ -535,46 +573,80 @@ def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
                  [mpatches.Patch(color=c, label=l) for l, c in AOP_COLOR_MAP.items()] +
                  [mpatches.Patch(color='none', label="")] +
                  [mpatches.Patch(color='none', label=r"$\bf{Method}$")] +
-                 [mpatches.Patch(color=colors[0], label='Betweenness'), mpatches.Patch(color=colors[1], label='Eigenvector')])
+                 [mpatches.Patch(color=colors[0], label='Betweenness'), mpatches.Patch(color=colors[1], label='PageRank')])
 
         plt.legend(handles=leg_h, loc='lower right', bbox_to_anchor=(1.0, 0.0))
-        plt.xlabel("Contextual Relevance Score (CRS)")
+        plt.xlabel("Mean Relevancy Score (MRS)")
         plt.tight_layout()
-        save_high_res("CRS_Dumbbell_Plot_Top20", output_dir, file_prefix)
+        save_high_res("MRS_Dumbbell_Plot_Top20", output_dir, file_prefix)
     except Exception as e:
         print(f"[!] Error generating Figure 7 (Dumbbell Plot): {e}")
     finally:
         plt.close('all')
 
+def _overlay_loglog_fits(ax, plot_df: pd.DataFrame, x_col: str, y_col: str, min_points: int = 3):
+    """Draw per-stratum power-law trend lines on an axis that is already log-log.
+
+    Seaborn fits in LINEAR space, and its `logx` option fits only y ~ log(x), so
+    letting lmplot draw the line here produced a straight line in linear units
+    rendered on log axes: it looked like a power law, was dominated by the few
+    largest-x points, and its slope was not the exponent quoted in the caption.
+    Fitting log10(y) on log10(x) makes the drawn line and the reported exponent
+    the same object. Colours come from AOP_COLOR_MAP, which is built from the same
+    magma_r ramp lmplot uses for the points, so line and markers stay matched.
+    """
+    fits = []
+    for level in AOP_ORDER:
+        grp = plot_df[plot_df['aop_level'] == level]
+        if len(grp) < min_points:
+            if len(grp) > 0:
+                print(f"      {level:<18} n={len(grp):<4} (fewer than {min_points} points, not fitted)")
+            continue
+        lx = np.log10(grp[x_col].to_numpy(dtype=float))
+        ly = np.log10(grp[y_col].to_numpy(dtype=float))
+        slope, intercept = np.polyfit(lx, ly, 1)
+        ss_tot = float(((ly - ly.mean()) ** 2).sum())
+        r2 = 1.0 - float(((ly - (intercept + slope * lx)) ** 2).sum()) / ss_tot if ss_tot > 0 else float('nan')
+        xs = np.linspace(lx.min(), lx.max(), 50)
+        ax.plot(10 ** xs, 10 ** (intercept + slope * xs), color=AOP_COLOR_MAP.get(level),
+                lw=2.0, alpha=0.9, zorder=4)
+        fits.append((level, len(grp), slope, r2))
+        print(f"      {level:<18} n={len(grp):<4} slope {slope:+.3f}   R2 {r2:.3f}")
+    return fits
+
+
 def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 8: log-log scatter panels of each raw centrality against its contextual relevance score."""
-    print("\n<<< Figure 8: Centrality Scatter Plots (CRS vs Raw) >>>")
+    """Figure 8: log-log scatter panels of each raw centrality against its mean relevancy score."""
+    print("\n<<< Figure 8: Centrality Scatter Plots (MRS vs Raw) >>>")
     try:
-        print("  - Generating Panel C: Raw Betweenness vs CRS (Betweenness)...")
-        plot_df_b = node_df[(node_df['betweenness_centrality'] > 0) & (node_df['CRS_betweenness'] > 0)]
-        g_b = sns.lmplot(data=plot_df_b, x='betweenness_centrality', y='CRS_betweenness', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
+        print("  - Generating Panel C: Raw Betweenness vs MRS (Betweenness)...")
+        plot_df_b = node_df[(node_df['betweenness_centrality'] > 0) & (node_df['MRS_betweenness'] > 0)]
+        g_b = sns.lmplot(data=plot_df_b, x='betweenness_centrality', y='MRS_betweenness', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
         ax_b = g_b.ax
         ax_b.set_xscale('log'); ax_b.set_yscale('log')
+        _overlay_loglog_fits(ax_b, plot_df_b, 'betweenness_centrality', 'MRS_betweenness')
         ax_b.set_xlabel('Raw Betweenness Centrality (Log Scale)', fontsize=12)
-        ax_b.set_ylabel('CRS (Betweenness) (Log Scale)', fontsize=12)
+        ax_b.set_ylabel('MRS (Betweenness) (Log Scale)', fontsize=12)
         ax_b.grid(True, which="both", ls="--", alpha=0.5)
         os.makedirs(output_dir, exist_ok=True)
         out_b = os.path.join(output_dir, f"{file_prefix}_Panel_C_Scatter_Betweenness.tif")
-        plt.savefig(out_b, dpi=1200, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
+        plt.savefig(out_b, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
         print(f"    Saved: {os.path.basename(out_b)}")
         plt.close()
 
-        print("  - Generating Panel D: Raw Eigenvector vs CRS (Eigenvector)...")
-        plot_df_e = node_df[(node_df['eigenvector_centrality'] > 0) & (node_df['CRS_eigenvector'] > 0)]
-        g_e = sns.lmplot(data=plot_df_e, x='eigenvector_centrality', y='CRS_eigenvector', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, ci=None, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
-        ax_e = g_e.ax
-        ax_e.set_xscale('log'); ax_e.set_yscale('log')
-        ax_e.set_xlabel('Raw Eigenvector Centrality (Log Scale)', fontsize=12)
-        ax_e.set_ylabel('CRS (Eigenvector) (Log Scale)', fontsize=12)
-        ax_e.grid(True, which="both", ls="--", alpha=0.5)
-        out_e = os.path.join(output_dir, f"{file_prefix}_Panel_D_Scatter_Eigenvector.tif")
-        plt.savefig(out_e, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
-        print(f"    Saved: {os.path.basename(out_e)}")
+        print("  - Generating Panel D: Raw PageRank vs MRS (PageRank)...")
+        plot_df_p = node_df[(node_df['pagerank_centrality'] > 0) & (node_df['MRS_pagerank'] > 0)]
+        g_p = sns.lmplot(data=plot_df_p, x='pagerank_centrality', y='MRS_pagerank', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
+        ax_p = g_p.ax
+        ax_p.set_xscale('log'); ax_p.set_yscale('log')
+        _overlay_loglog_fits(ax_p, plot_df_p, 'pagerank_centrality', 'MRS_pagerank')
+        ax_p.set_xlabel('Raw PageRank Centrality (Log Scale)', fontsize=12)
+        ax_p.set_ylabel('MRS (PageRank) (Log Scale)', fontsize=12)
+        ax_p.grid(True, which="both", ls="--", alpha=0.5)
+        out_p = os.path.join(output_dir, f"{file_prefix}_Panel_D_Scatter_PageRank.tif")
+        plt.savefig(out_p, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
+        print(f"    Saved: {os.path.basename(out_p)}")
+        plt.close()
     except Exception as e:
         print(f"[!] Error generating Figure 8 (Scatter Panels): {e}")
     finally:
@@ -693,36 +765,36 @@ def generate_filtering_summary_sankeys(data: dict, output_dir: str, file_prefix:
     except Exception as e:
         print(f"[!] Error generating Filtering Cascade Sankeys: {e}")
 
-def plot_crs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
+def plot_mrs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
     """Calculates Spearman rank correlation to evaluate ubiquity bias and generates scatter plots."""
-    print("\n<<< Generating Figure: CRS Ubiquity Bias Evaluation >>>")
+    print("\n<<< Generating Figure: MRS Ubiquity Bias Evaluation >>>")
     try:
         # Map to the renamed columns in load_and_prepare_data
-        crs_cols = ["CRS_eigenvector", "CRS_betweenness"]
+        mrs_cols = ["MRS_pagerank", "MRS_betweenness"]
         count_col = "article_count"
 
-        missing_cols = [col for col in [count_col] + crs_cols if col not in node_df.columns]
+        missing_cols = [col for col in [count_col] + mrs_cols if col not in node_df.columns]
         if missing_cols:
             print(f"    [!] Missing columns for bias evaluation: {missing_cols}")
             return
 
-        df_clean = node_df.dropna(subset=[count_col] + crs_cols).copy()
+        df_clean = node_df.dropna(subset=[count_col] + mrs_cols).copy()
 
         df_clean[count_col] = pd.to_numeric(df_clean[count_col], errors='coerce')
-        for col in crs_cols:
+        for col in mrs_cols:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
 
-        df_clean = df_clean.dropna(subset=[count_col] + crs_cols)
+        df_clean = df_clean.dropna(subset=[count_col] + mrs_cols)
 
         print(f"    Extracted {len(df_clean)} nodes for statistical evaluation.\n")
 
-        fig, axes = plt.subplots(1, len(crs_cols), figsize=(6 * len(crs_cols), 5))
-        if len(crs_cols) == 1: axes = [axes]
+        fig, axes = plt.subplots(1, len(mrs_cols), figsize=(6 * len(mrs_cols), 5))
+        if len(mrs_cols) == 1: axes = [axes]
 
-        for i, crs_col in enumerate(crs_cols):
-            rho, p_val = stats.spearmanr(df_clean[count_col], df_clean[crs_col])
+        for i, mrs_col in enumerate(mrs_cols):
+            rho, p_val = stats.spearmanr(df_clean[count_col], df_clean[mrs_col])
 
-            print(f"--- Analysis for: {crs_col} ---")
+            print(f"--- Analysis for: {mrs_col} ---")
             print(f"  Spearman Rho (ρ): {rho:.4f}")
             print(f"  P-value:          {p_val:.4e}")
 
@@ -737,7 +809,7 @@ def plot_crs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: 
             ax = axes[i]
             sns.regplot(
                 x=df_clean[count_col],
-                y=df_clean[crs_col],
+                y=df_clean[mrs_col],
                 ax=ax,
                 scatter_kws={'alpha': 0.5, 'color': '#2c3e50'},
                 line_kws={'color': '#e74c3c'},
@@ -745,13 +817,13 @@ def plot_crs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: 
             )
 
             ax.set_xscale('log')
-            ax.set_title(f"{crs_col} vs Publication Count\nSpearman ρ = {rho:.3f}", fontsize=12, fontweight='bold')
+            ax.set_title(f"{mrs_col} vs Publication Count\nSpearman ρ = {rho:.3f}", fontsize=12, fontweight='bold')
             ax.set_xlabel(f"Publication Count (Log Scale)", fontsize=10)
-            ax.set_ylabel(f"Score [{crs_col}]", fontsize=10)
+            ax.set_ylabel(f"Score [{mrs_col}]", fontsize=10)
 
         plt.tight_layout()
-        save_high_res("CRS_Ubiquity_Bias_Evaluation", output_dir, file_prefix)
+        save_high_res("MRS_Ubiquity_Bias_Evaluation", output_dir, file_prefix)
     except Exception as e:
-        print(f"[!] Error generating CRS Bias Evaluation: {e}")
+        print(f"[!] Error generating MRS Bias Evaluation: {e}")
     finally:
         plt.close('all')

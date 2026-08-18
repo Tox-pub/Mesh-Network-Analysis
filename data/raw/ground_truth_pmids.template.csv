@@ -1,0 +1,3 @@
+PMID,Reference
+00000000,"EXAMPLE ROW - delete this row. Add one ground-truth PubMed ID (PMID) per line in the PMID column."
+00000001,"The Reference column is OPTIONAL: a free-text citation string. Including it enables a publication-year sanity check that flags citation-to-PMID mis-resolution. Quote any value that contains a comma."

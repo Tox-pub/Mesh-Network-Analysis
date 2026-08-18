@@ -1,0 +1,32 @@
+name: mesh_aop_network
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  # Python version. Validated on 3.11-3.13 - node2vec is no longer needed (its
+  # embedding is vendored), so 3.13 is supported. Newer Python is untested.
+  - python>=3.11,<3.14
+
+  # Dependencies (resolved by Mamba). Upper bounds are pinned to the validated
+  # versions (the v2.2 numpy-2 / networkx-3 stack) so future releases cannot
+  # silently break the pipeline. Raise a cap deliberately to adopt a newer
+  # minor/major (newer versions can be used, but with caution).
+  - numpy>=1.26,<2.6
+  - pandas>=2.2.2,<3.1
+  - scipy>=1.16.3,<1.19
+  - scikit-learn>=1.6.1,<1.10
+  - statsmodels>=0.14.6,<0.15
+  - matplotlib>=3.10.0,<3.12
+  - seaborn>=0.13.2,<0.14
+  - networkx>=2.8.8,<3.7
+  - plotly>=6.1.1,<6.9
+  - openpyxl>=3.1.5,<3.2
+  - biopython>=1.85,<1.88
+  - tqdm>=4.67.1,<4.69
+  - requests>=2.32.4,<2.35
+
+  # Package Installer (gensim, kaleido, adjustText, pymarc, python-louvain install
+  # here with the matching caps from pyproject.toml)
+  - pip
+  - pip:
+    - -e .

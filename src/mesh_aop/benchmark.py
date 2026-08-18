@@ -24,6 +24,8 @@ import pandas as pd
 
 from sklearn.metrics import roc_auc_score, average_precision_score, ndcg_score
 
+from .baseline_manager import _keep_on_device
+
 # Matplotlib rendering is optional; fall back so a headless display never aborts.
 try:
     import matplotlib
@@ -34,12 +36,37 @@ except Exception:
     _HAS_MPL = False
 
 
+def _open_readonly_resilient(db_path):
+    """Open a database read-only, resilient to OneDrive dehydration.
+
+    Pins the file and opens read-only; if the read-only view exposes no tables -
+    a dehydrated OneDrive placeholder reads back empty - it reopens with a normal
+    connection, which forces OneDrive to hydrate the real file. No writes are
+    issued, and an already-hydrated file keeps the read-only path unchanged.
+    """
+    _keep_on_device(db_path)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=120.0)
+    if conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+        return conn
+    conn.close()
+    return sqlite3.connect(str(db_path), timeout=120.0)
+
+
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # 1. GROUND-TRUTH VALIDATION
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 # Filenames recognized as a ground-truth drop-in, searched in order within the
 # active raw directory (data/raw, or data/reference_raw when using reference data).
+def scorer_label(score_col: str) -> str:
+    """Human-readable scorer name for a `score_<node attribute>` column."""
+    name = score_col[len("score_"):]
+    if name.endswith("_centrality"):
+        name = name[: -len("_centrality")]
+    if name.endswith("_subgraph"):
+        return f"{name[: -len('_subgraph')]} (subgraph)"
+    return name
+
 KNOWN_GT_FILENAMES = (
     "ground_truth_pmids.csv",
     "ground_truth_pmids.txt",
@@ -91,13 +118,24 @@ def _read_csv_any_encoding(path, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, encoding="utf-8", encoding_errors="replace", **kwargs)
 
 
-def resolve_ground_truth_path(raw_dir, configured_name: str = "") -> str:
-    """Locate a ground-truth file in raw_dir; honors a configured name, else tries the known defaults."""
+def resolve_ground_truth_path(raw_dir, configured_name: str = "", root=None) -> str:
+    """Locate a ground-truth file; honors a configured name, else tries the known defaults.
+
+    A configured name may be a bare filename (looked up in raw_dir), an absolute path,
+    or a path relative to the project root (e.g. 'data/reference_processed/...') when
+    ``root`` is given -- so the curated OECD ground truth can live outside data/raw.
+    """
     raw_dir = Path(raw_dir)
 
     if configured_name:
-        p = raw_dir / configured_name
-        return str(p) if p.exists() else None
+        candidates = [Path(configured_name)]                     # absolute or cwd-relative
+        if root:
+            candidates.append(Path(root) / configured_name)      # project-root relative
+        candidates.append(raw_dir / configured_name)             # bare filename in raw_dir
+        for p in candidates:
+            if p.exists():
+                return str(p)
+        return None
 
     for name in KNOWN_GT_FILENAMES:
         p = raw_dir / name
@@ -108,8 +146,12 @@ def resolve_ground_truth_path(raw_dir, configured_name: str = "") -> str:
 
 
 def _load_gt_dataframe(path: str) -> pd.DataFrame:
-    """Load a ground-truth file in any shape (semicolon CSV, PMID column, single column, or .txt list)."""
+    """Load a ground-truth file in any shape (Excel, semicolon CSV, PMID column, single column, or .txt list)."""
     p = Path(path)
+
+    # Excel workbook (e.g. the curated OECD ground truth): read the first sheet.
+    if p.suffix.lower() in (".xlsx", ".xls"):
+        return pd.read_excel(p, dtype=str)
 
     # Plain text list: one token per line, with an optional non-numeric header.
     if p.suffix.lower() in (".txt", ""):
@@ -388,6 +430,50 @@ def bootstrap_ci(scores: np.ndarray, labels: np.ndarray, metric_fn, n_boot: int,
     }
 
 
+def bootstrap_ci_multi(scores: np.ndarray, labels: np.ndarray, metric_fns: dict,
+                       n_boot: int, rng: np.random.Generator, ci: float = 0.95) -> dict:
+    """Percentile bootstrap CIs for several metrics off a SHARED set of resamples.
+
+    Resampling the pool and re-sorting it dominates the cost (the sort is O(n log n)
+    on the full candidate pool), so each replicate is sorted once and every metric is
+    read off that same sorted copy. Computing the statistics in separate passes
+    repeated the sort per statistic for no statistical gain: sharing replicates
+    leaves each metric's marginal percentile interval unchanged.
+
+    `metric_fns` maps a name to a callable taking (sorted_labels, total_positives).
+    """
+    n = len(labels)
+    vals = {name: [] for name in metric_fns}
+
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n)
+        s, l = scores[idx], labels[idx]
+        total_pos = int(l.sum())
+        sl = _sorted_labels(s, l, rng)          # the expensive step - once per replicate
+        for name, fn in metric_fns.items():
+            try:
+                v = fn(sl, total_pos)
+            except Exception:
+                v = float("nan")
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                vals[name].append(v)
+
+    lo_q = (1 - ci) / 2 * 100
+    hi_q = (1 + ci) / 2 * 100
+    out = {}
+    for name, v in vals.items():
+        if not v:
+            out[name] = {"point": float("nan"), "lo": float("nan"), "hi": float("nan")}
+        else:
+            out[name] = {
+                "point": float(np.mean(v)),
+                "lo": float(np.percentile(v, lo_q)),
+                "hi": float(np.percentile(v, hi_q)),
+                "n_boot": len(v),
+            }
+    return out
+
+
 def permutation_null(labels: np.ndarray, metric_on_ranked, n_perm: int,
                      rng: np.random.Generator, observed: float) -> dict:
     """Random-ranking null for a metric (shuffled labels), reporting the observed value's lift and p."""
@@ -424,13 +510,17 @@ def load_relevance_scores(db_path: str,
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"Relevance database not found: {db_path}")
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = _open_readonly_resilient(db_path)
     try:
-        df = pd.read_sql_query(
-            f"SELECT pmid, score_betweenness_centrality, score_eigenvector_centrality, "
-            f"contributing_seeds FROM {table}",
-            conn,
-        )
+        # Relevance writes one score_<attribute> column per node weighting it was
+        # given, so discover them rather than hard-coding a list: the benchmark then
+        # scores whatever weightings were actually computed.
+        present = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        score_cols = [c for c in present if c.startswith("score_")]
+        if not score_cols:
+            raise ValueError(f"No score_* columns found in {table}; re-run relevance scoring.")
+        cols = ["pmid"] + score_cols + ["contributing_seeds"]
+        df = pd.read_sql_query(f"SELECT {', '.join(cols)} FROM {table}", conn)
     finally:
         conn.close()
 
@@ -511,6 +601,11 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
         primary_node, na=False, regex=False
     ).astype(int)
 
+    # The seed string is only needed to derive n_seeds and has_primary (both done).
+    # On a ~9M-row pool it is a multi-GB object column, so release it before the
+    # resampling phase allocates its own per-scorer arrays.
+    scores_df.drop(columns=["contributing_seeds"], inplace=True)
+
     in_pool = target & pool_pmids
     naive_pmids = set(scores_df.loc[scores_df["has_primary"] == 1, "pmid"])
     topology_exclusive = in_pool - naive_pmids
@@ -533,16 +628,32 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     }
 
     # <<< 5.3 Ranking metrics per scorer, with CIs and null >>>
-    scorer_cols = {
-        "betweenness": "score_betweenness_centrality",
-        "eigenvector": "score_eigenvector_centrality",
-        "n_seeds (baseline)": "n_seeds",
-    }
+    # One scorer per weighting relevance produced, in the order it wrote them, then
+    # the structural control. n_seeds is a uniform weight of 1 per node, so it does
+    # not depend on which graph a centrality was computed from and is the single
+    # scope-invariant baseline for all of them.
+    scorer_cols = {scorer_label(c): c
+                   for c in scores_df.columns if c.startswith("score_")}
+    scorer_cols["n_seeds (baseline)"] = "n_seeds"
     labels = scores_df["y_true"].to_numpy()
 
+    n_pool = int(len(labels))
+    n_pos = int(labels.sum())
+    prevalence = (n_pos / n_pool) if n_pool else float("nan")
+
     print("\n<<< 3. RANKING PERFORMANCE ON FULL POOL (primary metrics) >>>")
-    print("  (Recall@K / MAP / EF / BEDROC need only positive positions; "
-          "ROC/PR-AUC are secondary.)")
+    print(f"  Pool {n_pool:,} | positives {n_pos:,} | prevalence {prevalence:.6%}")
+    if prevalence < 1e-3:
+        # Report the imbalance actually measured rather than assuming it: ROC-AUC stays
+        # flattering when negatives outnumber positives this heavily, so the
+        # early-recognition metrics are the ones to read.
+        print("  Extreme class imbalance -> lead with the early-recognition metrics")
+        print("  (Recall@K / MAP / EF / BEDROC): they depend only on WHERE the positives rank.")
+        print("  ROC-AUC can look strong here even when precision is ~0, so ROC/PR-AUC are")
+        print("  reported as SECONDARY. See README -> 'Benchmark metrics' for why.")
+    else:
+        print("  ROC/PR-AUC are informative at this prevalence; the early-recognition")
+        print("  metrics (Recall@K / MAP / EF / BEDROC) remain the primary ranking view.")
 
     report["ranking"] = {}
     for name, col in scorer_cols.items():
@@ -552,17 +663,22 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
         )
 
         # Named helpers (rather than inline lambdas) for the resampling metrics.
-        def _map_of(s, l):
-            return average_precision(_sorted_labels(s, l, rng), int(l.sum()))
+        # Both statistics are read off one shared set of bootstrap replicates: the
+        # per-replicate sort of the full pool is the dominant cost, so drawing
+        # separate replicate sets for MAP and EF doubled the work for no gain.
+        def _map_stat(sorted_labels, total_pos):
+            return average_precision(sorted_labels, total_pos)
 
-        def _ef1_of(s, l):
-            return enrichment_factor(_sorted_labels(s, l, rng), 0.01, int(l.sum()))
+        def _ef1_stat(sorted_labels, total_pos):
+            return enrichment_factor(sorted_labels, 0.01, total_pos)
 
         def _map_ranked(l):
             return average_precision(l, int(l.sum()))
 
-        ci_map = bootstrap_ci(scores, labels, _map_of, n_boot, rng)
-        ci_ef = bootstrap_ci(scores, labels, _ef1_of, n_boot, rng)
+        cis = bootstrap_ci_multi(
+            scores, labels, {"MAP": _map_stat, "EF": _ef1_stat}, n_boot, rng
+        )
+        ci_map, ci_ef = cis["MAP"], cis["EF"]
         null_map = permutation_null(labels, _map_ranked, n_perm, rng, observed=suite["MAP"])
 
         suite["MAP_ci95"] = [ci_map["lo"], ci_map["hi"]]
@@ -663,7 +779,10 @@ def _plot_enrichment_curves(scores_df, scorer_cols, output_dir, file_prefix, rng
         ]
         ax.plot(fracs * 100, np.array(recall) * 100, label=name, lw=1.8)
 
-    ax.plot([0, 100], [0, 100], "k--", lw=1, label="random")
+    # Random ranking recovers positives in proportion to the fraction screened.
+    # Evaluated on the same grid as the curves: a two-point line starting at x=0 is
+    # invalid on the log axis below and renders as a flat line at 100% recall.
+    ax.plot(fracs * 100, fracs * 100, "k--", lw=1, label="random")
     ax.set_xlabel("Fraction of pool screened (%)")
     ax.set_ylabel("Ground-truth recall (%)")
     ax.set_title("Enrichment: ground-truth recovery vs ranking depth")
@@ -681,7 +800,7 @@ if __name__ == "__main__":
     # MeshConfig instead (see cli.py --step benchmark).
     run_benchmark(
         resolved_csv_path="data/reference_raw/oecd_resolved_citations.csv",
-        relevance_db_path="data/reference_processed/DAC_Mesh_contextual_relevance.db",
+        relevance_db_path="data/reference_processed/DAC_Mesh_mean_relevancy.db",
         output_dir="results",
         file_prefix="DAC_Mesh_benchmark",
     )

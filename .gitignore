@@ -205,3 +205,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local user run config — holds Entrez credentials and per-user settings. The
+# pipeline falls back to factory defaults when it's absent, so config JSONs are
+# never committed to the public repo (both the root copy and the notebooks-dir copy).
+/mesh_config.json
+src/mesh_aop_notebooks/mesh_config.json
+
+# Scratch notebooks kept locally for ad-hoc testing — not part of the published
+# package (no matching source module).
+src/mesh_aop_notebooks/test.ipynb
+src/mesh_aop_notebooks/test_2.ipynb

@@ -30,7 +30,7 @@ from importlib.metadata import version, PackageNotFoundError
 
 from .config_parser import MeshConfig
 from .wizard import run_interactive_wizard
-from .mesh_data_processor import process_raw_mesh_data
+from .mesh_data_processor import process_raw_mesh_data, ensure_mesh_descriptor_xml
 from .baseline_manager import PubMedBaselineManager
 from .data_ops import (
     run_initial_data_collection,
@@ -39,9 +39,11 @@ from .data_ops import (
     update_db_with_mesh_batch
 )
 from .network import run_network_construction, run_consensus_filtering_and_lcc, run_community_detection
-from .relevance import run_contextual_relevance_scoring
-from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles
+from .relevance import run_mean_relevancy_scoring
+from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles, run_network_overlay_comparison
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
+from .gt_network_validation import run_gt_network_validation
+from .validation_report import run_validation_report, run_projection_comparison
 from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
@@ -201,6 +203,7 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool)
             run_dict = dict(zip(run_df['mesh_term'], run_df['aop_level']))
 
             def update_lvl(row):
+                """Prefer this run's AOP level for a term when it was actually assigned (not 'Unassigned')."""
                 term = row['mesh_term']
                 if term in run_dict and run_dict[term].strip().lower() != 'unassigned':
                     return run_dict[term]
@@ -241,7 +244,7 @@ def main():
                             "  all        : Run the entire pipeline sequentially (Default).\n"
                             "  process    : Step 1 - Process MeSH XML and initialize Master Annotations.\n"
                             "  data_ops   : Step 2 - Collect Entrez data and build SQLite PMIDs database.\n"
-                            "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate CRS.\n"
+                            "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate MRS.\n"
                             "  secondary  : Step 3.5 - Execute targeted node/edge queries and metadata hydration.\n"
                             "  viz        : Step 4 - Generate biological plots, joint distributions, and HTML networks.\n"
                             "  benchmark  : Step 5 - Validate ground-truth citations and benchmark ranking performance."
@@ -311,10 +314,20 @@ def main():
         if args.step in ['all', 'process']:
             print("\n>>> STARTING: Step 1 - MeSH Raw Data Processing")
 
-            xml_file_path = config.files.get('mesh_xml', os.path.join(config.active_raw_dir, 'desc2025.xml'))
-
-            if config.get('search_parameters', 'update_mesh_support_files') or not os.path.exists(config.files['mesh_terms_csv']):
-                _ensure_prerequisites({"MeSH XML": xml_file_path}, "Step 1 (Raw Data Processing)")
+            # The descriptor XML is only read when the support files are being
+            # (re)built. When that is the case, guarantee a current desc<year>.xml
+            # is present - auto-downloading it from NLM if missing or superseded -
+            # so users never have to fetch it by hand. Otherwise extraction is
+            # skipped and the path is a harmless placeholder.
+            needs_support_build = (
+                config.get('search_parameters', 'update_mesh_support_files')
+                or not os.path.exists(config.files['mesh_terms_csv'])
+                or not os.path.exists(config.files['mesh_stopwords_py'])
+            )
+            if needs_support_build:
+                xml_file_path = ensure_mesh_descriptor_xml(str(config.active_raw_dir))
+            else:
+                xml_file_path = os.path.join(config.active_raw_dir, 'desc2025.xml')
 
             process_raw_mesh_data(
                 xml_file=xml_file_path,
@@ -395,31 +408,66 @@ def main():
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42
                 )
 
+            # The subgraph PageRank exists purely to be scored against the
+            # whole-corpus one, so it is driven by the ground-truth analysis switch
+            # rather than a toggle of its own. It has to be decided here, at the
+            # network stage, because it changes which centralities get computed.
+            _bench = config.params.get('benchmark', {})
+            include_subgraph_weightings = bool(_bench.get(
+                'run_ground_truth_analysis',
+                bool(config.get('control_flags', 'use_reference_data'))
+            ))
+
             run_step_6 = True
             if os.path.exists(config.files['consensus_lcc']):
                 try:
                     with open(config.files['consensus_lcc'], 'r') as f:
                         nodes = json.load(f).get('elements', {}).get('nodes', [])
-                        if nodes and nodes[0].get('data', {}).get('filtered_louvain_community_id') is not None:
-                            run_step_6 = False
+                        if nodes:
+                            data0 = nodes[0].get('data', {})
+                            has_communities = data0.get('filtered_louvain_community_id') is not None
+                            # Re-run when subgraph centralities are wanted but absent,
+                            # otherwise a cached network would silently skip them.
+                            needs_subgraph = include_subgraph_weightings and any(
+                                data0.get(k) is None for k in (
+                                    'pagerank_subgraph_centrality',
+                                    'betweenness_subgraph_centrality',
+                                    'eigenvector_subgraph_centrality',
+                                )
+                            )
+                            if has_communities and not needs_subgraph:
+                                run_step_6 = False
                 except Exception:
                     pass
 
             if run_step_6:
                 run_community_detection(
                     network_file_path=config.files['consensus_lcc'],
-                    random_seed=config.get('analysis_parameters', 'random_seed')
+                    random_seed=config.get('analysis_parameters', 'random_seed'),
+                    compute_subgraph_centrality=include_subgraph_weightings
                 )
 
             if not os.path.exists(config.files['final_network']):
-                run_contextual_relevance_scoring(
+                run_mean_relevancy_scoring(
                     input_nodes_file=config.files['consensus_lcc'],
                     output_nodes_file=config.files['final_network'],
                     master_db_path=config.files['master_db'],
                     relevance_db_path=config.files['relevance_db'],
                     id_key='id',
-                    weight_key_1="betweenness_centrality", final_key_1="CRS_betweenness_centrality",
-                    weight_key_2="eigenvector_centrality", final_key_2="CRS_eigenvector_centrality",
+                    # Whole-graph centralities always; the subgraph set as well when
+                    # enabled, so centrality SCOPE (whole corpus vs consensus subgraph)
+                    # and TYPE (betweenness / PageRank / eigenvector) form a full 3x2
+                    # grid rather than varying scope for only some algorithms. The
+                    # corpus scan dominates runtime, so extra weightings are near-free.
+                    weightings=(
+                        [("betweenness_centrality", "MRS_betweenness_centrality"),
+                         ("pagerank_centrality", "MRS_pagerank_centrality"),
+                         ("eigenvector_centrality", "MRS_eigenvector_centrality")]
+                        + ([("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
+                            ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
+                            ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
+                           if include_subgraph_weightings else [])
+                    ),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
                     entrez_email=config.get('credentials', 'entrez_email'),
@@ -507,6 +555,18 @@ def main():
                                 sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                             )
 
+        # <<< STEP 3.5b: Optional network overlay comparison (default off) >>>
+        if args.step in ['all', 'secondary'] and sec_params.get('compare_networks', False):
+            # Look in the active processed folder (data/processed, or reference_processed
+            # when reference data is in use); PNG/CSV outputs go to the results section.
+            run_network_overlay_comparison(
+                network_files=sec_params.get('comparison_networks', ''),
+                search_dir=str(config.active_source_dir),
+                results_dir=str(config.results_dir),
+                file_prefix=config.prefix,
+                random_seed=config.get('analysis_parameters', 'random_seed') or 42
+            )
+
         if args.step == 'all':
             if config.params.get('control_flags', {}).get('pause_for_annotation', False):
                 print(f"\n[!] Pipeline paused - AOP-level steps are not yet complete.")
@@ -543,17 +603,36 @@ def main():
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
+        gt_enabled = False
         if args.step == 'benchmark':
             print("\n>>> STARTING: Step 5 - Ground-Truth Validation & Benchmarking")
 
             bench_params = config.params.get('benchmark', {})
-            configured_gt = bench_params.get('ground_truth_csv', '')
 
-            # Resolve the ground-truth file from the ACTIVE raw directory. This is
-            # data/reference_raw/ when 'Use Reference Data' is True, and data/raw/
-            # when False -- so users supply their own PMID list by dropping a file
-            # named e.g. 'ground_truth_pmids.csv' into data/raw/.
-            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt)
+            # The bundled ground truth describes the reference corpus, so scoring
+            # against it only means something when that corpus is in play. Default
+            # the analysis on with reference data and off without it; an explicit
+            # run_ground_truth_analysis in the config always wins.
+            use_reference = bool(config.get('control_flags', 'use_reference_data'))
+            gt_enabled = bench_params.get('run_ground_truth_analysis', use_reference)
+            if not gt_enabled:
+                print("  [i] Ground-truth analysis is disabled for this run "
+                      f"(follows 'Use Reference Data', currently {use_reference}).")
+                print("      Set benchmark.run_ground_truth_analysis to true to force it on.")
+
+        if gt_enabled:
+            # Own-data runs leave ground_truth_csv empty and auto-detect a file the
+            # user dropped in data/raw/ (a recognized name from KNOWN_GT_FILENAMES).
+            # The bundled OECD curated set is substituted ONLY when running against
+            # the reference corpus, so a user's own file is never silently shadowed.
+            configured_gt = bench_params.get('ground_truth_csv', '') or (
+                'data/reference_processed/oecd_ground_truth_curated.xlsx' if use_reference else '')
+
+            # Resolve the ground-truth file. A configured name may be a bare filename
+            # (looked up in the ACTIVE raw directory -- data/raw/ for own data,
+            # data/reference_raw/ under reference data), an absolute path, or a path
+            # relative to the project root. Empty triggers auto-detection in raw/.
+            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt, root=config.root)
             if not gt_path:
                 print("\n" + "<"*30 + ">"*30)
                 print("[CRITICAL ERROR] No ground-truth file found for Benchmarking")
@@ -571,7 +650,7 @@ def main():
                 sys.exit(1)
 
             nc_filename = bench_params.get('negative_control_csv', '')
-            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename) if nc_filename else None
+            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename, root=config.root) if nc_filename else None
 
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db']
@@ -579,17 +658,107 @@ def main():
 
             print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
 
+            # All --step benchmark artifacts (article-ranking benchmark, ground-truth
+            # node/edge validation with its figures, and the validation/projection
+            # report) are consolidated under results/benchmark/ so the outputs of this
+            # step live in one place rather than scattered across results/.
+            bench_dir = config.results_dir / 'benchmark'
+            os.makedirs(bench_dir, exist_ok=True)
+            os.makedirs(bench_dir / 'validation', exist_ok=True)
+
+            # Node/edge convergent validation runs first: it takes minutes rather
+            # than the benchmark's tens of minutes, and answers a different
+            # question (is the network's vocabulary and wiring reproduced?), so a
+            # long ranking run never blocks getting the structural result.
+            if bench_params.get('run_network_validation', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_gt_network_validation(
+                            ground_truth_path=gt_path,
+                            master_db_path=str(config.files['master_db']),
+                            final_network_path=str(config.files['final_network']),
+                            output_dir=str(bench_dir),
+                            figures_dir=str(bench_dir),
+                            file_prefix=config.prefix,
+                            weight_key=bench_params.get(
+                                'network_validation_weight_key', 'MRS_pagerank_centrality'),
+                            min_articles_per_node=bench_params.get('min_articles_per_node', 2),
+                            pool_size=bench_params.get('background_pool_size', 50000),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: node/edge validation failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping node/edge validation: final network not found.")
+
+            # Consolidated validation report. Evaluates every weighting the pipeline
+            # produced across four framings (corpus-wide, within the source query,
+            # outside it, and the hybrid reading list) and writes a drill-down
+            # workbook plus a narrative report. Independent of run_benchmark, which
+            # answers the narrower "how does the primary scorer rank the corpus".
+            if bench_params.get('run_validation_report', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_validation_report(
+                            final_network_file=str(config.files['final_network']),
+                            master_db_path=str(config.files['master_db']),
+                            pmid_db_path=str(config.files['pmids_db']),
+                            ground_truth_file=gt_path,
+                            output_dir=str(bench_dir / 'validation'),
+                            project_prefix=f"{config.prefix}_",
+                            primary_query_term=bench_params.get(
+                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            n_boot=bench_params.get('validation_report_n_boot', 2000),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                            start_date=config.get('analysis_parameters', 'context_start_date'),
+                            end_date=config.get('analysis_parameters', 'context_end_date'),
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: validation report failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping validation report: final network not found.")
+
+            # Article-scoring PROJECTION comparison (normalised vs plain sum vs
+            # MRS-weighted vs bipartite vs BM25/baselines). Reuses the validation
+            # report's scoring-pool cache; emits a CSV + figure only, no HTML.
+            if bench_params.get('run_projection_comparison', True):
+                if os.path.exists(config.files['final_network']):
+                    try:
+                        run_projection_comparison(
+                            final_network_file=str(config.files['final_network']),
+                            master_db_path=str(config.files['master_db']),
+                            pmid_db_path=str(config.files['pmids_db']),
+                            ground_truth_file=gt_path,
+                            output_dir=str(bench_dir / 'validation'),
+                            project_prefix=f"{config.prefix}_",
+                            primary_query_term=bench_params.get(
+                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            n_boot=bench_params.get(
+                                'projection_comparison_n_boot',
+                                bench_params.get('validation_report_n_boot', 2000)),
+                            random_seed=config.get('analysis_parameters', 'random_seed') or 42,
+                            start_date=config.get('analysis_parameters', 'context_start_date'),
+                            end_date=config.get('analysis_parameters', 'context_end_date'),
+                        )
+                    except Exception as e:
+                        print(f"\n  [!] WARNING: projection comparison failed ({e});"
+                              f" continuing to the article ranking benchmark.")
+                else:
+                    print("  [!] Skipping projection comparison: final network not found.")
+
             try:
                 run_benchmark(
                     resolved_csv_path=gt_path,
                     relevance_db_path=str(config.files['relevance_db']),
-                    output_dir=str(config.results_dir),
+                    output_dir=str(bench_dir),
                     file_prefix=f"{config.prefix}_benchmark",
                     primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
                     negative_control_csv=nc_path,
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42,
-                    n_boot=bench_params.get('n_boot', 2000),
-                    n_perm=bench_params.get('n_perm', 2000)
+                    n_boot=bench_params.get('n_boot', 25),
+                    n_perm=bench_params.get('n_perm', 25)
                 )
             except (ValueError, KeyError) as e:
                 print("\n" + "<"*30 + ">"*30)

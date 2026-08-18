@@ -52,6 +52,7 @@ class _ListSampleRandom(random.Random):
     k-sample estimate reproducible.
     """
     def sample(self, population, k, *args, **kwargs):
+        """Coerce the population to a list before sampling (NetworkX may pass a set/view)."""
         if not isinstance(population, (list, tuple)):
             population = list(population)
         return super().sample(population, k, *args, **kwargs)
@@ -141,6 +142,7 @@ def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
 
     print("  Vectorizing MeSH terms for aggregation...")
     def extract_main_mesh_terms(mesh_string):
+        """Main MeSH descriptors from a ';'-joined string: drop subheadings, strip the major-topic '*'."""
         if not isinstance(mesh_string, str):
             return []
         return [
@@ -448,6 +450,12 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
                     G_analysis_conn, weight=None, max_iter=safe_max_iter, tol=safe_tol
                 )
 
+            # PageRank: a discriminating "connectedness" centrality (unlike eigenvector,
+            # which saturates on dense components). Used as an MRS weighting alongside
+            # betweenness. Deterministic given the graph.
+            print("  Calculating PageRank Centrality...")
+            pagerank_centrality = nx.pagerank(G_analysis_conn, alpha=0.85, weight=None)
+
             if run_full_centrality:
                 print("  Calculating EXACT Betweenness Centrality (This may take a while)...")
                 betweenness_centrality = nx.betweenness_centrality(G_analysis_conn, k=None, normalized=True, weight=None)
@@ -459,7 +467,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
                 edge_betweenness_centrality = nx.edge_betweenness_centrality(G_analysis_conn, k=k_eff, normalized=True, weight=None, seed=_ListSampleRandom(random_seed))
 
         else:
-            degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map = {}, {}, {}, {}, {}, {}
+            degree_dict, betweenness_centrality, eigenvector_centrality, clustering_coefficient, edge_betweenness_centrality, partition_map, pagerank_centrality = {}, {}, {}, {}, {}, {}, {}
 
     except MemoryError:
         raise RuntimeError("Memory Limit Exceeded during centrality calculations. Consider reducing generations.")
@@ -468,6 +476,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
         data['degree'] = degree_dict.get(node_id, 0)
         data['betweenness_centrality'] = betweenness_centrality.get(node_id, 0.0)
         data['eigenvector_centrality'] = eigenvector_centrality.get(node_id, 0.0)
+        data['pagerank_centrality'] = pagerank_centrality.get(node_id, 0.0)
         data['clustering_coefficient'] = clustering_coefficient.get(node_id, 0.0)
         data['unfiltered_louvain_community_id'] = partition_map.get(node_id, -1)
 
@@ -491,6 +500,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
             'adjusted_node_weight': float(data.get('adjusted_node_weight', 0.0)), 'degree': int(data.get('degree', 0)),
             'betweenness_centrality': float(data.get('betweenness_centrality', 0.0)),
             'eigenvector_centrality': float(data.get('eigenvector_centrality', 0.0)),
+            'pagerank_centrality': float(data.get('pagerank_centrality', 0.0)),
             'clustering_coefficient': float(data.get('clustering_coefficient', 0.0)),
             'unfiltered_louvain_community_id': int(data.get('unfiltered_louvain_community_id', -1))
         }
@@ -609,8 +619,15 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     save_subgraph_to_json(final_lcc_output_path, lcc_edge_keys, all_nodes_data, all_edges_data)
     print("\nConsensus filtering and LCC extraction complete.")
 
-def run_community_detection(network_file_path: str, random_seed: int):
-    """Runs Louvain, re-orders community IDs by size, and saves back to JSON."""
+def run_community_detection(network_file_path: str, random_seed: int,
+                            compute_subgraph_centrality: bool = False):
+    """Runs Louvain, re-orders community IDs by size, and saves back to JSON.
+
+    Optionally also records betweenness and PageRank computed on this filtered
+    subgraph (see the self-contained block below). These are scored separately from
+    the whole-corpus centralities carried over from network construction, so that
+    centrality *scope* can be compared against centrality *type*.
+    """
     print(f"Loading network for community detection from: {network_file_path}")
 
     net_path = Path(network_file_path)
@@ -657,6 +674,51 @@ def run_community_detection(network_file_path: str, random_seed: int):
                 node_obj['data']['filtered_louvain_community_id'] = ranked_community_id
             else:
                 node_obj['data']['filtered_louvain_community_id'] = -1
+
+        # <<< OPTIONAL: subgraph centralities (self-contained) >>>
+        # The whole-graph centralities recorded during network construction measure
+        # importance within the entire corpus, where generic high-degree MeSH terms
+        # dominate. Recomputed here on the filtered consensus subgraph, the same
+        # algorithms measure importance within the curated concept space instead.
+        # Both are kept so that centrality SCOPE and centrality TYPE can be varied
+        # independently rather than confounded. To remove the feature, delete this
+        # block and the compute_subgraph_centrality argument threaded in from cli.py.
+        if compute_subgraph_centrality:
+            print("Calculating centrality on the filtered consensus subgraph...")
+            subgraph_pagerank = nx.pagerank(G, alpha=0.85, weight=None)
+            # The subgraph is small (hundreds of nodes), so betweenness is computed
+            # EXACTLY here - unlike the whole-graph pass, which samples k sources.
+            subgraph_betweenness = nx.betweenness_centrality(
+                G, k=None, normalized=True, weight=None
+            )
+            # Eigenvector completes the set, so centrality TYPE can be varied across
+            # all three algorithms at both scopes. The dense solver is preferred
+            # because power iteration fails to converge on graphs with a weakly
+            # connected periphery; it falls back if the eigensolver itself fails.
+            try:
+                subgraph_eigenvector = nx.eigenvector_centrality_numpy(G, weight=None)
+            except Exception as e:
+                print(f"  [!] Dense eigenvector solver failed on the subgraph ({e}); "
+                      f"falling back to power iteration.")
+                try:
+                    subgraph_eigenvector = nx.eigenvector_centrality(
+                        G, max_iter=1000, tol=1.0e-6, weight=None
+                    )
+                except Exception as e2:
+                    print(f"  [!] Subgraph eigenvector centrality could not be computed ({e2}); "
+                          f"recording zeros.")
+                    subgraph_eigenvector = {}
+            for node_obj in nodes_json:
+                nid = node_obj['data']['id']
+                node_obj['data']['pagerank_subgraph_centrality'] = float(
+                    subgraph_pagerank.get(nid, 0.0)
+                )
+                node_obj['data']['betweenness_subgraph_centrality'] = float(
+                    subgraph_betweenness.get(nid, 0.0)
+                )
+                node_obj['data']['eigenvector_subgraph_centrality'] = float(
+                    subgraph_eigenvector.get(nid, 0.0)
+                )
 
     final_data = {"elements": {"nodes": nodes_json, "edges": edges_json}}
 

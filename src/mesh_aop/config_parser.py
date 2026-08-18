@@ -84,11 +84,20 @@ class MeshConfig:
                 "sa_cooling_rate": 0.999995
             },
             "benchmark": {
+                # Empty by default so an own-data run auto-detects a file dropped in
+                # data/raw/ (e.g. ground_truth_pmids.csv). The bundled OECD curated
+                # set is substituted by the CLI only when 'Use Reference Data' is on,
+                # so a user's own file is never silently shadowed.
                 "ground_truth_csv": "",
                 "negative_control_csv": "",
                 "primary_node": "Dermatitis, Allergic Contact",
-                "n_boot": 2000,
-                "n_perm": 2000
+                "n_boot": 25,
+                "n_perm": 25,
+                "run_network_validation": True,
+                "run_projection_comparison": True,
+                "network_validation_weight_key": "MRS_pagerank_centrality",
+                "min_articles_per_node": 2,
+                "background_pool_size": 50000
             }
         }
 
@@ -163,7 +172,7 @@ class MeshConfig:
             "final_network": self.active_source_dir / f"{self.prefix}_final_network_with_relevance.json",
 
             "cleaned_db": self.active_source_dir / f"{self.prefix}_cleaned_pmids.db",
-            "relevance_db": self.active_source_dir / f"{self.prefix}_contextual_relevance.db",
+            "relevance_db": self.active_source_dir / f"{self.prefix}_mean_relevancy.db",
 
             "failed_mesh": self.log_dir / f"{self.prefix}_failed_mesh_fetches.tsv",
             "empty_mesh": self.log_dir / f"{self.prefix}_empty_mesh_pmids.tsv",
@@ -176,9 +185,20 @@ class MeshConfig:
             "mesh_stopwords_py": self.root / "src" / "mesh_aop" / "mesh_stop_words.py"
         }
 
+    # Credentials are read from the environment when the config leaves them blank, so
+    # a working setup never requires writing a secret into a tracked file. The config
+    # still wins if it is populated, which keeps existing local setups working.
+    _CREDENTIAL_ENV = {
+        "entrez_email": "MESH_ENTREZ_EMAIL",
+        "entrez_api_key": "MESH_ENTREZ_API_KEY",
+    }
+
     def get(self, section: str, key: str):
         """Utility to safely retrieve a parameter."""
-        return self.params.get(section, {}).get(key)
+        value = self.params.get(section, {}).get(key)
+        if section == "credentials" and not value:
+            return os.environ.get(self._CREDENTIAL_ENV.get(key, ""), "") or value
+        return value
 
     def update(self, section: str, key: str, value):
         """Updates a parameter in memory."""

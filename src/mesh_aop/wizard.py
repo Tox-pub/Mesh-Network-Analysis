@@ -318,7 +318,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         if is_corrupt:
             if "OUTDATED SCHEMA" in db_status:
                 print("      The database schema is outdated (missing the pub_date column).")
-                print("      It MUST be deleted and rebuilt to support high-speed Contextual Relevance Scoring.")
+                print("      It MUST be deleted and rebuilt to support high-speed Mean Relevancy Scoring.")
             else:
                 print("      The database file is malformed (likely due to an interrupted build).")
                 print("      It must be deleted and rebuilt from your downloaded XML files.")
@@ -334,7 +334,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         else:
             params['_run_baseline_etl'] = False
             print("\n  [!] CRITICAL WARNING: You chose to skip Master Database compilation.")
-            print("      Step 3 (Contextual Relevance Scoring) will fail or return empty results without a valid database.")
+            print("      Step 3 (Mean Relevancy Scoring) will fail or return empty results without a valid database.")
 
     elif is_incomplete:
         print(f"  [!] Master DB is {db_status}")
@@ -351,7 +351,7 @@ def run_interactive_wizard(config, step: str) -> bool:
         else:
             params['_run_baseline_etl'] = False
             print("\n  [!] CRITICAL WARNING: You chose to run with an incomplete Master Database.")
-            print("      Contextual Relevance Scores will be statistically inaccurate until fully compiled.")
+            print("      Mean Relevancy Scores will be statistically inaccurate until fully compiled.")
 
     else:
         if db_age_days > 330:
@@ -439,11 +439,11 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "End Date (YYYY/MM/DD)",
                 b3_preview["End Date"]
             )
+            # levels incl. P0: 1=P0, 2=P0+G1, 3=P0+G1+G2
             params['search_parameters']['generations_n'] = _prompt_override(
-                "Citation Generations",
+                "Citation Generations (Lvl: P0=1, P0+G1=2, ...)",
                 b3_preview["Generations"],
-                int,
-                "Incoming/outgoing citations per layer. High values exponentially increase network size."
+                int
             )
             params['search_parameters']['update_mesh_support_files'] = _prompt_override(
                 "Force Update MeSH Support Files?",
@@ -487,7 +487,7 @@ def run_interactive_wizard(config, step: str) -> bool:
             )
             params['analysis_parameters']['context_start_date'] = _prompt_override(
                 "Context Start Date", b4_preview["Context Start Date"], str,
-                "Scopes which articles are relevance-scored (ARS). Term specificity (IC) is always computed across the full corpus, independent of this window."
+                "Scopes which articles are relevance-scored (ARS), i.e. which articles enter each term's mean relevancy."
             )
             params['analysis_parameters']['context_end_date'] = _prompt_override(
                 "Context End Date", b4_preview["Context End Date"], str
@@ -601,8 +601,12 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "Sort Metric": sec_params.get('sort_metric', 'F1'),
                 "Linear ARS Weight": sec_params.get('linear_weight_ars', 0.5),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),
-                "Exclude Review Articles": sec_params.get('exclude_reviews', True)
+                "Exclude Review Articles": sec_params.get('exclude_reviews', True),
+                "Compare Multiple Networks": sec_params.get('compare_networks', False)
             }
+            # Only surface the network list in the overview when comparison is on.
+            if sec_params.get('compare_networks', False):
+                b7_preview["Networks to Compare"] = sec_params.get('comparison_networks', '')
             if _ask_block("Secondary Analysis Parameters (Post-Pipeline Export)", b7_preview):
                 sec_params['export_limit'] = _prompt_override(
                     "Export Limit (Number of articles)", b7_preview["Export Limit"], int
@@ -624,6 +628,15 @@ def run_interactive_wizard(config, step: str) -> bool:
                         "Exclude Review Articles from exports?",
                         b7_preview["Exclude Review Articles"], bool
                     )
+                # Compare multiple networks - the network list is only asked when enabled.
+                sec_params['compare_networks'] = _prompt_override(
+                    "Compare multiple networks?", sec_params.get('compare_networks', False), bool
+                )
+                if sec_params['compare_networks']:
+                    sec_params['comparison_networks'] = _prompt_override(
+                        'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
+                        sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                    )
             sec_params['run_secondary_analysis'] = sec_params.get('export_top_articles', True)
             sec_params['target_nodes'] = ''
             sec_params['target_edges'] = ''
@@ -636,8 +649,12 @@ def run_interactive_wizard(config, step: str) -> bool:
                 "Exclude Review Articles": sec_params.get('exclude_reviews', True),
                 "Export Top Network Articles": sec_params.get('export_top_articles', True),
                 "Target Nodes": sec_params.get('target_nodes', ''),
-                "Target Edges": sec_params.get('target_edges', '')
+                "Target Edges": sec_params.get('target_edges', ''),
+                "Compare Multiple Networks": sec_params.get('compare_networks', False)
             }
+            # Only surface the network list in the overview when comparison is on.
+            if sec_params.get('compare_networks', False):
+                b7_preview["Networks to Compare"] = sec_params.get('comparison_networks', '')
             if _ask_block("Secondary Analysis Parameters (Targeted)", b7_preview):
                 sec_params['run_secondary_analysis'] = True
                 sec_params['export_limit'] = _prompt_override(
@@ -665,6 +682,82 @@ def run_interactive_wizard(config, step: str) -> bool:
                     "Analyze Specific Edges (Format: NodeA - NodeB; NodeC - NodeD | Empty to skip)",
                     b7_preview["Target Edges"], str
                 )
+                # Compare multiple networks - the network list is only asked when enabled.
+                sec_params['compare_networks'] = _prompt_override(
+                    "Compare multiple networks?", sec_params.get('compare_networks', False), bool
+                )
+                if sec_params['compare_networks']:
+                    sec_params['comparison_networks'] = _prompt_override(
+                        'Networks to compare ("Ex_Graph_1.json","Ex_Graph_2.graphml","...")',
+                        sec_params.get('comparison_networks', ''), str  # bare names resolve to the processed folder
+                    )
+
+    # ---------------------------------------------------------
+    # BLOCK 8: Ground-Truth Validation & Benchmarking
+    # ---------------------------------------------------------
+    if 'benchmark' not in params:
+        params['benchmark'] = {}
+
+    if step not in ['all', 'benchmark', 'network']:
+        print("\n<<< Benchmark Parameters >>>")
+        print(f"  - [Skipped]: Not required for step '{step}'.")
+    elif step == 'network':
+        # The ground-truth switch also decides whether the subgraph PageRank is
+        # computed, and that has to be known BEFORE this step runs - asking only
+        # under 'benchmark' would be too late. The remaining benchmark parameters
+        # are not used by this step and are left alone.
+        bench_params = params['benchmark']
+        _use_ref_n = bool(params.get('control_flags', {}).get('use_reference_data', False))
+        b8n_preview = {
+            "Run Ground-Truth Analysis": bench_params.get('run_ground_truth_analysis', _use_ref_n)
+        }
+        if _ask_block("Benchmark Parameters (network-stage option)", b8n_preview):
+            bench_params['run_ground_truth_analysis'] = _prompt_override(
+                "Run ground-truth analysis?", b8n_preview["Run Ground-Truth Analysis"], bool,
+                "Also adds the subgraph-PageRank centrality scored by the benchmark."
+            )
+    else:
+        bench_params = params['benchmark']
+        # The bundled ground truth describes the reference corpus, so it is only
+        # meaningful when that corpus is in play; default the analysis on/off to match.
+        _use_ref = bool(params.get('control_flags', {}).get('use_reference_data', False))
+        b8_preview = {
+            "Run Ground-Truth Analysis": bench_params.get('run_ground_truth_analysis', _use_ref),
+            "Ground Truth File": bench_params.get('ground_truth_csv', ''),
+            "Primary Node": bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
+            "Bootstrap Resamples": bench_params.get('n_boot', 25),
+            "Permutations": bench_params.get('n_perm', 25),
+            "Node Validation Weight Key": bench_params.get('network_validation_weight_key', 'MRS_pagerank_centrality')
+        }
+        if _ask_block("Ground-Truth Validation & Benchmark Parameters", b8_preview):
+            bench_params['run_ground_truth_analysis'] = _prompt_override(
+                "Run ground-truth analysis?", b8_preview["Run Ground-Truth Analysis"], bool,
+                "Defaults to on when using reference data, off otherwise."
+            )
+            bench_params['ground_truth_csv'] = _prompt_override(
+                "Ground Truth File (.csv/.xlsx; filename or path)",
+                b8_preview["Ground Truth File"], str,
+                "Leave EMPTY to auto-detect a file you dropped in data/raw/ "
+                "(e.g. ground_truth_pmids.csv), or the bundled OECD AOP-40 set when "
+                "'Use Reference Data' is on. Otherwise give a filename or path. "
+                "See data/raw/ground_truth_pmids.template.csv for the required structure."
+            )
+            bench_params['primary_node'] = _prompt_override(
+                "Primary Disease Node", b8_preview["Primary Node"], str,
+                "Splits hits into 'under the primary node' vs 'topology-exclusive' (found without it)."
+            )
+            bench_params['n_boot'] = _prompt_override(
+                "Bootstrap Resamples (n_boot)", b8_preview["Bootstrap Resamples"], int,
+                "Warning: n = 200 takes approximately 2 hours."
+            )
+            bench_params['n_perm'] = _prompt_override(
+                "Permutation Null Iterations (n_perm)", b8_preview["Permutations"], int
+            )
+            bench_params['network_validation_weight_key'] = _prompt_override(
+                "Node validation weight key",
+                bench_params.get('network_validation_weight_key', 'MRS_pagerank_centrality'), str,
+                "[MRS_]{betweenness|pagerank|eigenvector}[_subgraph]_centrality."
+            )
 
     print("\n<<< Configuration Update Complete >>>\n")
     return False
