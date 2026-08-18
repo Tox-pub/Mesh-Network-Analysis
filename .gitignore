@@ -216,3 +216,7 @@ src/mesh_aop_notebooks/mesh_config.json
 # package (no matching source module).
 src/mesh_aop_notebooks/test.ipynb
 src/mesh_aop_notebooks/test_2.ipynb
+
+# Windows release build outputs (packaging/build_portable_windows.py)
+packaging/portable/
+packaging/_cache/
