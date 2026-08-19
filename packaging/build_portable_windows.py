@@ -224,17 +224,17 @@ PY = os.path.join(os.path.dirname(APP), 'python', 'python.exe')
 
 if __name__ == '__main__':
     repo = os.environ.get('MESH_REPO') or os.path.dirname(APP)
-    from workbench.app import main
+    from mesh_workbench.app import main
     main(repo, PY if os.path.exists(PY) else sys.executable)
 '''
 
 LAUNCH_BAT = r'''@echo off
-REM  MeSH AOP Workbench - portable launcher
+REM  MeSH Workbench - portable launcher
 REM
 REM  Runs the bundled Python, which is the official embeddable build signed by
 REM  the Python Software Foundation. Nothing here needs installing and nothing
 REM  is written outside this folder.
-title MeSH AOP Workbench
+title MeSH Workbench
 cd /d "%~dp0"
 if not exist "python\python.exe" (
   echo [X] python\python.exe is missing.
@@ -248,7 +248,7 @@ start "" "python\pythonw.exe" "app\launch.py" %*
 
 CONSOLE_BAT = r'''@echo off
 REM  Same launcher with a console attached, so a startup error stays readable.
-title MeSH AOP Workbench (console)
+title MeSH Workbench (console)
 cd /d "%~dp0"
 "python\python.exe" "app\launch.py" %*
 echo.
