@@ -15,12 +15,17 @@ the application or the pipeline — these scripts only assemble releases.
 python packaging/build_portable_windows.py
 ```
 
-Produces `packaging/portable/MeshWorkbench-<version>-win64-portable.zip`, roughly 150 MB.
-The user extracts it and double-clicks **`MeSH Workbench.bat`**.
+Produces `MeshWorkbench-<version>-win64-portable.zip`, roughly 150 MB. The user
+extracts it and double-clicks **`MeSH Workbench.bat`**.
 
-Options: `--repo` (project directory), `--venv` (environment to take
-dependencies from), `--base-python` (full CPython install to take the Tk runtime
-from), `--no-zip`.
+Output goes to `D:\mesh_workbench_build` by default, deliberately **outside the
+project**: the tree is ~460 MB, is rebuilt from scratch every run, and the
+working copy is cloud-synced, so keeping it here would upload half a gigabyte of
+reproducible output on every build. `.gitignore` stops git, not the sync client.
+
+Options: `--out` (build directory, or set `MESH_BUILD_OUT`), `--repo` (project
+directory), `--venv` (environment to take dependencies from), `--base-python`
+(full CPython install to take the Tk runtime from), `--no-zip`.
 
 ### What it assembles
 

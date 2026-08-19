@@ -56,7 +56,7 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
 The package assumes and enforces the following directory architecture. The required MeSH XML input file must be placed in the raw data directory prior to execution.
 
 ```text
-Mesh-Network-Analysis-Main-Library/
+Mesh-Network-Analysis/
 │
 ├── data/                               # Data storage
 │   ├── raw/                            # Inputs for a run
@@ -179,7 +179,7 @@ If Mamba is unavailable, use a standard **Python 3.11/3.12** virtual environment
 #### macOS / Linux
 
 ```bash
-cd path/Mesh-Network-Analysis-Main-Library
+cd path/Mesh-Network-Analysis
 python3.12 -m venv mesh_env          # or python3.11
 source mesh_env/bin/activate
 pip install --upgrade pip
@@ -197,7 +197,7 @@ Two machine-level guardrails (common on corporate/managed laptops) break the Lin
 * **Script/exe blocking:** `Activate.ps1` is often blocked by execution policy, and the generated `mesh-pipeline.exe` / `mesh-check-env.exe` launchers are often blocked by security software. **You don't need either** — call the venv's `python.exe` by full path and use the module form (`-m mesh_aop.cli`). `python.exe` itself is not blocked.
 
 ```powershell
-cd "C:\path\to\Mesh-Network-Analysis-Main-Library"
+cd "C:\path\to\Mesh-Network-Analysis"
 
 # Create the venv OUTSIDE the project, at a short path (Python 3.12)
 py -3.12 -m venv "$env:USERPROFILE\mesh_env"
@@ -224,7 +224,7 @@ This approach uses the provided `environment.yml` to fetch pre-compiled binaries
 
 ```bash
 # Navigate to the repository root
-cd path/Mesh-Network-Analysis-Main-Library
+cd path/Mesh-Network-Analysis
 
 # Create the environment and resolve dependencies
 mamba env create -f environment.yml

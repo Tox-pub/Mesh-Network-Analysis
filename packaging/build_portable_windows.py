@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-build_portable.py - assemble the download-and-run distribution.
+build_portable_windows.py - assemble the download-and-run distribution.
 
 No PyInstaller, no installer, no code signing. The folder carries Python's own
 Windows embeddable package, so the only executable a user launches is
@@ -14,8 +14,8 @@ Layout produced:
       python/                embeddable CPython (PSF-signed python.exe)
       python/Lib/site-packages/   the pipeline's dependencies
       app/                   the Workbench and mesh_aop
-      MeshWorkbench.bat      the launcher a user double-clicks
-      README.txt
+      MeSH Workbench.bat     the launcher a user double-clicks
+      README - Install and First Run.txt
 
 Dependencies are copied from a working virtual environment rather than
 pip-installed fresh, so the shipped versions are exactly the ones the published
@@ -45,6 +45,12 @@ VENV_DEFAULT = os.environ.get('MESH_VENV', r'C:\Users\jaksax\mesh_env')
 # the GUI cannot start from it alone. Those files are taken from a full CPython
 # install of the same version.
 BASE_PY_DEFAULT = r'C:\Users\jaksax\AppData\Local\Programs\Python\Python312'
+# Assembled outside the project on purpose. The tree is ~460 MB and is rebuilt
+# from scratch every run, so leaving it in a cloud-synced working copy means
+# uploading half a gigabyte of reproducible output each time. .gitignore stops
+# git, not the sync client. Override with --out or MESH_BUILD_OUT.
+BUILD_OUT_DEFAULT = (r'D:\mesh_workbench_build' if os.path.isdir('D:\\')
+                     else os.path.join(HERE, 'portable'))
 
 # Everything the pipeline imports, plus what those need in turn. Copied wholesale
 # from the working venv; anything missing shows up immediately as an ImportError
@@ -59,9 +65,8 @@ SKIP_DIRS = {'__pycache__', 'pip', 'setuptools', 'wheel', 'pkg_resources',
 PRUNE = {'__pycache__'}
 
 
-def fetch_embed(dst):
+def fetch_embed(dst, cache):
     """Download the PSF embeddable package (or reuse a cached copy)."""
-    cache = os.path.join(HERE, '_cache')
     os.makedirs(cache, exist_ok=True)
     zpath = os.path.join(cache, os.path.basename(EMBED_URL))
     if not os.path.exists(zpath):
@@ -130,6 +135,31 @@ def write_pth(pydir):
     print(f'  wrote {os.path.basename(pth)}')
 
 
+def long(path):
+    """Return `path` in the form that lifts the 260-character path limit.
+
+    Some dependencies ship deeply nested files with long names -- gensim's test
+    corpora are the worst offenders -- and the copy fails with WinError 3 once
+    the destination crosses MAX_PATH. Keeping the output shallow avoids most of
+    it, but a caller can point --out anywhere, so do not rely on that.
+    The `\\\\?\\` prefix opts the call out of the limit; it requires a fully
+    normalised absolute path with no forward slashes, and shutil propagates it
+    to everything it joins underneath.
+    """
+    if os.name != 'nt':
+        return path
+    p = os.path.abspath(path)
+    return p if p.startswith('\\\\?\\') else '\\\\?\\' + p
+
+
+def tree_size(root):
+    """Total size in MB. Walks the extended-length form for the same reason
+    the copy does: the tree contains paths past MAX_PATH, and a plain walk
+    yields names that then fail to stat."""
+    return sum(os.path.getsize(os.path.join(b, f))
+               for b, _, fs in os.walk(long(root)) for f in fs) / 1e6
+
+
 def copy_packages(venv, dst):
     src = os.path.join(venv, 'Lib', 'site-packages')
     if not os.path.isdir(src):
@@ -149,14 +179,13 @@ def copy_packages(venv, dst):
             continue
         s, d = os.path.join(src, entry), os.path.join(dst, entry)
         if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True,
+            shutil.copytree(long(s), long(d), dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(*PRUNE))
             kept += 1
         else:
-            shutil.copy2(s, d)
+            shutil.copy2(long(s), long(d))
         n += 1
-    size = sum(os.path.getsize(os.path.join(b, f))
-               for b, _, fs in os.walk(dst) for f in fs) / 1e6
+    size = tree_size(dst)
     print(f'  packages: {kept} directories, {n} entries, {size:,.0f} MB')
 
 
@@ -165,8 +194,8 @@ def copy_app(repo, dst):
     skip = shutil.ignore_patterns('__pycache__', '*.pyc', '.ipynb_checkpoints',
                                   '*.ipynb', 'shots', 'dist', 'build', '_staged',
                                   '_spec', '_cache')
-    shutil.copytree(os.path.join(SRC, 'mesh_workbench'), os.path.join(dst, 'mesh_workbench'),
-                    dirs_exist_ok=True, ignore=skip)
+    shutil.copytree(os.path.join(repo, 'src', 'mesh_workbench'),
+                    os.path.join(dst, 'mesh_workbench'), dirs_exist_ok=True, ignore=skip)
     shutil.copytree(os.path.join(repo, 'src', 'mesh_aop'),
                     os.path.join(dst, 'mesh_aop'), dirs_exist_ok=True, ignore=skip)
     ref = os.path.join(repo, 'data', 'reference_processed')
@@ -284,10 +313,12 @@ def main():
     ap.add_argument('--venv', default=VENV_DEFAULT)
     ap.add_argument('--base-python', default=BASE_PY_DEFAULT,
                     help='full CPython install to take the Tk runtime from')
+    ap.add_argument('--out', default=os.environ.get('MESH_BUILD_OUT', BUILD_OUT_DEFAULT),
+                    help='directory to assemble the release in (default: %(default)s)')
     ap.add_argument('--no-zip', action='store_true')
     a = ap.parse_args()
 
-    out = os.path.join(HERE, 'portable', NAME)
+    out = os.path.join(a.out, NAME)
     if os.path.exists(out):
         shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out, exist_ok=True)
@@ -295,7 +326,7 @@ def main():
     t0 = time.time()
 
     pydir = os.path.join(out, 'python')
-    fetch_embed(pydir)
+    fetch_embed(pydir, os.path.join(a.out, '_cache'))
     add_tkinter(pydir, a.base_python)
     write_pth(pydir)
     copy_packages(a.venv, os.path.join(pydir, 'Lib', 'site-packages'))
@@ -308,18 +339,18 @@ def main():
             fh.write(body)
     print('  launchers + README written')
 
-    total = sum(os.path.getsize(os.path.join(b, f))
-                for b, _, fs in os.walk(out) for f in fs) / 1e6
+    total = tree_size(out)
     print(f'\n  folder: {out}\n  size  : {total:,.0f} MB')
 
     if not a.no_zip:
-        zpath = os.path.join(HERE, 'portable', f'{NAME}-{VERSION}-win64-portable.zip')
+        zpath = os.path.join(a.out, f'{NAME}-{VERSION}-win64-portable.zip')
         print('  compressing …')
         with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-            for b, _, fs in os.walk(out):
+            root = long(out)
+            for b, _, fs in os.walk(root):
                 for f in fs:
                     p = os.path.join(b, f)
-                    z.write(p, os.path.join(NAME, os.path.relpath(p, out)))
+                    z.write(p, os.path.join(NAME, os.path.relpath(p, root)))
         print(f'  zip   : {zpath}  ({os.path.getsize(zpath)/1e6:,.0f} MB)')
     print(f'\nDone in {time.time()-t0:.0f}s')
 

@@ -30,8 +30,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = 'MeshWorkbench'
 VERSION = '3.0.0'   # tracks the project version in pyproject.toml
-REPO_DEFAULT = (r"C:\Users\jaksax\OneDrive - Karolinska Institutet\Documents"
-                r"\Projects and papers\Project #1\Code\Mesh-Network-Analysis-Main-Library")
+# This script lives in <repo>/packaging, so the project it packages is its parent.
+REPO_DEFAULT = os.path.dirname(HERE)
 
 # Packages PyInstaller's static analysis misses. gensim, sklearn and statsmodels
 # all import submodules dynamically; matplotlib needs its backend explicitly.
