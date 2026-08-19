@@ -292,7 +292,7 @@ BEFORE YOU CAN ANALYSE ANYTHING
 
 REQUIREMENTS
     Windows 10 or 11, 64-bit.
-    About 700 MB for this folder, plus room for the data described above.
+    About 500 MB for this folder, plus room for the data described above.
 
 WHAT IS IN HERE
     MeSH Workbench.bat      the launcher - this is the one to click
@@ -344,7 +344,7 @@ def main():
 
     if not a.no_zip:
         zpath = os.path.join(a.out, f'{NAME}-{VERSION}-win64-portable.zip')
-        print('  compressing …')
+        print('  compressing ...')
         with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             root = long(out)
             for b, _, fs in os.walk(root):
