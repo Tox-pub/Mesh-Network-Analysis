@@ -55,6 +55,13 @@ TABS = [
           '2 = adds a second hop.',
           'Each generation multiplies retrieval time and disk use. Generation 2 '
           'took this project from 146k to 7.9M articles.'),
+        F('search_parameters.update_mesh_support_files', 'Force-refresh MeSH support files',
+          'bool', False,
+          'Rebuild the MeSH descriptor and stop-word support files instead of '
+          'reusing the ones already on disk.',
+          'Default: off - they are built once and kept.',
+          'Turn this on after moving to a new MeSH release year. It adds time to '
+          'the process step and changes the vocabulary every later step sees.'),
         F('control_flags.custom_file_prefix', 'Project prefix', 'text', 'DAC_Mesh',
           'Prefix applied to every output file, so runs do not overwrite each other.',
           'Default: DAC_Mesh.'),
@@ -85,6 +92,11 @@ TABS = [
         F('analysis_parameters.eigenvector_max_iter', 'Eigenvector max iterations', 'int', 1000,
           'Iteration cap for the eigenvector centrality solver.', 'Default: 1000.',
           'Raise it only if the solver reports non-convergence.'),
+        F('analysis_parameters.eigenvector_tol', 'Eigenvector tolerance', 'float', 1.0e-6,
+          'Convergence threshold for the eigenvector centrality solver.',
+          'Default: 0.000001.',
+          'Raising it lets the solver stop on a vector that has not settled; '
+          'lowering it can exhaust the iteration cap above and fail the step.'),
     ]),
     ('Network', [
         F('network_parameters.lambda_val', 'Lambda', 'float', 1.0,
@@ -128,6 +140,43 @@ TABS = [
           'Must be just under 1. Cooling faster freezes the search early; 0.99999 '
           'or lower effectively turns SA into a greedy search.'),
     ]),
+    ('Secondary', [
+        F('secondary_analysis.export_top_articles', 'Export top articles', 'bool', True,
+          'Write the ranked article table for the whole network once the run ends.',
+          'Default: on.'),
+        F('secondary_analysis.export_limit', 'Export limit', 'int', 500,
+          'How many articles the export keeps.', 'Default: 500.'),
+        F('secondary_analysis.sort_metric', 'Sort metric', 'text', 'F1',
+          'How relevance and citation standing are combined into one ranking.',
+          "Default: F1. Accepts 'F1' or 'Linear'.",
+          'F1 is the harmonic mean, so an article weak on either side drops '
+          'sharply. Linear is the weighted average set by the field below.'),
+        F('secondary_analysis.linear_weight_ars', 'Linear ARS weight', 'float', 0.5,
+          'Share of the Linear metric given to relevance; citations take the rest.',
+          'Default: 0.5, and must fall between 0.01 and 0.99.',
+          'Read only when the sort metric is Linear. 0.70 means 70% relevance, '
+          '30% citations.'),
+        F('secondary_analysis.exclude_reviews', 'Exclude reviews', 'bool', True,
+          'Drop review articles from the exports.', 'Default: on.',
+          'Reviews gather citations across a whole field, so leaving them in '
+          'pushes primary studies down a citation-weighted ranking.'),
+        F('secondary_analysis.target_nodes', 'Target nodes', 'text', '',
+          'Limit the secondary step to named terms.',
+          'Default: empty, meaning the whole network.',
+          'Semicolon-separated, e.g. "Term A; Term B". Only the secondary step '
+          'reads this; a full run ignores it.'),
+        F('secondary_analysis.target_edges', 'Target edges', 'text', '',
+          'Limit the secondary step to named term pairs.',
+          'Default: empty, meaning the whole network.',
+          'Written as "NodeA - NodeB; NodeC - NodeD".'),
+        F('secondary_analysis.compare_networks', 'Compare multiple networks', 'bool', False,
+          'Also compare this run against other saved networks.', 'Default: off.'),
+        F('secondary_analysis.comparison_networks', 'Networks to compare', 'text', '',
+          'The networks the comparison reads.',
+          'Default: empty. Read only when comparison is on.',
+          'Comma-separated file names, e.g. "Graph_1.json","Graph_2.graphml". '
+          'A bare name resolves to the processed data folder.'),
+    ]),
     ('Benchmark', [
         F('benchmark.ground_truth_csv', 'Ground truth file', 'path',
           'data/reference_processed/oecd_ground_truth_curated.xlsx',
@@ -159,6 +208,28 @@ TABS = [
         F('benchmark.run_projection_comparison', 'Projection comparison', 'bool', True,
           'Compare the eight article-scoring projections.', 'Default: on.',
           'Adds roughly 20 minutes to the benchmark step.'),
+        F('benchmark.run_ground_truth_analysis', 'Run ground-truth analysis', 'bool', False,
+          'Score the network against the curated positive set.',
+          'Default: on when "Use bundled reference data" is on, off otherwise.',
+          'This also decides whether subgraph PageRank is computed, and the '
+          'network step reads it - so set it before building the network, not '
+          'afterwards.'),
+        F('benchmark.n_boot', 'Benchmark bootstrap resamples', 'int', 25,
+          "Resamples for the benchmark's own confidence intervals.",
+          'Default: 25.',
+          'Separate from "Bootstrap replicates" above, which belongs to the '
+          'validation report. n = 200 takes roughly two hours.'),
+        F('benchmark.n_perm', 'Permutation iterations', 'int', 25,
+          'Null-model iterations behind the node and edge enrichment tests.',
+          'Default: 25.',
+          'Sets the floor on reportable p-values. The published run used 1000 '
+          'node and 500 edge permutations.'),
+        F('benchmark.network_validation_weight_key', 'Node validation weight key',
+          'text', 'MRS_pagerank_centrality',
+          'Node attribute ranked when testing overlap against the ground truth.',
+          'Default: MRS_pagerank_centrality.',
+          'Written as [MRS_]{betweenness|pagerank|eigenvector}[_subgraph]_centrality. '
+          'A name the network does not carry fails the validation step.'),
     ]),
     ('Folders', [
         F('directories.output_dir', 'Output folder', 'text', '',
@@ -194,7 +265,10 @@ TABS = [
     ]),
 ]
 
-WEIGHT_KEYS = [f.key for f in TABS[2][1] if f.key.startswith('network_parameters.node_weight_factors')]
+# Found by key, not by tab position: indexing TABS positionally breaks silently
+# the moment a tab is inserted before this one.
+WEIGHT_KEYS = [f.key for _, fields in TABS for f in fields
+               if f.key.startswith('network_parameters.node_weight_factors')]
 
 
 def get(cfg, dotted, default=None):

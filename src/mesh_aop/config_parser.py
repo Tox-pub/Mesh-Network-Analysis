@@ -98,6 +98,20 @@ class MeshConfig:
                 "network_validation_weight_key": "MRS_pagerank_centrality",
                 "min_articles_per_node": 2,
                 "background_pool_size": 50000
+            },
+            # Step 3.5. Declared here so saved values survive a reload: the
+            # wizard used to create this section in memory only, and load_config
+            # dropped whatever it had written because the section was unknown.
+            "secondary_analysis": {
+                "export_top_articles": True,
+                "export_limit": 500,
+                "sort_metric": "F1",
+                "linear_weight_ars": 0.5,
+                "exclude_reviews": True,
+                "target_nodes": "",
+                "target_edges": "",
+                "compare_networks": False,
+                "comparison_networks": ""
             }
         }
 
@@ -109,8 +123,13 @@ class MeshConfig:
                 with open(self.config_path, 'r') as f:
                     user_params = json.load(f)
                 for section, values in user_params.items():
-                    if section in self.params and isinstance(values, dict):
-                        self.params[section].update(values)
+                    # setdefault, not a membership test: skipping sections absent
+                    # from the defaults silently discarded everything the user
+                    # had saved under them.
+                    if isinstance(values, dict):
+                        self.params.setdefault(section, {}).update(values)
+                    else:
+                        self.params[section] = values
             except Exception as e:
                 print(f"\n[!] Failed to parse {self.config_path}. Using factory defaults. ({e})")
 
