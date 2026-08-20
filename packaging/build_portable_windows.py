@@ -41,17 +41,46 @@ EMBED_URL = f'https://www.python.org/ftp/python/{PY_VER}/python-{PY_VER}-embed-a
 REPO_DEFAULT = os.path.dirname(HERE)
 # The environment the release is built from. Dependencies are copied out of it
 # rather than installed fresh, so a build ships the versions actually tested.
-VENV_DEFAULT = os.environ.get('MESH_VENV', r'C:\Users\jaksax\mesh_env')
+# Defaults to whichever interpreter is running this script, which is the one the
+# builder already chose.
+VENV_DEFAULT = os.environ.get('MESH_VENV', sys.prefix)
 # The embeddable package deliberately omits tkinter and the Tcl/Tk runtime, so
 # the GUI cannot start from it alone. Those files are taken from a full CPython
-# install of the same version.
-BASE_PY_DEFAULT = r'C:\Users\jaksax\AppData\Local\Programs\Python\Python312'
-# Assembled outside the project on purpose. The tree is ~460 MB and is rebuilt
-# from scratch every run, so leaving it in a cloud-synced working copy means
-# uploading half a gigabyte of reproducible output each time. .gitignore stops
-# git, not the sync client. Override with --out or MESH_BUILD_OUT.
-BUILD_OUT_DEFAULT = (r'D:\mesh_workbench_build' if os.path.isdir('D:\\')
-                     else os.path.join(HERE, 'portable'))
+# install of the same version - which, when this runs inside a venv, is exactly
+# what sys.base_prefix points at. Asking Python beats naming one machine's path.
+BASE_PY_DEFAULT = os.environ.get('MESH_BASE_PYTHON', sys.base_prefix)
+
+
+def _default_build_out():
+    """Where a release is assembled.
+
+    Off the project by preference: the tree is ~460 MB, is rebuilt from scratch
+    every run, and the working copy is cloud-synced, so building in place uploads
+    half a gigabyte of reproducible output every time - .gitignore stops git, not
+    the sync client.
+
+    D: is used when it is genuinely writable. Testing only that it exists is not
+    enough; on another machine D: is as likely to be a read-only optical or
+    mapped drive, and the build would fail partway through instead of falling
+    back. Override with --out or MESH_BUILD_OUT.
+    """
+    env = os.environ.get('MESH_BUILD_OUT')
+    if env:
+        return env
+    for candidate in (r'D:\mesh_workbench_build',):
+        try:
+            os.makedirs(candidate, exist_ok=True)
+            probe = os.path.join(candidate, '.write_test')
+            with open(probe, 'w') as fh:
+                fh.write('')
+            os.remove(probe)
+            return candidate
+        except OSError:
+            continue
+    return os.path.join(HERE, 'portable')
+
+
+BUILD_OUT_DEFAULT = _default_build_out()
 
 # Everything the pipeline imports, plus what those need in turn. Copied wholesale
 # from the working venv; anything missing shows up immediately as an ImportError
