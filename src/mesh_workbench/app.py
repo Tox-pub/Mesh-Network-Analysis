@@ -26,6 +26,7 @@ import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
 
 from . import settings_schema as schema
+from . import __version__
 from .runner import DONE, LOG, PHASE, PROGRESS, TRANSIENT, PipelineRunner
 
 FACE = '#c0c0c0'
@@ -69,7 +70,8 @@ class Workbench(tk.Tk):
         self.body.pack(fill='both', expand=True)
         self.screens = {}
         for name, build in (('setup', self._build_setup), ('settings', self._build_settings),
-                            ('running', self._build_running), ('results', self._build_results)):
+                            ('running', self._build_running), ('results', self._build_results),
+                            ('uninstall', self._build_uninstall)):
             fr = tk.Frame(self.body, bg=FACE)
             self.screens[name] = fr
             build(fr)
@@ -152,9 +154,15 @@ class Workbench(tk.Tk):
         d = tk.Menu(bar, tearoff=0)
         d.add_command(label='Data setup…', command=lambda: self.show('setup'))
         bar.add_cascade(label='Database', menu=d)
+        # The results screen was built and filled after every successful run but
+        # nothing ever displayed it - there was no menu entry and no button.
+        bar.add_command(label='Results', command=self.open_results)
+        t = tk.Menu(bar, tearoff=0)
+        t.add_command(label='Uninstall…', command=self.open_uninstall)
+        bar.add_cascade(label='Tools', menu=t)
         h = tk.Menu(bar, tearoff=0)
         h.add_command(label='About', command=lambda: messagebox.showinfo(
-            'About', 'MeSH AOP Workbench 1.0\n\nDesktop front-end for the '
+            'About', f'MeSH Workbench {__version__}\n\nDesktop front-end for the '
                      'mesh_aop pipeline.'))
         bar.add_cascade(label='Help', menu=h)
         self.config(menu=bar)
@@ -507,6 +515,9 @@ class Workbench(tk.Tk):
         self.btn_back = tk.Button(act, text='Back to settings', width=16,
                                   command=lambda: self.show('settings'))
         self.btn_back.pack(side='left', padx=4)
+        self.btn_results = tk.Button(act, text='View results', width=14,
+                                     state='disabled', command=self.open_results)
+        self.btn_results.pack(side='left', padx=(0, 4))
         self.run_status = tk.Label(act, bg=FACE, relief='sunken', bd=2, anchor='w')
         self.run_status.pack(side='left', fill='x', expand=True, padx=(8, 0), ipady=2)
 
@@ -579,6 +590,7 @@ class Workbench(tk.Tk):
             self._log(f'--- completed in {elapsed/60:.1f} min ---', 'ok')
             self.run_status.config(text='Completed successfully.', fg=OK)
             self.refresh_results()
+            self.btn_results.config(state='normal')
         elif rc == -1:
             self._log('--- cancelled ---', 'warn')
             self.run_status.config(text='Cancelled.', fg=WARN)
@@ -617,6 +629,144 @@ class Workbench(tk.Tk):
                   command=self.refresh_results).pack(side='left', padx=4)
         tk.Button(act, text='Back to settings', width=16,
                   command=lambda: self.show('settings')).pack(side='left', padx=4)
+
+    def open_results(self):
+        self.refresh_results()
+        self.show('results')
+
+    # -------------------------------------------------------- screen: uninstall
+    def _build_uninstall(self, root):
+        tk.Label(root, text='Uninstall MeSH Workbench', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(fill='x', padx=10, pady=(10, 2))
+        tk.Label(root, bg=FACE, anchor='w', justify='left',
+                 text='Everything this program downloaded, built or installed is '
+                      'listed below - including files it keeps outside this '
+                      'folder. Choose what to remove.'
+                 ).pack(fill='x', padx=10, pady=(0, 8))
+
+        box = self._sunken(root)
+        box.pack(fill='both', expand=True, padx=10)
+        canvas = tk.Canvas(box, bg=FACE, highlightthickness=0)
+        bar = tk.Scrollbar(box, command=canvas.yview)
+        canvas.config(yscrollcommand=bar.set)
+        bar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        self.un_rows = tk.Frame(canvas, bg=FACE)
+        canvas.create_window((0, 0), window=self.un_rows, anchor='nw')
+        self.un_rows.bind('<Configure>',
+                          lambda e: canvas.config(scrollregion=canvas.bbox('all')))
+        self.un_canvas = canvas
+
+        foot = tk.Frame(root, bg=FACE)
+        foot.pack(fill='x', padx=10, pady=9)
+        self.un_total = tk.Label(foot, bg=FACE, relief='sunken', bd=2, anchor='w')
+        self.un_total.pack(fill='x', ipady=2, pady=(0, 6))
+
+        act = tk.Frame(foot, bg=FACE)
+        act.pack(fill='x')
+        tk.Label(act, text='Type REMOVE to confirm:', bg=FACE).pack(side='left')
+        self.un_confirm = tk.StringVar()
+        ent = tk.Entry(act, textvariable=self.un_confirm, width=12, bg=FIELD,
+                       relief='sunken', bd=2)
+        ent.pack(side='left', padx=6)
+        self.un_go = tk.Button(act, text='Remove', width=12, font=self.f_bold,
+                               state='disabled', command=self._do_uninstall)
+        self.un_go.pack(side='left')
+        tk.Button(act, text='Cancel', width=11,
+                  command=lambda: self.show('settings')).pack(side='right')
+        tk.Button(act, text='Rescan', width=11,
+                  command=self.scan_uninstall).pack(side='right', padx=4)
+        # The button stays dead until the word is typed exactly - this deletes
+        # tens of gigabytes and there is no undo.
+        self.un_confirm.trace_add('write', lambda *_: self._un_gate())
+
+    def _un_gate(self):
+        ready = (self.un_confirm.get().strip() == 'REMOVE'
+                 and any(v.get() for v in getattr(self, 'un_vars', {}).values()))
+        self.un_go.config(state='normal' if ready else 'disabled')
+
+    def open_uninstall(self):
+        self.show('uninstall')
+        self.after(60, self.scan_uninstall)
+
+    def scan_uninstall(self):
+        from mesh_aop import uninstall as U
+        for w in self.un_rows.winfo_children():
+            w.destroy()
+        self.un_total.config(text='   Scanning…')
+        self.update_idletasks()
+
+        cfg = None
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            cfg = MeshConfig(config_path=self.cfg_path, workspace_root=self.repo_dir)
+        except Exception:
+            cfg = None
+        # Sorted once and kept in that order. Enumerating a sorted copy while
+        # indexing the unsorted list maps each checkbox to the wrong item, which
+        # is how a tick on "results" ends up deleting the archive.
+        self.un_items = sorted(U.inventory(self.repo_dir, cfg),
+                               key=lambda x: (x.category, -x.bytes))
+        self.un_vars = {}
+
+        current = None
+        for i, it in enumerate(self.un_items):
+            if it.category != current:
+                current = it.category
+                tk.Label(self.un_rows, text=U.CATEGORY_LABEL[current], bg=FACE,
+                         font=self.f_bold, anchor='w').pack(fill='x', pady=(8, 1), padx=6)
+            row = tk.Frame(self.un_rows, bg=FACE)
+            row.pack(fill='x', padx=6)
+            if it.removable:
+                var = tk.BooleanVar(value=it.category in U.DEFAULT_SELECTED)
+                self.un_vars[i] = var
+                tk.Checkbutton(row, text=it.label, variable=var, bg=FACE,
+                               activebackground=FACE, anchor='w',
+                               command=self._un_recount).pack(side='left')
+            else:
+                tk.Label(row, text=f'{it.label}  (kept)', bg=FACE, fg=DIM,
+                         anchor='w').pack(side='left')
+            tk.Label(row, text=f'{it.gb:,.2f} GB', bg=FACE, anchor='e'
+                     ).pack(side='right')
+            if it.note:
+                tk.Label(self.un_rows, text=f'      {it.note}', bg=FACE, fg=DIM,
+                         anchor='w', justify='left').pack(fill='x', padx=6)
+        self._un_recount()
+
+    def _un_recount(self):
+        sel = sum(self.un_items[i].bytes for i, v in self.un_vars.items() if v.get())
+        tot = sum(i.bytes for i in self.un_items)
+        self.un_total.config(
+            text=f'   Selected {sel/1e9:,.2f} GB of {tot/1e9:,.2f} GB found')
+        self._un_gate()
+
+    def _do_uninstall(self):
+        from mesh_aop import uninstall as U
+        chosen = [self.un_items[i] for i, v in self.un_vars.items() if v.get()]
+        if not chosen:
+            return
+        gb = sum(c.bytes for c in chosen) / 1e9
+        if not messagebox.askyesno(
+                'Remove these files?',
+                f'{len(chosen)} item(s) will be deleted, freeing {gb:,.2f} GB.\n\n'
+                'This cannot be undone.\n\nContinue?', icon='warning'):
+            return
+
+        portable = U.is_portable(self.repo_dir)
+        removed, freed, failures = U.remove(chosen)
+        msg = f'Removed {removed} of {len(chosen)} item(s), freeing {freed/1e9:,.2f} GB.'
+        if failures:
+            msg += (f'\n\n{len(failures)} could not be removed, usually because '
+                    'another program still has them open:\n\n' +
+                    '\n'.join(f'{p}: {e}' for p, e in failures[:5]))
+        if not portable:
+            msg += ('\n\nThe package itself is still installed. To remove it, run:\n\n'
+                    f'    {U.pip_hint()}')
+        else:
+            msg += ('\n\nTo finish, close this window and delete the program '
+                    'folder:\n\n' + self.repo_dir)
+        messagebox.showinfo('Uninstall', msg)
+        self.scan_uninstall()
 
     def refresh_results(self):
         d = os.path.join(self.repo_dir, 'results')

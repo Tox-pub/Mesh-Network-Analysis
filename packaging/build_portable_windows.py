@@ -15,6 +15,7 @@ Layout produced:
       python/Lib/site-packages/   the pipeline's dependencies
       app/                   the Workbench and mesh_aop
       MeSH Workbench.bat     the launcher a user double-clicks
+      Uninstall.bat          removal, including the temp files outside this tree
       README - Install and First Run.txt
 
 Dependencies are copied from a working virtual environment rather than
@@ -246,6 +247,41 @@ if not exist "python\python.exe" (
 start "" "python\pythonw.exe" "app\launch.py" %*
 '''
 
+UNINSTALL_BAT = r'''@echo off
+REM  Removes the program and everything it downloaded or built - including the
+REM  ETL working folder in the system temp directory, which deleting this folder
+REM  would otherwise leave behind.
+title MeSH Workbench - Uninstall
+cd /d "%~dp0"
+if not exist "python\python.exe" (
+  echo [X] python\python.exe is missing - nothing to run.
+  pause
+  exit /b 1
+)
+"python\python.exe" -m mesh_aop.uninstall_cli --project "%~dp0."
+echo.
+set "FIN="
+set /p FIN=Delete the remaining program folder too? [y/N]
+if /i not "%FIN%"=="y" goto :done
+
+REM  A folder cannot delete itself while a program inside it is running, so the
+REM  removal is handed to a script in TEMP that waits for this one to exit.
+> "%TEMP%\mw_cleanup.bat" echo @echo off
+>>"%TEMP%\mw_cleanup.bat" echo timeout /t 3 /nobreak ^>nul
+>>"%TEMP%\mw_cleanup.bat" echo rmdir /s /q "%~dp0."
+>>"%TEMP%\mw_cleanup.bat" echo del "%%~f0"
+cd /d "%TEMP%"
+start "" /min cmd /c "%TEMP%\mw_cleanup.bat"
+echo.
+echo The folder will disappear in a few seconds.
+timeout /t 2 /nobreak >nul
+exit /b 0
+
+:done
+echo.
+pause
+'''
+
 CONSOLE_BAT = r'''@echo off
 REM  Same launcher with a console attached, so a startup error stays readable.
 title MeSH Workbench (console)
@@ -269,10 +305,20 @@ INSTALLING
 
         MeSH Workbench.bat
 
-    Nothing is installed, no administrator rights are needed, and nothing is
-    written outside this folder. To uninstall, delete the folder.
+    Nothing is installed and no administrator rights are needed.
 
     Windows may take a few seconds to scan the files the first time.
+
+UNINSTALLING
+    Run "Uninstall.bat", or open the program and choose Tools -> Uninstall.
+
+    Either one lists what is on disk, with sizes, and lets you pick what goes.
+    Your results are kept unless you say otherwise.
+
+    Do not simply delete this folder. Building the database leaves a working
+    copy - the same size as the database, several gigabytes - in the Windows
+    temp folder, and deleting this folder does not remove it. The uninstaller
+    knows about it.
 
 IF THE WINDOW DOES NOT APPEAR
     Run "MeSH Workbench (Troubleshooting).bat" instead. It does the same thing
@@ -299,6 +345,7 @@ REQUIREMENTS
 
 WHAT IS IN HERE
     MeSH Workbench.bat      the launcher - this is the one to click
+    Uninstall.bat           removes the program and its data
     python\                 Python {py}, the official build from python.org
     app\                    the application and the analysis pipeline
 
@@ -337,6 +384,7 @@ def main():
 
     for fname, body in ((f'{DISPLAY}.bat', LAUNCH_BAT),
                         (f'{DISPLAY} (Troubleshooting).bat', CONSOLE_BAT),
+                        ('Uninstall.bat', UNINSTALL_BAT),
                         ('README - Install and First Run.txt', README)):
         with open(os.path.join(out, fname), 'w', encoding='utf-8') as fh:
             fh.write(body)

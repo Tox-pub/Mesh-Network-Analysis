@@ -41,6 +41,9 @@ mesh-pipeline = "mesh_aop.cli:main"
 # Desktop front-end. Uses only tkinter from the standard library, so it adds no
 # dependency beyond what the pipeline already requires.
 mesh-workbench = "mesh_workbench.__main__:main"
+# Removal of the program and everything it downloaded or built. Lives in
+# mesh_aop so it works without tkinter, on a headless machine.
+mesh-uninstall = "mesh_aop.uninstall_cli:main"
 
 # Explicit src-layout package discovery. setuptools already auto-discovers the single
 # package under src/, but stating it makes editable installs deterministic across
