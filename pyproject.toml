@@ -45,8 +45,10 @@ mesh-workbench = "mesh_workbench.__main__:main"
 # mesh_aop so it works without tkinter, on a headless machine.
 mesh-uninstall = "mesh_aop.uninstall_cli:main"
 
-# Explicit src-layout package discovery. setuptools already auto-discovers the single
-# package under src/, but stating it makes editable installs deterministic across
-# environments (e.g. cloud/Colab, where auto-discovery has occasionally been flaky).
+# Explicit src-layout package discovery. setuptools already auto-discovers both
+# packages under src/ - mesh_aop and mesh_workbench - but stating it makes
+# editable installs deterministic across environments (e.g. cloud/Colab, where
+# auto-discovery has occasionally been flaky). Both must be found: without
+# mesh_workbench the mesh-workbench entry point installs and then fails to import.
 [tool.setuptools.packages.find]
 where = ["src"]
