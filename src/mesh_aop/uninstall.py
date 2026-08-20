@@ -116,11 +116,37 @@ def is_portable(project_dir):
     return (root / 'python' / 'python.exe').exists() and (root / 'app').is_dir()
 
 
+def _redirected(root):
+    """Folders the user pointed outside the project, read straight from the file.
+
+    Deliberately not via MeshConfig: constructing one calls refresh_paths(),
+    which creates every directory it resolves. An uninstaller that mkdirs the
+    folders it is about to delete - and recreates them on the rescan afterwards
+    - is worse than useless.
+    """
+    out = []
+    cfg_path = root / 'mesh_config.json'
+    if not cfg_path.exists():
+        return out
+    try:
+        import json
+        with open(cfg_path, encoding='utf-8') as fh:
+            dirs = (json.load(fh).get('directories') or {})
+    except (OSError, ValueError):
+        return out
+    for key, label in (('output_dir', 'Results folder (redirected)'),
+                       ('input_dir', 'Input folder (redirected)')):
+        value = (dirs.get(key) or '').strip()
+        if value:
+            out.append((Path(value), label))
+    return out
+
+
 def inventory(project_dir, config=None):
     """Everything attributable to this program, largest concern first.
 
-    `config` is an optional loaded MeshConfig, used to find an output or input
-    folder the user redirected outside the project.
+    `config` is accepted and ignored; redirected folders are read from
+    mesh_config.json directly. Kept in the signature so existing callers work.
     """
     root = Path(project_dir).resolve()
     items = []
@@ -159,12 +185,8 @@ def inventory(project_dir, config=None):
 
     # An output folder pointed outside the project is invisible to anyone who
     # just deletes the program folder.
-    for attr, label in (('results_dir', 'Results folder (redirected)'),
-                        ('active_raw_dir', 'Input folder (redirected)')):
-        target = getattr(config, attr, None) if config is not None else None
-        if not target:
-            continue
-        target = Path(target).resolve()
+    for target, label in _redirected(root):
+        target = target.resolve()
         if root in target.parents or target == root:
             continue                      # already covered by the entries above
         # A redirected folder that is itself a checkout belongs to someone else's

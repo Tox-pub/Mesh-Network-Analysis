@@ -59,21 +59,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     root = os.path.abspath(a.project or os.getcwd())
-    config = None
-    try:
-        from .config_parser import MeshConfig
-        # workspace_root matters: without it MeshConfig resolves data/ and
-        # results/ against the current directory, so uninstalling project A
-        # from inside project B reported B's folders as A's.
-        config = MeshConfig(config_path=os.path.join(root, 'mesh_config.json'),
-                            workspace_root=root)
-    except Exception:
-        # A broken or absent config must not stop an uninstall; it only adds
-        # redirected folders to the inventory.
-        config = None
 
     portable = U.is_portable(root)
-    items = U.inventory(root, config)
+    items = U.inventory(root)
 
     print(f'\nMeSH Workbench - uninstall\n  project: {root}')
     _print_inventory(items)

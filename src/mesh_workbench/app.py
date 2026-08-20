@@ -696,16 +696,13 @@ class Workbench(tk.Tk):
         self.un_total.config(text='   Scanning…')
         self.update_idletasks()
 
-        cfg = None
-        try:
-            from mesh_aop.config_parser import MeshConfig
-            cfg = MeshConfig(config_path=self.cfg_path, workspace_root=self.repo_dir)
-        except Exception:
-            cfg = None
+        # No MeshConfig here: constructing one calls refresh_paths(), which
+        # creates every directory it resolves - so the uninstaller would
+        # recreate data/ and results/ on the rescan that follows a removal.
         # Sorted once and kept in that order. Enumerating a sorted copy while
         # indexing the unsorted list maps each checkbox to the wrong item, which
         # is how a tick on "results" ends up deleting the archive.
-        self.un_items = sorted(U.inventory(self.repo_dir, cfg),
+        self.un_items = sorted(U.inventory(self.repo_dir),
                                key=lambda x: (x.category, -x.bytes))
         self.un_vars = {}
 
