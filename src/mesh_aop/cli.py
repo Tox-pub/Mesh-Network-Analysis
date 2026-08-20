@@ -238,10 +238,12 @@ def main():
     parser.add_argument('--readme', action='store_true',
                         help="Open the comprehensive README.md documentation in the default system viewer.")
 
-    parser.add_argument('--step', choices=['all', 'process', 'data_ops', 'network', 'secondary', 'viz', 'benchmark'], default='all',
+    parser.add_argument('--step', choices=['all', 'baseline', 'process', 'data_ops', 'network', 'secondary', 'viz', 'benchmark'], default='all',
                         help=(
                             "Specify which segment of the pipeline to execute:\n"
                             "  all        : Run the entire pipeline sequentially (Default).\n"
+                            "  baseline   : Step 0 only - build the master annotation database, then stop.\n"
+                            "               Matches no later stage, so nothing else runs. Pair with --build-database.\n"
                             "  process    : Step 1 - Process MeSH XML and initialize Master Annotations.\n"
                             "  data_ops   : Step 2 - Collect Entrez data and build SQLite PMIDs database.\n"
                             "  network    : Step 3 - Construct network, filter via GLF/SA, and calculate MRS.\n"
@@ -255,6 +257,19 @@ def main():
 
     parser.add_argument('--interactive', action='store_true',
                         help="Launch the interactive command-line wizard to modify parameters before execution.")
+
+    # Step 0 switches. These stay on the command line rather than in the config
+    # file because they describe one run: a rebuild that persisted would repeat
+    # itself, at several hours a time, on every run afterwards. Without the
+    # wizard there was no way to reach Step 0 at all.
+    parser.add_argument('--build-database', action='store_true',
+                        help="Run Step 0 first: download the PubMed baseline and compile the master annotation database.")
+    parser.add_argument('--skip-baseline-download', action='store_true',
+                        help="With --build-database, compile from archives already on disk instead of downloading them again.")
+    parser.add_argument('--with-updates', action='store_true',
+                        help="With --build-database, also fetch the daily update files published since the baseline.")
+    parser.add_argument('--rebuild-corrupt', action='store_true',
+                        help="With --build-database, delete an unreadable master database before rebuilding it.")
 
     args = parser.parse_args()
 
@@ -281,6 +296,14 @@ def main():
             sys.exit(0)
         else:
             config.save()
+
+    # Applied after the wizard so an explicit flag wins, and after save() so the
+    # switches never reach the config file.
+    if args.build_database:
+        config.params['_run_baseline_etl'] = True
+        config.params['_skip_baseline_download'] = args.skip_baseline_download
+        config.params['_run_baseline_updates'] = args.with_updates
+        config.params['_delete_corrupt_db'] = args.rebuild_corrupt
 
     total_start = time.time()
 

@@ -78,7 +78,9 @@ class PipelineRunner:
     def is_running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, step):
+    def start(self, step, extra=None):
+        """Run one pipeline step. `extra` carries per-run switches such as
+        --build-database, which are deliberately not stored in the config."""
         if self.is_running():
             raise RuntimeError('a run is already in progress')
         self._cancelled = False
@@ -90,7 +92,7 @@ class PipelineRunner:
         env['PYTHONIOENCODING'] = 'utf-8'
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
         self.proc = subprocess.Popen(
-            [self.python_exe, '-u', '-m', 'mesh_aop.cli', '--step', step],
+            [self.python_exe, '-u', '-m', 'mesh_aop.cli', '--step', step] + list(extra or []),
             cwd=self.repo_dir, env=env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             bufsize=0, creationflags=flags)

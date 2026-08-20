@@ -279,13 +279,16 @@ IF THE WINDOW DOES NOT APPEAR
     but keeps a terminal open, so any error message stays on screen.
 
 BEFORE YOU CAN ANALYSE ANYTHING
-    The pipeline works from a local copy of PubMed's annotation data, which the
-    application downloads for you. Expect roughly 44 GB downloaded once, and a
-    database of about 8 GB built from it. The download is resumable, and the
-    44 GB archive can be deleted afterwards.
+    The pipeline works from a local copy of PubMed's annotation data. Nothing
+    else runs until that database exists.
 
-    Use the Data Setup screen, which is where the application opens, to manage
-    this and to see what is already on disk.
+    The application opens on Data Setup, which lists what is on disk. Next to
+    "Master annotation database" is a Build button; it downloads the PubMed
+    baseline and compiles the database for you.
+
+    Expect roughly 44 GB downloaded once and a database of about 8 GB built from
+    it, over several hours. The download resumes if interrupted, and the 44 GB
+    archive can be deleted afterwards from the same screen.
 
     Set an output folder on the Folders tab before running a step if you do not
     want results written into the project's own results folder.
