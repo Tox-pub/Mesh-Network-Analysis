@@ -18,6 +18,7 @@ natively on Windows.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tkinter as tk
@@ -256,6 +257,12 @@ class Workbench(tk.Tk):
                 tk.Button(row, text='Delete & reclaim',
                           command=lambda p=path, g=gb: self.reclaim(p, g)
                           ).grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
+            # Step 0 is the only way to produce the master database, and nothing
+            # else in the pipeline runs without it.
+            if label.startswith('Master annotation'):
+                tk.Button(row, text=('Rebuild' if present else 'Build'),
+                          command=lambda p=present: self.build_database(p)
+                          ).grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
                 row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
         self.setup_total.config(
@@ -272,9 +279,56 @@ class Workbench(tk.Tk):
                 '- several hours - only if you rebuild the database from '
                 'scratch.\n\nDelete it?', icon='warning'):
             return
-        messagebox.showinfo('Not enabled',
-                            'Deletion is disabled in this sandbox build.\n\n'
-                            'The confirmation flow is what is being tested here.')
+        try:
+            shutil.rmtree(path)
+        except OSError as exc:
+            messagebox.showerror('Could not delete',
+                                 f'The archive was not removed:\n\n{exc}')
+            return
+        self.scan_data()
+
+    def build_database(self, present):
+        """Run Step 0: fetch the PubMed baseline and compile the master database.
+
+        The switches travel on the command line, not through mesh_config.json -
+        a rebuild recorded in the config would repeat on every later run.
+        """
+        archive = os.path.join(self.repo_dir, 'data/raw/pubmed_baseline')
+        have_archive = os.path.isdir(archive) and any(os.scandir(archive))
+        extra = ['--build-database']
+
+        if present and not messagebox.askyesno(
+                'Rebuild the master database?',
+                'The existing master annotation database will be deleted and '
+                'built again from the archive.\n\nThis takes hours. Nothing '
+                'else in the pipeline can run while it is missing.\n\nRebuild?',
+                icon='warning'):
+            return
+        if present:
+            extra.append('--rebuild-corrupt')
+
+        if have_archive:
+            if messagebox.askyesno(
+                    'Use the archive already on disk?',
+                    'A PubMed baseline archive is already here.\n\n'
+                    'Yes  - compile from it, no download.\n'
+                    'No   - download the archive again first (~44 GB).',):
+                extra.append('--skip-baseline-download')
+        elif not messagebox.askyesno(
+                'Download the PubMed baseline?',
+                'No archive is present, so it has to be downloaded first: '
+                'roughly 44 GB, and several hours on a fast connection.\n\n'
+                'The download resumes if it is interrupted, and the archive can '
+                'be deleted afterwards.\n\nStart?', icon='warning'):
+            return
+
+        if messagebox.askyesno(
+                'Include the daily updates?',
+                'The baseline is a yearly snapshot. The daily update files carry '
+                'records published since.\n\nFetch them too?'):
+            extra.append('--with-updates')
+
+        self.start_run('baseline', extra, title='building the master database')
 
     # ---------------------------------------------------------- screen: settings
     def _build_settings(self, root):
@@ -456,17 +510,19 @@ class Workbench(tk.Tk):
         self.run_status = tk.Label(act, bg=FACE, relief='sunken', bd=2, anchor='w')
         self.run_status.pack(side='left', fill='x', expand=True, padx=(8, 0), ipady=2)
 
-    def start_run(self, step):
+    def start_run(self, step, extra=None, title=None):
         if self.runner.is_running():
             messagebox.showinfo('Already running',
                                 'A pipeline step is already in progress.')
             return
         if not self.save_cfg():
             return
+        step = step or 'all'
+        title = title or step
         self.show('running')
-        self.run_title.config(text=f'Running: {step}')
+        self.run_title.config(text=f'Running: {title}')
         self._log_clear()
-        self._log(f'--- starting {step} ---', 'dim')
+        self._log(f'--- starting {title} ---', 'dim')
         self.bar_overall.set(0)
         self.bar_sub.set(0)
         self.phase_lab.config(text='Starting…')
@@ -474,7 +530,7 @@ class Workbench(tk.Tk):
         self._elapsed = 0
         self._spin_i = 0
         self.btn_cancel.config(state='normal')
-        self.runner.start(step)
+        self.runner.start(step, extra)
         self._pump()
 
     def cancel_run(self):

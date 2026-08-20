@@ -123,6 +123,12 @@ class MeshConfig:
                 with open(self.config_path, 'r') as f:
                     user_params = json.load(f)
                 for section, values in user_params.items():
+                    # A leading underscore marks a switch that belongs to one run
+                    # only - _run_baseline_etl and friends. Reading those back
+                    # would repeat a multi-hour rebuild on every later run, so
+                    # they are deliberately not restored.
+                    if section.startswith('_'):
+                        continue
                     # setdefault, not a membership test: skipping sections absent
                     # from the defaults silently discarded everything the user
                     # had saved under them.
@@ -227,8 +233,10 @@ class MeshConfig:
 
     def save(self):
         """Writes current memory params back to the JSON file and refreshes paths."""
+        # Per-run switches are held out of the file entirely; see load_config.
+        persist = {k: v for k, v in self.params.items() if not k.startswith('_')}
         with open(self.config_path, 'w') as f:
-            json.dump(self.params, f, indent=4)
+            json.dump(persist, f, indent=4)
         print(f"    [+] Configuration saved successfully to {self.config_path.name}")
         self.refresh_paths()
 
