@@ -136,22 +136,6 @@ The embeddable package also ships **without tkinter**, so `add_tkinter()` copies
 `Lib/tkinter`, `_tkinter.pyd`, the Tcl/Tk DLLs and the `tcl/` runtime from a full
 CPython install of the same version.
 
-## The frozen build (no longer used)
-
-`build_frozen.py` produces a PyInstaller bundle. The installer used to wrap that
-bundle; it no longer does, and nothing else references this script.
-
-It was abandoned for a concrete reason. The executable PyInstaller emits is a
-freshly compiled unsigned binary, and one was refused outright on the managed
-Windows machine this was developed on with **no error surfaced at all** - a
-`--windowed` build has nowhere to write a traceback, so it simply did not start.
-Building with `--console` is the only way to see why.
-
-The installer now packages the portable tree instead, which reaches the same
-conventional Setup experience while the only executable remains the PSF-signed
-`python.exe`. There is no reason to return to a frozen build unless a
-code-signing certificate is bought, and even then it buys nothing the current
-route lacks. The file is kept only so the history of that decision is legible.
 
 ## macOS and Linux
 
