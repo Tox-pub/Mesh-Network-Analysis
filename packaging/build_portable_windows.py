@@ -258,68 +258,9 @@ if __name__ == '__main__':
     main(repo, PY if os.path.exists(PY) else sys.executable)
 '''
 
-LAUNCH_BAT = r'''@echo off
-REM  MeSH Workbench - portable launcher
-REM
-REM  Runs the bundled Python, which is the official embeddable build signed by
-REM  the Python Software Foundation. Nothing here needs installing and nothing
-REM  is written outside this folder.
-title MeSH Workbench
-cd /d "%~dp0"
-if not exist "python\python.exe" (
-  echo [X] python\python.exe is missing.
-  echo     Extract the whole zip, keeping the folder structure intact.
-  echo.
-  pause
-  exit /b 1
-)
-start "" "python\pythonw.exe" "app\launch.py" %*
-'''
-
-UNINSTALL_BAT = r'''@echo off
-REM  Removes the program and everything it downloaded or built - including the
-REM  ETL working folder in the system temp directory, which deleting this folder
-REM  would otherwise leave behind.
-title MeSH Workbench - Uninstall
-cd /d "%~dp0"
-if not exist "python\python.exe" (
-  echo [X] python\python.exe is missing - nothing to run.
-  pause
-  exit /b 1
-)
-"python\python.exe" -m mesh_aop.uninstall_cli --project "%~dp0."
-echo.
-set "FIN="
-set /p FIN=Delete the remaining program folder too? [y/N]
-if /i not "%FIN%"=="y" goto :done
-
-REM  A folder cannot delete itself while a program inside it is running, so the
-REM  removal is handed to a script in TEMP that waits for this one to exit.
-> "%TEMP%\mw_cleanup.bat" echo @echo off
->>"%TEMP%\mw_cleanup.bat" echo timeout /t 3 /nobreak ^>nul
->>"%TEMP%\mw_cleanup.bat" echo rmdir /s /q "%~dp0."
->>"%TEMP%\mw_cleanup.bat" echo del "%%~f0"
-cd /d "%TEMP%"
-start "" /min cmd /c "%TEMP%\mw_cleanup.bat"
-echo.
-echo The folder will disappear in a few seconds.
-timeout /t 2 /nobreak >nul
-exit /b 0
-
-:done
-echo.
-pause
-'''
-
-CONSOLE_BAT = r'''@echo off
-REM  Same launcher with a console attached, so a startup error stays readable.
-title MeSH Workbench (console)
-cd /d "%~dp0"
-"python\python.exe" "app\launch.py" %*
-echo.
-echo Exited with code %ERRORLEVEL%
-pause
-'''
+# The three .bat launchers are not built here any more - they live as real
+# files in packaging/launchers/ so they can be read and reviewed in the
+# repository, and are copied verbatim by main().
 
 README = r"""MeSH Workbench {ver}
 ===============================================================
@@ -337,6 +278,9 @@ INSTALLING
     Nothing is installed and no administrator rights are needed.
 
     Windows may take a few seconds to scan the files the first time.
+
+    For a Desktop icon, run "Create desktop shortcut.bat" once. It points at
+    this folder rather than copying anything, so keep the folder where it is.
 
 UNINSTALLING
     Run "Uninstall.bat", or open the program and choose Tools -> Uninstall.
@@ -374,6 +318,7 @@ REQUIREMENTS
 
 WHAT IS IN HERE
     MeSH Workbench.bat      the launcher - this is the one to click
+    Create desktop shortcut.bat   puts an icon on your Desktop
     Uninstall.bat           removes the program and its data
     python\                 Python {py}, the official build from python.org
     app\                    the application and the analysis pipeline
@@ -411,13 +356,20 @@ def main():
     copy_packages(a.venv, os.path.join(pydir, 'Lib', 'site-packages'))
     copy_app(a.repo, os.path.join(out, 'app'))
 
-    for fname, body in ((f'{DISPLAY}.bat', LAUNCH_BAT),
-                        (f'{DISPLAY} (Troubleshooting).bat', CONSOLE_BAT),
-                        ('Uninstall.bat', UNINSTALL_BAT),
-                        ('README - Install and First Run.txt', README)):
-        with open(os.path.join(out, fname), 'w', encoding='utf-8') as fh:
-            fh.write(body)
-    print('  launchers + README written')
+    # Launchers are copied from packaging/launchers rather than written from
+    # strings in here, so what a user double-clicks is a file anyone can read and
+    # review in the repository. Batch files are copied verbatim to preserve their
+    # CRLF line endings, which cmd.exe requires.
+    launchers = os.path.join(HERE, 'launchers')
+    copied = 0
+    for fname in sorted(os.listdir(launchers)):
+        if fname.lower().endswith('.bat'):
+            shutil.copy2(os.path.join(launchers, fname), os.path.join(out, fname))
+            copied += 1
+    with open(os.path.join(out, 'README - Install and First Run.txt'),
+              'w', encoding='utf-8') as fh:
+        fh.write(README)
+    print(f'  launchers ({copied}) + README written')
 
     total = tree_size(out)
     print(f'\n  folder: {out}\n  size  : {total:,.0f} MB')

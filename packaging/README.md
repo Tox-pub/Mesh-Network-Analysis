@@ -6,6 +6,8 @@ the application or the pipeline — these scripts only assemble releases.
 | File | Purpose |
 | --- | --- |
 | `build_portable_windows.py` | **The supported route.** Produces the download-and-run Windows zip. |
+| `launchers/` | The `.bat` files a user double-clicks, copied verbatim into the zip. |
+| `make_icon.py` | Redraws the application icon into `src/mesh_workbench/assets/`. |
 | `build_frozen.py` | PyInstaller bundle. Kept for reference; see the caveat below. |
 | `windows_installer.iss` | Inno Setup script, pairs with `build_frozen.py`. |
 
@@ -37,6 +39,29 @@ MeshWorkbench/
   python/                               embeddable CPython + Tk
   app/                                  mesh_workbench, mesh_aop, reference data
 ```
+
+## Publishing a release
+
+The zip is about 150 MB, so it **cannot live in the repository** - GitHub rejects
+any file over 100 MB. Release assets allow up to 2 GB, and that is the supported
+route. Without one there is no way for anyone to obtain the program from GitHub,
+because the launcher only exists inside the zip.
+
+1. Build, and record a checksum:
+
+   ```bash
+   python packaging/build_portable_windows.py
+   certutil -hashfile "D:\mesh_workbench_build\MeshWorkbench-3.0.0-win64-portable.zip" SHA256
+   ```
+
+2. Create the release against the tag for the version being shipped, attach the
+   zip, and put the checksum in the notes so a download can be verified.
+
+3. Point the project README's download link at the new release.
+
+The tag, `pyproject.toml`'s version, and `VERSION` in the build script all have
+to agree - a zip whose name disagrees with the tag it hangs under is the kind of
+thing nobody notices until someone reports a bug against the wrong version.
 
 ### Why this rather than a frozen executable
 

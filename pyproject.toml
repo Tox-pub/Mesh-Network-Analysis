@@ -52,3 +52,8 @@ mesh-uninstall = "mesh_aop.uninstall_cli:main"
 # mesh_workbench the mesh-workbench entry point installs and then fails to import.
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The window icon is data, not code, so it is not picked up by package discovery.
+# Without this a pip install has no icon and the window falls back to Tk's.
+[tool.setuptools.package-data]
+mesh_workbench = ["assets/*.ico", "assets/*.png"]
