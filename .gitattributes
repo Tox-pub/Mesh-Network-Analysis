@@ -1,0 +1,10 @@
+# Batch files must reach the working tree with CRLF: cmd.exe mis-parses a .bat
+# saved with bare LF, and these are copied verbatim into the release, so a
+# checkout on any platform has to produce the form Windows will run.
+*.bat text eol=crlf
+
+# Icons are binary; never let line-ending conversion near them.
+*.ico binary
+*.png binary
+*.xlsx binary
+*.db binary
