@@ -16,6 +16,7 @@ Layout produced:
       app/                   the Workbench and mesh_aop
       MeSH Workbench.bat     the launcher a user double-clicks
       Uninstall.bat          removal, including the temp files outside this tree
+      portable.marker        keeps settings and results in this folder
       README - Install and First Run.txt
 
 Dependencies are copied from a working virtual environment rather than
@@ -262,6 +263,13 @@ if __name__ == '__main__':
 # files in packaging/launchers/ so they can be read and reviewed in the
 # repository, and are copied verbatim by main().
 
+MARKER_TEXT = """This file marks the folder as a portable copy.
+
+Settings, data and results are kept here rather than under your user profile.
+Delete it and this copy behaves as an installed one: settings and results move
+to your own profile, and each user of the machine gets their own.
+"""
+
 README = r"""MeSH Workbench {ver}
 ===============================================================
 
@@ -369,6 +377,13 @@ def main():
     with open(os.path.join(out, 'README - Install and First Run.txt'),
               'w', encoding='utf-8') as fh:
         fh.write(README)
+    # Declares this copy self-contained: settings, data and results stay in the
+    # folder rather than going to the user profile. The installer excludes it,
+    # which is what makes an installed copy per-user. Decided by a marker rather
+    # than by testing writability - a writable folder is not the same thing as a
+    # portable copy, and guessing would silently relocate someone's results.
+    with open(os.path.join(out, 'portable.marker'), 'w', encoding='utf-8') as fh:
+        fh.write(MARKER_TEXT)
     print(f'  launchers ({copied}) + README written')
 
     total = tree_size(out)

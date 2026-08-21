@@ -66,8 +66,14 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; \
 ; from the Start menu and uninstalls through Windows, so shipping them here
 ; would only be more things to click by mistake - and the README would be
 ; telling the user to click files this install does not contain.
+;
+; portable.marker is excluded for a different reason: its presence is what tells
+; the application to keep settings and results in its own folder. An installed
+; copy must not have it, or every user of this machine would share one
+; configuration and one results folder - and under Program Files it could not
+; write either of them at all.
 Source: "{#PortableDir}\*"; DestDir: "{app}"; \
-  Excludes: "*.bat,README - Install and First Run.txt"; \
+  Excludes: "*.bat,README - Install and First Run.txt,portable.marker"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
@@ -122,21 +128,39 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
-  PythonExe: String;
+  PythonExe, Args: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
     PythonExe := ExpandConstant('{app}\python\python.exe');
-    if FileExists(PythonExe) then
-      if MsgBox('Also remove the downloaded PubMed data and the databases built' +
-                ' from it?' + #13#10#13#10 +
-                'This can be tens of gigabytes, and includes a working copy the' +
-                ' build leaves in the Windows temp folder that deleting the' +
-                ' program folder would not remove.' + #13#10#13#10 +
-                'Your results are kept either way. This cannot be undone.',
-                mbConfirmation, MB_YESNO) = IDYES then
-        Exec(PythonExe,
-             ExpandConstant('-m mesh_aop.uninstall_cli --project "{app}" --yes'),
-             ExpandConstant('{app}'), SW_SHOW, ewWaitUntilTerminated, ResultCode);
+    if not FileExists(PythonExe) then
+      Exit;
+
+    { Data first, and default to removing it: it is machine-generated, it is the
+      bulk of what is on disk, and leaving tens of gigabytes behind after an
+      uninstall is the behaviour users complain about. }
+    if MsgBox('Also remove the downloaded PubMed data and the databases built' +
+              ' from it?' + #13#10#13#10 +
+              'This can be tens of gigabytes, and includes a working copy the' +
+              ' build leaves in the Windows temp folder that removing the' +
+              ' program would not otherwise clear.' + #13#10#13#10 +
+              'This cannot be undone.',
+              mbConfirmation, MB_YESNO) = IDNO then
+      Exit;
+
+    Args := ExpandConstant('-m mesh_aop.uninstall_cli --project "{app}" --yes');
+
+    { Results are asked about separately, and separately declined by default.
+      They are the user's own work, they live in their documents rather than in
+      the install, and nothing else can reproduce them. }
+    if MsgBox('Remove your results as well?' + #13#10#13#10 +
+              'These are the figures, workbooks and reports this program' +
+              ' produced for you, kept in your own documents folder.' + #13#10#13#10 +
+              'Choose No to keep them.',
+              mbConfirmation, MB_YESNO) = IDYES then
+      Args := Args + ' --results';
+
+    Exec(PythonExe, Args, ExpandConstant('{app}'), SW_SHOW,
+         ewWaitUntilTerminated, ResultCode);
   end;
 end;

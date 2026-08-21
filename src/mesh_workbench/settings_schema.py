@@ -232,6 +232,20 @@ TABS = [
           'A name the network does not carry fails the validation step.'),
     ]),
     ('Folders', [
+        F('directories.results_dir', 'Results folder', 'text', '',
+          'Where your outputs go - figures, workbooks, reports.',
+          'Default: empty, meaning Documents\\MeSH Workbench for an installed '
+          'copy, or the program folder for a portable one.',
+          'Kept separate from the databases on purpose: two people sharing one '
+          'installed copy each get their own results instead of overwriting one '
+          'another.'),
+        F('directories.data_dir', 'Data folder', 'text', '',
+          'Where downloaded archives and the databases built from them are kept. '
+          'This is the setting that decides which drive holds roughly 52 GB.',
+          'Default: empty, meaning a private folder under your user profile for '
+          'an installed copy, or the program folder for a portable one.',
+          'Choose this before downloading anything. Moving ~52 GB afterwards is '
+          'far slower than picking the right drive now.'),
         F('directories.output_dir', 'Output folder', 'text', '',
           'Where every result is written - workbooks, figures, reports, logs.',
           'Default: empty, meaning the project\'s own results folder.',

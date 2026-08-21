@@ -22,7 +22,7 @@ from pathlib import Path
 class MeshConfig:
     """Parses user configuration, applies factory defaults, and generates absolute paths."""
 
-    def __init__(self, config_path: str = "mesh_config.json", workspace_root: str = None):
+    def __init__(self, config_path: str = None, workspace_root: str = None):
         """
         Initializes the configuration object.
 
@@ -31,7 +31,11 @@ class MeshConfig:
             workspace_root: The root directory containing the data/ and results/ folders.
                             Defaults to the Current Working Directory if not provided.
         """
-        self.config_path = Path(config_path)
+        # An installed copy is shared and often read-only, so settings live in
+        # the user's own profile; a portable copy keeps them in its folder. See
+        # paths.py - both front-ends resolve this the same way.
+        from . import paths as _paths
+        self.config_path = Path(config_path) if config_path else _paths.config_path()
         self.root = Path(workspace_root) if workspace_root else Path.cwd()
 
         self._define_factory_defaults()
@@ -52,7 +56,14 @@ class MeshConfig:
                 # temp directory, which is usually the system drive - the
                 # workspace holds a full copy of the master database, so a small
                 # C: is a real constraint.
-                "etl_workspace_dir": ""
+                "etl_workspace_dir": "",
+                # Downloaded archives and the databases built from them. Empty
+                # means the per-user location for an installed copy, or the
+                # program folder for a portable one. See paths.py.
+                "data_dir": "",
+                # The user's own outputs. Kept apart from the databases so an
+                # installed copy can give each account its own results.
+                "results_dir": ""
             },
             "credentials": {
                 "entrez_email": "",
@@ -158,11 +169,21 @@ class MeshConfig:
             self.params['analysis_parameters']['context_end_date'] = date.today().strftime("%Y/%m/%d")
 
     def get_default_directories(self, use_ref_data: bool):
-        """Return the default (input, output) directories for the active data mode (user vs reference)."""
-        base_data = self.root / 'data'
-        default_in = base_data / 'reference_raw' if use_ref_data else base_data / 'raw'
-        default_out = base_data / 'reference_processed' if use_ref_data else base_data / 'processed'
-        return str(default_in), str(default_out)
+        """Return the default (input, output) directories for the active data mode.
+
+        Reference mode reads the corpus shipped with the program, which the
+        packaging step places beside the packages rather than under data/ - so
+        it is resolved by paths.py rather than assumed to sit below the project
+        root. Own-data mode writes to the user's data folder, which for an
+        installed copy is under their profile and not beside the executable.
+        """
+        from . import paths as _paths
+        if use_ref_data:
+            ref_out = _paths.bundled_reference_dir(self.root)
+            return str(self.root / 'data' / 'reference_raw'), str(ref_out)
+        base_data = Path(self.params.get('directories', {}).get('data_dir', '').strip()
+                         or _paths.default_user_data_dir(self.root))
+        return str(base_data / 'raw'), str(base_data / 'processed')
 
     def _build_directories(self):
         """Constructs and ensures the existence of required directories with override support."""
@@ -173,15 +194,30 @@ class MeshConfig:
 
         self.active_raw_dir = Path(custom_in) if custom_in else Path(default_in)
 
+        from . import paths as _paths
+        custom_results = self.params.get('directories', {}).get('results_dir', '').strip()
+
         if custom_out:
             self.active_source_dir = Path(custom_out)
-            self.results_dir = Path(custom_out)
         else:
             self.active_source_dir = Path(default_out)
-            self.results_dir = self.root / 'results'
+
+        # Results are the user's own work and are kept apart from the databases:
+        # an installed copy puts them in the user's documents, not beside the
+        # program, so two people sharing one install do not overwrite each other.
+        # output_dir still covers both when set, for configs that predate this.
+        if custom_results:
+            self.results_dir = Path(custom_results)
+        elif custom_out:
+            self.results_dir = Path(custom_out)
+        else:
+            self.results_dir = Path(_paths.default_user_results_dir(self.root))
 
         self.figures_dir = self.results_dir / 'figures'
-        self.log_dir = self.results_dir / 'logs'
+        # Logs are machinery, not results. A portable copy keeps everything
+        # together; an installed one keeps them in the user's private area.
+        self.log_dir = (self.results_dir / 'logs'
+                        if _paths.is_portable(self.root) else _paths.log_dir())
 
         self.active_raw_dir.mkdir(parents=True, exist_ok=True)
         self.active_source_dir.mkdir(parents=True, exist_ok=True)

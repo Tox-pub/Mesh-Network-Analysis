@@ -117,8 +117,15 @@ def is_portable(project_dir):
 
 
 def _config_dirs(root):
-    """The `directories` block from mesh_config.json, or {} if unreadable."""
-    cfg_path = Path(root) / 'mesh_config.json'
+    """The `directories` block from mesh_config.json, or {} if unreadable.
+
+    An installed copy keeps its settings under the user profile, not beside the
+    program, so the file is located the same way the application locates it.
+    """
+    from . import paths as _paths
+    cfg_path = Path(_paths.config_path(root))
+    if not cfg_path.exists():
+        cfg_path = Path(root) / 'mesh_config.json'
     if not cfg_path.exists():
         return {}
     try:
@@ -234,6 +241,23 @@ def inventory(project_dir, config=None):
             'Left behind only when a database build was interrupted.',
             targets=orphans))
 
+    # An installed copy keeps per-user state outside the program folder, so
+    # Windows removing what Setup wrote leaves all of this behind.
+    from . import paths as _paths
+    dirs = _config_dirs(root)
+    if not _paths.is_portable(root):
+        user_data = (dirs.get('data_dir') or '').strip() or _paths.default_data_dir()
+        _add(items, Path(user_data), DERIVED, 'Data folder (your profile)',
+             'Downloaded archives and the databases built from them.')
+        user_results = (dirs.get('results_dir') or '').strip() or _paths.default_results_dir()
+        _add(items, Path(user_results), RESULTS, 'Results folder (your profile)',
+             'Your figures, workbooks and reports. Not removed unless you ask.')
+        _add(items, _paths.log_dir(), CACHE, 'Run logs')
+        _add(items, _paths.config_path(root), CONFIG, 'Saved settings',
+             'Your search terms, folders and NCBI credentials.')
+        # Only this account's copies. Another user of the same machine keeps
+        # theirs, which is correct - and worth saying out loud, because it means
+        # an uninstall is not necessarily the end of this program's data.
     _add(items, root / 'mesh_config.json', CONFIG, 'Saved settings',
          'Your search terms, folders and NCBI credentials.')
 
