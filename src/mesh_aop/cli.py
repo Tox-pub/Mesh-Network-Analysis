@@ -325,7 +325,9 @@ def main():
 
             baseline_mgr = PubMedBaselineManager(
                 raw_data_dir=config.active_raw_dir,
-                master_db_path=config.files['master_db']
+                master_db_path=config.files['master_db'],
+                workspace_dir=(config.params.get('directories', {})
+                               .get('etl_workspace_dir', '').strip() or None)
             )
             baseline_mgr.run_downloads(
                 include_baseline=not config.params.get('_skip_baseline_download', False),

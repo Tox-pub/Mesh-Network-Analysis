@@ -239,10 +239,22 @@ TABS = [
           'default writes over the existing results, and the outputs a manuscript '
           'was written from are not recoverable from the pipeline alone.'),
         F('directories.input_dir', 'Input folder', 'text', '',
-          'Where the pipeline looks for source data.',
-          'Default: empty, meaning the project\'s own data folder.',
-          'Changing this without moving the databases will make the run fail at '
-          'the first step that needs them.'),
+          'Where source data is read from - and written to. This is the setting '
+          'that decides which drive holds the PubMed baseline archive (about '
+          '44 GB) and the master annotation database built from it (about 8 GB).',
+          'Default: empty, meaning the project\'s own data folder, beside the '
+          'program.',
+          'Set this before downloading, not after: it is the largest storage '
+          'decision here, and moving ~52 GB afterwards is slower than choosing '
+          'correctly first. Changing it once the databases exist, without moving '
+          'them too, makes the run fail at the first step that needs them.'),
+        F('directories.etl_workspace_dir', 'Database build workspace', 'text', '',
+          'Scratch space used while the master database is being compiled.',
+          'Default: empty, meaning the system temp folder.',
+          'The workspace holds a full working copy of the master database - '
+          'several GB - and the system temp folder is on the system drive. If C: '
+          'is small, point this at a roomier disk or the build can run it out of '
+          'space partway through.'),
         F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', True,
           'Stop after the network is built so biological strata can be assigned '
           'by hand before the figures are drawn.', 'Default: on.',
