@@ -54,11 +54,12 @@ class Workbench(tk.Tk):
         self._elapsed = 0
         self._tick_job = None
 
-        self.title('MeSH AOP Workbench')
+        self.title('MeSH Workbench')
         self.configure(bg=FACE)
         self.geometry(f'{W}x{H}')
         self.minsize(W, H)
         self.protocol('WM_DELETE_WINDOW', self._on_close)
+        self._set_icon()
 
         self.f_ui = tkfont.Font(family='MS Sans Serif', size=8)
         self.f_bold = tkfont.Font(family='MS Sans Serif', size=8, weight='bold')
@@ -166,6 +167,28 @@ class Workbench(tk.Tk):
                      'mesh_aop pipeline.'))
         bar.add_cascade(label='Help', menu=h)
         self.config(menu=bar)
+
+    def _set_icon(self):
+        """Give the window and taskbar entry the application icon.
+
+        iconbitmap takes the .ico on Windows; elsewhere Tk wants a PhotoImage,
+        so the PNG is used instead. The reference is kept on the instance because
+        Tk does not own the image and it would otherwise be collected, leaving a
+        blank icon. Never fatal: a missing icon is not a reason to fail to start.
+        """
+        assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
+        try:
+            if os.name == 'nt':
+                ico = os.path.join(assets, 'mesh_workbench.ico')
+                if os.path.exists(ico):
+                    self.iconbitmap(default=ico)
+                    return
+            png = os.path.join(assets, 'mesh_workbench.png')
+            if os.path.exists(png):
+                self._icon_img = tk.PhotoImage(file=png)
+                self.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
 
     def show(self, name):
         for fr in self.screens.values():

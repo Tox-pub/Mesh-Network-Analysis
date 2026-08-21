@@ -220,3 +220,4 @@ src/mesh_aop_notebooks/test_2.ipynb
 # Windows release build outputs (packaging/build_portable_windows.py)
 packaging/portable/
 packaging/_cache/
+packaging/_icon_preview.png
