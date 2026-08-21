@@ -116,6 +116,25 @@ def is_portable(project_dir):
     return (root / 'python' / 'python.exe').exists() and (root / 'app').is_dir()
 
 
+def _config_dirs(root):
+    """The `directories` block from mesh_config.json, or {} if unreadable."""
+    cfg_path = Path(root) / 'mesh_config.json'
+    if not cfg_path.exists():
+        return {}
+    try:
+        import json
+        with open(cfg_path, encoding='utf-8') as fh:
+            return json.load(fh).get('directories') or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _workspace_base(root):
+    """Where the ETL was told to do its scratch work, if anywhere."""
+    value = (_config_dirs(root).get('etl_workspace_dir') or '').strip()
+    return Path(value) if value else None
+
+
 def _redirected(root):
     """Folders the user pointed outside the project, read straight from the file.
 
@@ -125,15 +144,7 @@ def _redirected(root):
     - is worse than useless.
     """
     out = []
-    cfg_path = root / 'mesh_config.json'
-    if not cfg_path.exists():
-        return out
-    try:
-        import json
-        with open(cfg_path, encoding='utf-8') as fh:
-            dirs = (json.load(fh).get('directories') or {})
-    except (OSError, ValueError):
-        return out
+    dirs = _config_dirs(root)
     for key, label in (('output_dir', 'Results folder (redirected)'),
                        ('input_dir', 'Input folder (redirected)')):
         value = (dirs.get(key) or '').strip()
@@ -199,10 +210,23 @@ def inventory(project_dir, config=None):
              removable=not checkout)
 
     # The ETL's scratch space. Never cleaned up by the pipeline, and it holds a
-    # full copy of the master database.
+    # full copy of the master database. Both the default location and a
+    # configured one are checked: a build that ran with the workspace pointed
+    # elsewhere would otherwise leave the largest single leftover untouched.
     tmp = Path(tempfile.gettempdir())
-    _add(items, tmp / 'mesh_etl_workspace', CACHE, 'ETL working folder',
-         'A working copy of the master database, left in the system temp folder.')
+    bases, seen = [], set()
+    for base in (_workspace_base(root), tmp):
+        if base and str(base).lower() not in seen:
+            seen.add(str(base).lower())
+            bases.append(base)
+    for base in bases:
+        where = ('the system temp folder' if base == tmp
+                 else f'the configured workspace, {base}')
+        _add(items, base / 'mesh_etl_workspace', CACHE, 'ETL working folder',
+             f'A working copy of the master database, left in {where}.')
+
+    # Shards used to be written directly into temp rather than inside the
+    # workspace, so a machine that ran an older build can still have them loose.
     orphans = sorted(tmp.glob('shard_*.db'))
     if orphans:
         items.append(Item(

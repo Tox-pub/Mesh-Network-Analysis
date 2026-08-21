@@ -47,7 +47,12 @@ class MeshConfig:
             },
             "directories": {
                 "input_dir": "",
-                "output_dir": ""
+                "output_dir": "",
+                # Scratch space for the database build. Empty means the system
+                # temp directory, which is usually the system drive - the
+                # workspace holds a full copy of the master database, so a small
+                # C: is a real constraint.
+                "etl_workspace_dir": ""
             },
             "credentials": {
                 "entrez_email": "",

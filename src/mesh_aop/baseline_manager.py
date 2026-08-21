@@ -145,9 +145,15 @@ def _extract_pub_date(elem) -> str:
     # 3. Default fallback if absolutely no date is found
     return "1900-01-01"
 
-def build_local_shard(local_file_chunk):
-    """Executes on parallel CPU cores to parse XML chunks into local SQLite shards."""
-    shard_path = Path(tempfile.gettempdir()) / f"shard_{uuid4().hex}.db"
+def build_local_shard(job):
+    """Executes on parallel CPU cores to parse XML chunks into local SQLite shards.
+
+    `job` is (chunk, workspace). The workspace travels with the job because these
+    run in spawned processes on Windows, where a module-level setting in the
+    parent is not inherited.
+    """
+    local_file_chunk, workspace = job
+    shard_path = Path(workspace) / f"shard_{uuid4().hex}.db"
     conn = sqlite3.connect(shard_path)
 
     conn.execute("PRAGMA journal_mode = OFF;")
@@ -207,8 +213,15 @@ def build_local_shard(local_file_chunk):
 class PubMedBaselineManager:
     """Downloads the NLM PubMed XML archives and compiles them into the local master database."""
 
-    def __init__(self, raw_data_dir: Path, master_db_path: Path):
-        """Set up the raw/download directories, fast local workspace, and FTP endpoints."""
+    def __init__(self, raw_data_dir: Path, master_db_path: Path, workspace_dir=None):
+        """Set up the raw/download directories, fast local workspace, and FTP endpoints.
+
+        `workspace_dir` is where the build does its scratch work. It defaults to
+        the system temp directory, which is the fastest disk on most machines but
+        is also the system drive - and the workspace holds a full working copy of
+        the master database, so on a small C: a build can run it out of space.
+        Pointing it at a roomier drive is the remedy.
+        """
         self.raw_data_dir = Path(raw_data_dir)
         self.master_db_path = Path(master_db_path)
 
@@ -218,8 +231,11 @@ class PubMedBaselineManager:
         self.baseline_dir.mkdir(parents=True, exist_ok=True)
         self.updates_dir.mkdir(parents=True, exist_ok=True)
 
-        # High-Speed Local Workspace (OS-Agnostic)
-        self.local_workspace = Path(tempfile.gettempdir()) / "mesh_etl_workspace"
+        # High-Speed Local Workspace (OS-Agnostic). The named subfolder is always
+        # appended, so a configured location is never itself treated as ours -
+        # the uninstaller removes this folder whole.
+        _ws_base = Path(workspace_dir) if workspace_dir else Path(tempfile.gettempdir())
+        self.local_workspace = _ws_base / "mesh_etl_workspace"
         self.local_workspace.mkdir(exist_ok=True)
         self.local_db_path = self.local_workspace / "local_active_master.db"
         self.local_xml_dir = self.local_workspace / "xml_buffer"
@@ -608,7 +624,8 @@ class PubMedBaselineManager:
                         local_chunk_paths.append(local_dest)
 
                     sub_chunks = [local_chunk_paths[i::cores] for i in range(cores)]
-                    sub_chunks = [sc for sc in sub_chunks if sc]
+                    sub_chunks = [(sc, str(self.local_workspace))
+                                  for sc in sub_chunks if sc]
 
                     for shard_path_str, parsed_names, article_count in pool.imap_unordered(build_local_shard, sub_chunks):
                         cursor.execute("ATTACH DATABASE ? AS temp_shard", (shard_path_str,))
