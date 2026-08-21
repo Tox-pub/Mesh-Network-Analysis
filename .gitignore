@@ -221,3 +221,4 @@ src/mesh_aop_notebooks/test_2.ipynb
 packaging/portable/
 packaging/_cache/
 packaging/_icon_preview.png
+packaging/dist/

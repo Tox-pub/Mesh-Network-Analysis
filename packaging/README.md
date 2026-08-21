@@ -5,11 +5,11 @@ the application or the pipeline — these scripts only assemble releases.
 
 | File | Purpose |
 | --- | --- |
-| `build_portable_windows.py` | **The supported route.** Produces the download-and-run Windows zip. |
+| `build_portable_windows.py` | Produces the download-and-run Windows zip. Run this first. |
+| `build_installer_windows.py` | Wraps that zip's tree in a conventional `Setup.exe`. |
+| `windows_installer.iss` | The Inno Setup script it compiles. |
 | `launchers/` | The `.bat` files a user double-clicks, copied verbatim into the zip. |
 | `make_icon.py` | Redraws the application icon into `src/mesh_workbench/assets/`. |
-| `build_frozen.py` | PyInstaller bundle. Kept for reference; see the caveat below. |
-| `windows_installer.iss` | Inno Setup script, pairs with `build_frozen.py`. |
 
 ## Building the Windows release
 
@@ -40,22 +40,66 @@ MeshWorkbench/
   app/                                  mesh_workbench, mesh_aop, reference data
 ```
 
+## Building the installer
+
+```bash
+python packaging/build_portable_windows.py     # first - assembles the tree
+python packaging/build_installer_windows.py    # then  - wraps it
+```
+
+Produces `packaging/dist/MeSH-Workbench-<version>-win64-setup.exe`: a wizard with
+a directory page, Start-menu and desktop shortcuts, and an Add/Remove Programs
+entry.
+
+It installs **the same tree the zip contains**, so the only program that ever
+executes is still the PSF-signed `python.exe`. Shortcuts point at
+`pythonw.exe app\launch.py` rather than at a `.bat`, so nothing flashes a
+console. The `.bat` files and the portable README are excluded from the install -
+they would be telling an installed copy to use launchers it does not have.
+
+Defaults to a per-user install, so there is no administrator prompt and nothing
+for a managed machine to refuse; the wizard still offers all-users to anyone with
+the rights.
+
+Uninstalling through Windows removes what Setup wrote, then offers to run the
+application's own uninstaller for the downloaded data and the temp-folder
+workspace - which Windows would otherwise leave behind, at tens of gigabytes.
+Results are kept.
+
+**Setup.exe is unsigned.** SmartScreen warns once per machine and the user clicks
+*More info -> Run anyway*. Only a code-signing certificate removes that, and it
+applies to the installer alone, never to the installed application. This is why
+the portable zip stays the fallback for locked-down machines.
+
 ## Publishing a release
 
-The zip is about 150 MB, so it **cannot live in the repository** - GitHub rejects
-any file over 100 MB. Release assets allow up to 2 GB, and that is the supported
-route. Without one there is no way for anyone to obtain the program from GitHub,
-because the launcher only exists inside the zip.
+Two artefacts go on every release:
+
+| Asset | For |
+| --- | --- |
+| `MeSH-Workbench-<version>-win64-setup.exe` | Most people. Wizard, shortcuts, Add/Remove Programs. |
+| `MeshWorkbench-<version>-win64-portable.zip` | Locked-down machines, USB sticks, no-install use. |
+
+Neither **can live in the repository** - GitHub rejects any file over 100 MB and
+both are larger. Release assets allow up to 2 GB, and that is the supported
+route. Without a release there is no way for anyone to obtain the program from
+GitHub at all, because the launcher exists only inside these artefacts.
 
 1. Build, and record a checksum:
 
    ```bash
    python packaging/build_portable_windows.py
+   python packaging/build_installer_windows.py
+   ```
+
+   Then hash both, so a download can be verified:
+
+   ```bash
    certutil -hashfile "D:\mesh_workbench_build\MeshWorkbench-3.0.0-win64-portable.zip" SHA256
    ```
 
-2. Create the release against the tag for the version being shipped, attach the
-   zip, and put the checksum in the notes so a download can be verified.
+2. Create the release against the tag for the version being shipped, attach
+   both artefacts, and put the checksums in the notes.
 
 3. Point the project README's download link at the new release.
 
@@ -92,16 +136,22 @@ The embeddable package also ships **without tkinter**, so `add_tkinter()` copies
 `Lib/tkinter`, `_tkinter.pyd`, the Tcl/Tk DLLs and the `tcl/` runtime from a full
 CPython install of the same version.
 
-## The frozen build
+## The frozen build (no longer used)
 
-`build_frozen.py` produces a PyInstaller bundle and `windows_installer.iss`
-wraps it in a conventional Setup wizard. Both work, but the resulting executable
-is unsigned and was refused on the managed Windows machine this was developed on,
-with no error surfaced — a `--windowed` build has nowhere to write a traceback.
-Build with `--console` when diagnosing that.
+`build_frozen.py` produces a PyInstaller bundle. The installer used to wrap that
+bundle; it no longer does, and nothing else references this script.
 
-Use this route only if a signing certificate is available. Otherwise prefer the
-portable zip.
+It was abandoned for a concrete reason. The executable PyInstaller emits is a
+freshly compiled unsigned binary, and one was refused outright on the managed
+Windows machine this was developed on with **no error surfaced at all** - a
+`--windowed` build has nowhere to write a traceback, so it simply did not start.
+Building with `--console` is the only way to see why.
+
+The installer now packages the portable tree instead, which reaches the same
+conventional Setup experience while the only executable remains the PSF-signed
+`python.exe`. There is no reason to return to a frozen build unless a
+code-signing certificate is bought, and even then it buys nothing the current
+route lacks. The file is kept only so the history of that decision is legible.
 
 ## macOS and Linux
 
