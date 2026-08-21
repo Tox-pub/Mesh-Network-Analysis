@@ -47,7 +47,12 @@ class Workbench(tk.Tk):
         super().__init__()
         self.repo_dir = repo_dir
         self.python_exe = python_exe
-        self.cfg_path = os.path.join(repo_dir, 'mesh_config.json')
+        # A portable copy keeps its settings in its own folder; an installed one
+        # keeps them under the user's profile, because the install directory is
+        # shared and often read-only. paths.py decides, and the CLI asks it too.
+        from mesh_aop import paths as _paths
+        self.paths = _paths
+        self.cfg_path = str(_paths.config_path(repo_dir))
         self.cfg = self._load_cfg()
         self.vars = {}
         self.runner = PipelineRunner(repo_dir, python_exe)
@@ -77,6 +82,8 @@ class Workbench(tk.Tk):
             self.screens[name] = fr
             build(fr)
         self.show('setup')
+        # After the window exists, so the dialog has a parent to sit over.
+        self.after(150, self.first_run_locations)
 
     # ---------------------------------------------------------------- config
     def _load_cfg(self):
@@ -115,6 +122,9 @@ class Workbench(tk.Tk):
                     'comparable with other runs.\n\nSave anyway?'):
                 return False
         try:
+            # The per-user settings folder does not exist until something writes
+            # to it, and on a first run that something is this.
+            os.makedirs(os.path.dirname(self.cfg_path) or '.', exist_ok=True)
             with open(self.cfg_path, 'w', encoding='utf-8') as fh:
                 json.dump(self.cfg, fh, indent=4)
         except Exception as exc:
@@ -167,6 +177,87 @@ class Workbench(tk.Tk):
                      'mesh_aop pipeline.'))
         bar.add_cascade(label='Help', menu=h)
         self.config(menu=bar)
+
+    def first_run_locations(self):
+        """Ask where results and data should live, the first time only.
+
+        Shown when no settings file exists yet. Only the two locations the user
+        genuinely owns are asked about - settings, logs and scratch are
+        machinery and go to the profile without discussion.
+
+        A portable copy is self-contained by definition, so it is never asked.
+        """
+        if self.paths.is_portable(self.repo_dir) or os.path.exists(self.cfg_path):
+            return
+
+        win = tk.Toplevel(self)
+        win.title('MeSH Workbench - first run')
+        win.configure(bg=FACE)
+        win.transient(self)
+        win.resizable(False, False)
+        win.protocol('WM_DELETE_WINDOW', lambda: None)   # only leaves via a button
+
+        tk.Label(win, text='Where should your files go?', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(fill='x', padx=12, pady=(12, 2))
+        tk.Label(win, bg=FACE, anchor='w', justify='left', wraplength=520,
+                 text='These can be changed later on the Folders tab. Settings and '
+                      'logs are kept privately under your user profile and are not '
+                      'asked about.').pack(fill='x', padx=12, pady=(0, 10))
+
+        rows = (
+            ('Results', 'Figures, workbooks and reports.',
+             'directories.results_dir', self.paths.default_user_results_dir(self.repo_dir)),
+            ('Data', 'Downloaded archives and the databases built from them. '
+                     'This is the large one.',
+             'directories.data_dir', self.paths.default_user_data_dir(self.repo_dir)),
+        )
+        chosen = {}
+        for label, blurb, key, default in rows:
+            box = self._sunken(win)
+            box.pack(fill='x', padx=12, pady=4)
+            tk.Label(box, text=label, bg=FACE, font=self.f_bold, anchor='w'
+                     ).pack(fill='x', padx=8, pady=(6, 0))
+            tk.Label(box, text=blurb, bg=FACE, fg=DIM, anchor='w', justify='left',
+                     wraplength=500).pack(fill='x', padx=8)
+            line = tk.Frame(box, bg=FACE)
+            line.pack(fill='x', padx=8, pady=(4, 8))
+            var = tk.StringVar(value=str(default))
+            chosen[key] = var
+            tk.Entry(line, textvariable=var, bg=FIELD, relief='sunken', bd=2
+                     ).pack(side='left', fill='x', expand=True)
+            tk.Button(line, text='…', width=3,
+                      command=lambda v=var: self._browse_dir(v)).pack(side='left', padx=(4, 0))
+
+        act = tk.Frame(win, bg=FACE)
+        act.pack(fill='x', padx=12, pady=(4, 12))
+
+        def accept():
+            for key, var in chosen.items():
+                value = var.get().strip()
+                if value:
+                    schema.put(self.cfg, key, value)
+            # Writing now means the dialog does not reappear, and the rest of
+            # the application can assume a settings file exists.
+            self.save_cfg()
+            win.destroy()
+
+        tk.Button(act, text='Continue', width=14, font=self.f_bold, command=accept
+                  ).pack(side='right')
+        tk.Button(act, text='Use defaults', width=14,
+                  command=lambda: (self.save_cfg(), win.destroy())).pack(side='right', padx=6)
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + 80
+        win.geometry(f'+{max(x, 0)}+{max(y, 0)}')
+        win.grab_set()
+        self.wait_window(win)
+        self.scan_data()
+
+    def _browse_dir(self, var):
+        d = filedialog.askdirectory(initialdir=var.get() or os.path.expanduser('~'))
+        if d:
+            var.set(os.path.normpath(d))
 
     def _set_icon(self):
         """Give the window and taskbar entry the application icon.
