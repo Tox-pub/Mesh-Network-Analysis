@@ -26,7 +26,6 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ISS = os.path.join(HERE, 'windows_installer.iss')
-OUT_DIR = os.path.join(HERE, 'dist')
 
 # Inno Setup installs per-user as readily as machine-wide, and 7 is not always
 # where 6 was, so look in both and in both scopes rather than naming one path.
@@ -68,6 +67,8 @@ def main():
     ap.add_argument('--portable', default=None,
                     help='the assembled portable folder (default: the last build)')
     ap.add_argument('--iscc', default=None, help='full path to ISCC.exe')
+    ap.add_argument('--out', default=None,
+                    help='where to write Setup.exe (default: beside the portable build)')
     a = ap.parse_args()
 
     portable = a.portable or default_portable()
@@ -80,10 +81,13 @@ def main():
             sys.exit(f'{portable} does not look like a finished build ({needed} missing).')
 
     iscc = find_iscc(a.iscc)
-    os.makedirs(OUT_DIR, exist_ok=True)
+    # Beside the portable build, off the project: Setup.exe is ~100 MB of
+    # reproducible output and the working copy is cloud-synced.
+    out_dir = a.out or os.path.dirname(os.path.normpath(portable))
+    os.makedirs(out_dir, exist_ok=True)
     print(f'Building installer\n  portable : {portable}\n  compiler : {iscc}')
 
-    cmd = [iscc, f'/DPortableDir={portable}', f'/O{OUT_DIR}', ISS]
+    cmd = [iscc, f'/DPortableDir={portable}', f'/O{out_dir}', ISS]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         # Inno reports the offending line on stdout, not stderr.
@@ -91,7 +95,7 @@ def main():
         sys.stderr.write(proc.stderr[-2000:])
         sys.exit(f'ISCC failed with code {proc.returncode}')
 
-    made = sorted(glob.glob(os.path.join(OUT_DIR, '*.exe')), key=os.path.getmtime)
+    made = sorted(glob.glob(os.path.join(out_dir, '*.exe')), key=os.path.getmtime)
     if not made:
         sys.exit('ISCC reported success but produced no .exe')
     exe = made[-1]
