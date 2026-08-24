@@ -13,9 +13,12 @@ Run build_portable_windows.py first; this refuses to run without its output.
     python packaging/build_installer_windows.py
     python packaging/build_installer_windows.py --portable D:\\some\\MeshWorkbench
 
-Setup.exe is itself unsigned, so SmartScreen warns once on a machine that has
-not seen it before. Only a code-signing certificate removes that, and it never
-affects the installed application.
+Setup.exe is itself unsigned. On an unmanaged machine that costs a SmartScreen
+prompt; on a managed one it can be refused outright by Defender Exploit Guard,
+which blocks executables that have no prevalence and no signature. Only a
+code-signing certificate removes that. Install.bat in the portable zip is the
+fallback for those machines - it creates no executable at all and installs the
+same tree.
 """
 
 import argparse
@@ -100,9 +103,12 @@ def main():
         sys.exit('ISCC reported success but produced no .exe')
     exe = made[-1]
     print(f'\n  setup    : {exe}  ({os.path.getsize(exe) / 1e6:,.0f} MB)')
-    print('\n  Setup.exe is unsigned: SmartScreen will warn once, and the user\n'
-          '  clicks More info -> Run anyway. The installed application is the\n'
-          '  signed python.exe either way.')
+    print('\n  Setup.exe is unsigned. On an unmanaged machine that costs a\n'
+          '  SmartScreen prompt the user clicks through. On a managed one it can\n'
+          '  be refused outright: Defender Exploit Guard rule 01443614 blocks\n'
+          '  executables with no prevalence and no signature, and the user sees\n'
+          '  0x80070005 with nothing to click. Ship Install.bat from the zip as\n'
+          '  the fallback - it creates no executable and installs the same tree.')
 
 
 if __name__ == '__main__':
