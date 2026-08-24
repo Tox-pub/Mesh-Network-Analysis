@@ -18,14 +18,14 @@ if /i not "%FIN%"=="y" goto :done
 REM  A folder cannot delete itself while a program inside it is running, so the
 REM  removal is handed to a script in TEMP that waits for this one to exit.
 > "%TEMP%\mw_cleanup.bat" echo @echo off
->>"%TEMP%\mw_cleanup.bat" echo timeout /t 3 /nobreak ^>nul
+>>"%TEMP%\mw_cleanup.bat" echo ping -n 4 127.0.0.1 ^>nul
 >>"%TEMP%\mw_cleanup.bat" echo rmdir /s /q "%~dp0."
 >>"%TEMP%\mw_cleanup.bat" echo del "%%~f0"
 cd /d "%TEMP%"
 start "" /min cmd /c "%TEMP%\mw_cleanup.bat"
 echo.
 echo The folder will disappear in a few seconds.
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 exit /b 0
 
 :done
