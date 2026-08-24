@@ -16,7 +16,7 @@
 ; (which compiles this with /DPortableDir=... pointing at a finished build)
 
 #define AppName    "MeSH Workbench"
-#define AppVersion "3.0.0"
+#define AppVersion "3.1.0"
 #define AppIcon    "app\mesh_workbench\assets\mesh_workbench.ico"
 
 ; Where the finished portable tree lives. Passed in by the build script; the

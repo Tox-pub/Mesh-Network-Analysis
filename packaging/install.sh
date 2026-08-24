@@ -155,8 +155,8 @@ else
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundleIdentifier</key><string>se.ki.meshworkbench</string>
-  <key>CFBundleVersion</key><string>3.0.0</string>
-  <key>CFBundleShortVersionString</key><string>3.0.0</string>
+  <key>CFBundleVersion</key><string>3.1.0</string>
+  <key>CFBundleShortVersionString</key><string>3.1.0</string>
   <key>CFBundleExecutable</key><string>run</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>NSHighResolutionCapable</key><true/>

@@ -21,7 +21,7 @@ REM ---------------------------------------------------------------------------
 setlocal EnableExtensions
 
 set "APPNAME=MeSH Workbench"
-set "APPVER=3.0.0"
+set "APPVER=3.1.0"
 set "SRC=%~dp0"
 set "TARGET="
 set "SILENT="
