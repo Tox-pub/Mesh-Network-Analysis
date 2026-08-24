@@ -491,7 +491,7 @@ class Workbench(tk.Tk):
         top = self._sunken(root)
         top.pack(fill='x', padx=10, pady=(10, 8))
         tk.Label(top, text='Pipeline step:', bg=FACE).pack(side='left', padx=(8, 6), pady=6)
-        self.step_var = tk.StringVar(value='benchmark')
+        self.step_var = tk.StringVar(value='all')
         om = tk.OptionMenu(top, self.step_var, *[s for s, _, _ in schema.STEPS],
                            command=lambda *_: self._step_changed())
         om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12)

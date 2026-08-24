@@ -46,7 +46,9 @@ class MeshConfig:
         """Immutable baseline settings for the entire pipeline."""
         self.factory_defaults = {
             "control_flags": {
-                "use_reference_data": True,
+                # Off: the default is a user analysing their own corpus. Turn it
+                # on to reproduce the published reference run.
+                "use_reference_data": False,
                 "custom_file_prefix": "DAC_Mesh"
             },
             "directories": {
@@ -70,14 +72,21 @@ class MeshConfig:
                 "entrez_api_key": ""
             },
             "search_parameters": {
-                "search_term": "Dermatitis, Allergic Contact [Mesh]",
+                # Blank: a fresh install should not silently inherit this
+                # project's query. The reference corpus was built with
+                # "Dermatitis, Allergic Contact [Mesh]" over 1950/01/01 to
+                # 2025/01/01, which the settings help repeats.
+                "search_term": "",
                 "start_date": "1950/01/01",
-                "end_date": "2025/01/01",
+                # TODAY is resolved at run time, like context_end_date.
+                "end_date": "TODAY",
                 "generations_n": 1,
                 "update_mesh_support_files": False
             },
             "analysis_parameters": {
-                "calculate_full_centrality": True,
+                # Hours on a 13,558-node graph. Subgraph centrality is computed
+                # either way, so off is the useful default and on is opt-in.
+                "calculate_full_centrality": False,
                 "random_seed": 42,
                 "betweenness_k_samples": 1000,
                 "context_start_date": "1950/01/01",
@@ -165,8 +174,14 @@ class MeshConfig:
         """Handles date interpretation and reference flags."""
         self.use_reference_data = self.params['control_flags']['use_reference_data']
         self.prefix = "DAC_Mesh" if self.use_reference_data else self.params['control_flags']['custom_file_prefix']
-        if self.params['analysis_parameters']['context_end_date'] == "TODAY":
-            self.params['analysis_parameters']['context_end_date'] = date.today().strftime("%Y/%m/%d")
+        # TODAY is resolved here, before anything reads these. The search end
+        # date reaches Entrez as part of the query string, so an unresolved
+        # "TODAY" would be sent literally and the retrieval would fail.
+        today = date.today().strftime("%Y/%m/%d")
+        for section, key in (('analysis_parameters', 'context_end_date'),
+                             ('search_parameters', 'end_date')):
+            if self.params.get(section, {}).get(key) == "TODAY":
+                self.params[section][key] = today
 
     def get_default_directories(self, use_ref_data: bool):
         """Return the default (input, output) directories for the active data mode.
