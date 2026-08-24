@@ -222,3 +222,24 @@ packaging/portable/
 packaging/_cache/
 packaging/_icon_preview.png
 packaging/dist/
+
+# Generated data and results. These are produced by running the pipeline and are
+# measured in gigabytes - the master database alone is over 7 GB, well past the
+# 100 MB GitHub refuses. Nothing here was ignored before, so a single
+# `git add -A` would stage all of it.
+#
+# The reference corpus under data/reference_processed IS tracked and must stay
+# so: it ships inside the release and the bundled ground truth depends on it.
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/aop_annotations_master.csv
+!data/raw/ground_truth_pmids.template.csv
+data/processed/*
+!data/processed/.gitkeep
+data/reference_raw/*
+!data/reference_raw/.gitkeep
+results/*
+!results/.gitkeep
+results_SNAPSHOT_*.zip
+mesh_config.json
+mesh_config.json.bak*

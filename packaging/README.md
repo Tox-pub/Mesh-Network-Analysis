@@ -95,7 +95,7 @@ GitHub at all, because the launcher exists only inside these artefacts.
    Then hash both, so a download can be verified:
 
    ```bash
-   certutil -hashfile "D:\mesh_workbench_build\MeshWorkbench-3.0.0-win64-portable.zip" SHA256
+   certutil -hashfile "D:\mesh_workbench_build\MeshWorkbench-3.1.0-win64-portable.zip" SHA256
    ```
 
 2. Create the release against the tag for the version being shipped, attach

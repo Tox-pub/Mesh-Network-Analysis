@@ -76,19 +76,23 @@ TABS = [
           'Publication window for scoring and validation.', 'Default: 1950/01/01.',
           'This defines the corpus everywhere - relevance database, validation and '
           'benchmark all use it. Articles outside it are never scored or evaluated.'),
-        F('analysis_parameters.context_end_date', 'Context end', 'text', '2025/01/01',
-          'Publication window for scoring and validation.', 'Default: 2025/01/01.',
-          'This defines the corpus everywhere. Articles outside it are never scored.'),
+        F('analysis_parameters.context_end_date', 'Context end', 'text', 'TODAY',
+          'Publication window for scoring and validation.',
+          "Default: TODAY, resolved to the date the run starts.",
+          'This defines the corpus everywhere - articles outside it are never '
+          'scored. Set a fixed date to make a run reproducible: TODAY moves, so '
+          'the same analysis repeated next month covers a different corpus.'),
         F('analysis_parameters.betweenness_k_samples', 'Betweenness samples', 'int', 1000,
           'Node sample size for estimating betweenness on the unfiltered graph.',
           'Default: 1000.',
           'Betweenness on the consensus subgraph is always exact; only the '
           'whole-graph estimate samples. Lower is faster and noisier.'),
-        F('analysis_parameters.calculate_full_centrality', 'Whole-graph centrality', 'bool', False,
+        F('analysis_parameters.calculate_full_centrality', 'Whole-graph centrality', 'bool', True,
           'Also compute centrality across the entire unfiltered co-occurrence graph.',
-          'Default: off.',
-          'Adds hours on a 13,558-node graph. Needed only to compare (full) '
-          'against (subgraph) scope.'),
+          'Default: on.',
+          'Adds hours on a 13,558-node graph, and is needed only to compare '
+          '(full) against (subgraph) scope. Turn it off for a faster run that '
+          'reports subgraph centrality alone.'),
         F('analysis_parameters.eigenvector_max_iter', 'Eigenvector max iterations', 'int', 1000,
           'Iteration cap for the eigenvector centrality solver.', 'Default: 1000.',
           'Raise it only if the solver reports non-convergence.'),
@@ -179,10 +183,11 @@ TABS = [
     ]),
     ('Benchmark', [
         F('benchmark.ground_truth_csv', 'Ground truth file', 'path',
-          'data/reference_processed/oecd_ground_truth_curated.xlsx',
+          '',
           'Curated positive set used for validation and benchmarking.',
-          'Default: the bundled OECD AOP-40 set (96 PMIDs). Leave empty to '
-          'auto-detect a file in data/raw.',
+          'Default: empty, which auto-detects a file you drop in data/raw and '
+          'otherwise falls back to the bundled OECD AOP-40 set (96 PMIDs) when '
+          'reference data is in use.',
           'Supply your own as .xlsx or .csv with a PMID column. Articles carrying '
           'no network term are unreachable by every method and cap achievable recall.'),
         F('benchmark.primary_node', 'Primary node', 'text', 'Dermatitis, Allergic Contact',
@@ -275,9 +280,12 @@ TABS = [
           'With this on, a full run stops partway and waits. Turn it off for an '
           'unattended run - strata then stay Uncategorized and the biological '
           'figures lose their meaning.'),
-        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
+        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', True,
           'Run against the shipped reference corpus instead of your own retrieval.',
-          'Default: off.'),
+          'Default: on, so a fresh install can produce figures before any data '
+          'has been downloaded.',
+          'Turn it off once you have built your own corpus, or the run scores '
+          'the shipped reference network rather than yours.'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
