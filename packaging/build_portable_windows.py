@@ -89,11 +89,17 @@ BUILD_OUT_DEFAULT = _default_build_out()
 SKIP_DIRS = {'__pycache__', 'pip', 'setuptools', 'wheel', 'pkg_resources',
              '_distutils_hack', 'PyInstaller', '_pyinstaller_hooks_contrib',
              'altgraph', 'pefile', 'pyinstaller_hooks_contrib'}
-# Only bytecode. Pruning directories that merely LOOK like test suites breaks
-# imports: numpy.testing is public API that scipy touches while loading, so
-# dropping "testing" made every scipy-dependent import fail. The couple of
-# hundred megabytes saved is not worth guessing which of these are real.
-PRUNE = {'__pycache__'}
+# Bytecode, and the shipped test suites - 94 MB of the dependency tree, none of
+# which the pipeline imports.
+#
+# The distinction here is exact and was learned the hard way. "testing" is NOT
+# in this set: numpy.testing is public API that scipy reaches for while loading,
+# and dropping it broke every scipy-dependent import. "tests" and "test" are the
+# suites themselves, along with their fixture corpora - gensim alone ships a
+# Wikipedia extract and word2vec models under test/test_data. Removing a
+# directory whose name merely resembles a test suite is what caused the earlier
+# breakage, so the names are matched exactly rather than by substring.
+PRUNE = {'__pycache__', 'tests', 'test'}
 
 
 def fetch_embed(dst, cache):
@@ -398,7 +404,11 @@ def main():
     if not a.no_zip:
         zpath = os.path.join(a.out, f'{NAME}-{VERSION}-win64-portable.zip')
         print('  compressing ...')
-        with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        # Deflate, at the highest level. LZMA would take roughly another quarter
+        # off, but a zip compressed that way cannot be opened by Windows Explorer
+        # or PowerShell's Expand-Archive - both refuse it with "unsupported
+        # compression method". An archive the user cannot open is not a saving.
+        with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             root = long(out)
             for b, _, fs in os.walk(root):
                 for f in fs:

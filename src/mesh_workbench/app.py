@@ -87,13 +87,47 @@ class Workbench(tk.Tk):
 
     # ---------------------------------------------------------------- config
     def _load_cfg(self):
+        """Read the settings file, creating it from the defaults on first run.
+
+        A missing file is the normal state of a fresh install, not a failure -
+        reporting it as one greeted every new user with "[Errno 2] No such file
+        or directory". A file that exists but cannot be parsed is a real problem
+        and still says so.
+        """
+        if not os.path.exists(self.cfg_path):
+            return self._write_default_cfg()
         try:
             with open(self.cfg_path, encoding='utf-8') as fh:
                 return json.load(fh)
-        except Exception as exc:
-            messagebox.showerror('Configuration',
-                                 f'Could not read mesh_config.json:\n\n{exc}')
+        except (OSError, ValueError) as exc:
+            messagebox.showerror(
+                'Configuration',
+                f'{self.cfg_path} could not be read, so the defaults are in '
+                f'use. Your settings are not lost - fix or delete the file and '
+                f'restart.\n\n{exc}')
             return {}
+
+    def _write_default_cfg(self):
+        """Seed a settings file from the pipeline's own factory defaults.
+
+        Derived rather than shipped as a second copy: a checked-in defaults file
+        would drift from MeshConfig the first time a default changed, and the
+        two front-ends would disagree again. Transient run switches (the
+        underscore-prefixed ones) are never written.
+        """
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            defaults = MeshConfig(config_path='\0').factory_defaults
+        except Exception:
+            return {}
+        cfg = {k: v for k, v in defaults.items() if not k.startswith('_')}
+        try:
+            os.makedirs(os.path.dirname(self.cfg_path) or '.', exist_ok=True)
+            with open(self.cfg_path, 'w', encoding='utf-8') as fh:
+                json.dump(cfg, fh, indent=4)
+        except OSError:
+            pass          # read-only location: run from the defaults in memory
+        return cfg
 
     def save_cfg(self):
         for key, var in self.vars.items():
