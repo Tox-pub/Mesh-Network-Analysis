@@ -36,19 +36,25 @@ STEPS = [
 
 TABS = [
     ('Search', [
-        F('search_parameters.search_term', 'Search term', 'text',
-          'Dermatitis, Allergic Contact [Mesh]',
+        F('search_parameters.search_term', 'Search term', 'text', '',
           'The PubMed query that defines the starting article set (P0).',
-          'Default: the AOP-40 primary heading. Use [Mesh] to search the indexed '
-          'heading rather than free text.',
-          'Changing this invalidates every downstream result.'),
+          'Default: empty. There is no sensible query for another research '
+          'question, so this has to be filled in before retrieval will run. Use '
+          '[Mesh] to search the indexed heading rather than free text.',
+          'The bundled reference corpus was built with '
+          '"Dermatitis, Allergic Contact [Mesh]" over 1950/01/01 to 2025/01/01. '
+          'Enter that to reproduce it. Changing this later invalidates every '
+          'downstream result.'),
         F('search_parameters.start_date', 'Start date', 'text', '1950/01/01',
           'Publication window for the initial query.', 'Default: 1950/01/01.',
           'Keep this identical to the context window on the Analysis tab, or the '
           'query set and the scored corpus describe different periods.'),
-        F('search_parameters.end_date', 'End date', 'text', '2025/01/01',
-          'Publication window for the initial query.', 'Default: 2025/01/01.',
-          'Keep this identical to the context window on the Analysis tab.'),
+        F('search_parameters.end_date', 'End date', 'text', 'TODAY',
+          'Publication window for the initial query.',
+          'Default: TODAY, resolved to the date the run starts.',
+          'Keep this identical to the context window on the Analysis tab. A '
+          'fixed date makes the query reproducible; TODAY moves, so the same '
+          'search repeated later returns a different set.'),
         F('search_parameters.generations_n', 'Citation generations', 'int', 1,
           'How many citation hops to expand from the query result set.',
           'Default: 1. 0 = query only; 1 = adds cited and citing articles; '
@@ -80,19 +86,23 @@ TABS = [
           'Publication window for scoring and validation.',
           "Default: TODAY, resolved to the date the run starts.",
           'This defines the corpus everywhere - articles outside it are never '
-          'scored. Set a fixed date to make a run reproducible: TODAY moves, so '
-          'the same analysis repeated next month covers a different corpus.'),
+          'scored. Two cautions: TODAY moves, so the same analysis repeated '
+          'next month covers a different corpus; and it can reach past your '
+          'local data, since the master database only holds what the last '
+          'baseline and update download contained. Set a fixed date at or '
+          'before that point for a reproducible run.'),
         F('analysis_parameters.betweenness_k_samples', 'Betweenness samples', 'int', 1000,
           'Node sample size for estimating betweenness on the unfiltered graph.',
           'Default: 1000.',
           'Betweenness on the consensus subgraph is always exact; only the '
           'whole-graph estimate samples. Lower is faster and noisier.'),
-        F('analysis_parameters.calculate_full_centrality', 'Whole-graph centrality', 'bool', True,
+        F('analysis_parameters.calculate_full_centrality', 'Whole-graph centrality', 'bool', False,
           'Also compute centrality across the entire unfiltered co-occurrence graph.',
-          'Default: on.',
-          'Adds hours on a 13,558-node graph, and is needed only to compare '
-          '(full) against (subgraph) scope. Turn it off for a faster run that '
-          'reports subgraph centrality alone.'),
+          'Default: off, which is much faster.',
+          'Centrality on the consensus subgraph is computed either way - this '
+          'adds the whole-graph figures on top, and costs hours on a '
+          '13,558-node graph. Turn it on only to compare (full) against '
+          '(subgraph) scope.'),
         F('analysis_parameters.eigenvector_max_iter', 'Eigenvector max iterations', 'int', 1000,
           'Iteration cap for the eigenvector centrality solver.', 'Default: 1000.',
           'Raise it only if the solver reports non-convergence.'),
@@ -186,8 +196,10 @@ TABS = [
           '',
           'Curated positive set used for validation and benchmarking.',
           'Default: empty, which auto-detects a file you drop in data/raw and '
-          'otherwise falls back to the bundled OECD AOP-40 set (96 PMIDs) when '
-          'reference data is in use.',
+          'otherwise falls back to the bundled set when reference data is in '
+          'use. That bundled example is '
+          'data/reference_processed/oecd_ground_truth_curated.xlsx - the OECD '
+          'AOP-40 set of 96 PMIDs for the allergic contact dermatitis query.',
           'Supply your own as .xlsx or .csv with a PMID column. Articles carrying '
           'no network term are unreachable by every method and cap achievable recall.'),
         F('benchmark.primary_node', 'Primary node', 'text', 'Dermatitis, Allergic Contact',
@@ -280,12 +292,12 @@ TABS = [
           'With this on, a full run stops partway and waits. Turn it off for an '
           'unattended run - strata then stay Uncategorized and the biological '
           'figures lose their meaning.'),
-        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', True,
+        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
           'Run against the shipped reference corpus instead of your own retrieval.',
-          'Default: on, so a fresh install can produce figures before any data '
-          'has been downloaded.',
-          'Turn it off once you have built your own corpus, or the run scores '
-          'the shipped reference network rather than yours.'),
+          'Default: off - the normal case is analysing your own corpus.',
+          'Turn it on to reproduce the published reference run, or to draw '
+          'figures before you have retrieved anything. While it is on, the run '
+          'scores the shipped network rather than yours.'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
