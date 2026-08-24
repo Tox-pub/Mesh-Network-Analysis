@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MeSH Workbench - Windows Installer package (WiX v4/v5).
+
+  Why an MSI as well as a Setup.exe: the program that performs an MSI install is
+  msiexec.exe, which ships with Windows and is signed by Microsoft. No new
+  executable is created, so the Defender Exploit Guard rule that blocks binaries
+  without prevalence or a signature has nothing to act on. A freshly built
+  Setup.exe trips exactly that rule on a managed machine and is refused with
+  0x80070005, which is what happens on the machine this was developed on.
+
+  Installs the same tree the portable zip contains, per user, so no elevation is
+  required. The .bat launchers and portable.marker are excluded: they belong to
+  the extract-and-run copy, and the marker in particular would make an installed
+  copy keep settings and results beside the program instead of per user.
+
+  Build:  python packaging/build_msi_windows.py
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <?define AppName = "MeSH Workbench" ?>
+  <?define AppVersion = "3.0.0" ?>
+
+  <Package Name="$(AppName)"
+           Manufacturer="Karolinska Institutet"
+           Version="$(AppVersion)"
+           UpgradeCode="8F2A6C41-3D77-4B2E-9A15-6C0E7B93D284"
+           Scope="perUser"
+           Compressed="yes">
+
+    <!-- Replace an older version in place rather than installing beside it. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(AppName) is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(PortableDir)\app\mesh_workbench\assets\mesh_workbench.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Tox-pub/Mesh-Network-Analysis" />
+    <!-- The tree is ~460 MB; refuse an install that cannot complete. -->
+    <Property Id="DISKSPACE" Value="512000" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="$(AppName)" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!--
+      Harvest the whole tree. WiX v4 onwards can do this directly; earlier
+      versions needed heat.exe and a generated fragment.
+    -->
+    <Files Include="$(PortableDir)\**" Directory="INSTALLFOLDER">
+      <Exclude Files="$(PortableDir)\*.bat" />
+      <Exclude Files="$(PortableDir)\portable.marker" />
+      <Exclude Files="$(PortableDir)\README - Install and First Run.txt" />
+    </Files>
+
+    <!--
+      Shortcuts run pythonw.exe with the launcher script, so no console window
+      appears and the entry looks like any other installed program.
+    -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="B41C7E90-52A8-4F63-8D11-2E5A9C7F30B6">
+      <Shortcut Id="StartMenuLink"
+                Name="$(AppName)"
+                Description="Build and validate MeSH concept networks"
+                Target="[INSTALLFOLDER]python\pythonw.exe"
+                Arguments="&quot;[INSTALLFOLDER]app\launch.py&quot;"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RemoveFolder Id="RemoveStartMenu" On="uninstall" />
+      <!-- A per-user component needs a per-user key path. -->
+      <RegistryValue Root="HKCU" Key="Software\Karolinska Institutet\$(AppName)"
+                     Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="5C93A17D-8B0E-4A26-B7F4-91D3E62C48AA">
+      <Shortcut Id="DesktopLink"
+                Name="$(AppName)"
+                Target="[INSTALLFOLDER]python\pythonw.exe"
+                Arguments="&quot;[INSTALLFOLDER]app\launch.py&quot;"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon" />
+      <RegistryValue Root="HKCU" Key="Software\Karolinska Institutet\$(AppName)"
+                     Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="$(AppName)" Level="1">
+      <ComponentGroupRef Id="Files" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+    <Feature Id="DesktopIcon" Title="Desktop shortcut" Level="1">
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+  </Package>
+</Wix>

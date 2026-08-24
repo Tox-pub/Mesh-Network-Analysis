@@ -290,6 +290,11 @@ INSTALLING
     For a Desktop icon, run "Create desktop shortcut.bat" once. It points at
     this folder rather than copying anything, so keep the folder where it is.
 
+    To install it properly instead - Start menu entry, desktop icon, and an
+    entry in Settings > Apps - run "Install.bat". That copies the program into
+    your user profile and gives each account its own settings and results.
+    Nothing needs administrator rights.
+
 UNINSTALLING
     Run "Uninstall.bat", or open the program and choose Tools -> Uninstall.
 
@@ -326,6 +331,7 @@ REQUIREMENTS
 
 WHAT IS IN HERE
     MeSH Workbench.bat      the launcher - this is the one to click
+    Install.bat             installs it properly, if you would rather
     Create desktop shortcut.bat   puts an icon on your Desktop
     Uninstall.bat           removes the program and its data
     python\                 Python {py}, the official build from python.org
