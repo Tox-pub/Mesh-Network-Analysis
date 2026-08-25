@@ -17,7 +17,8 @@
   Build:  python packaging/build_msi_windows.py
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <?define AppName = "MeSH Workbench" ?>
   <?define AppVersion = "3.1.0" ?>
@@ -36,6 +37,22 @@
     <Icon Id="AppIcon" SourceFile="$(PortableDir)\app\mesh_workbench\assets\mesh_workbench.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Tox-pub/Mesh-Network-Analysis" />
+    <!-- Without this the Add/Remove Programs entry shows a blank location and
+         Windows cannot report the installed size. It has to be set after
+         CostFinalize, when INSTALLFOLDER has actually been resolved. -->
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+
+    <!-- Shortcut choices. Defaulted on, so accepting every page gives the
+         conventional result, but both are now the user's to decline. -->
+    <Property Id="INSTALLSTARTMENUSHORTCUT" Value="1" Secure="yes" />
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" Secure="yes" />
+
+    <!-- Leaving the downloaded corpus behind is the safe default: it is tens of
+         gigabytes the user chose to fetch, and an uninstall that silently threw
+         it away would be unforgivable. REMOVEDATA=1 opts in. The scratch copy in
+         the temp folder is always cleared, since nothing else ever will and it
+         has no value once the build is done. -->
+    <Property Id="REMOVEDATA" Value="0" Secure="yes" />
     <!-- The tree is ~460 MB; refuse an install that cannot complete. -->
     <Property Id="DISKSPACE" Value="512000" />
 
@@ -43,6 +60,79 @@
     <!-- Generated from the repository LICENSE by build_msi_windows.py, so the
          licence the installer shows cannot drift from the one shipped. -->
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+
+    <UI>
+      <Dialog Id="ShortcutsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="280" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Shortcuts" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="20" Transparent="yes" NoPrefix="yes"
+                 Text="Choose where [ProductName] should appear." />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="StartMenuCheckBox" Type="CheckBox" X="26" Y="70" Width="300" Height="17"
+                 Property="INSTALLSTARTMENUSHORTCUT" CheckBoxValue="1"
+                 Text="Add a &amp;Start menu entry" />
+        <Control Id="DesktopCheckBox" Type="CheckBox" X="26" Y="95" Width="300" Height="17"
+                 Property="INSTALLDESKTOPSHORTCUT" CheckBoxValue="1"
+                 Text="Create a &amp;desktop shortcut" />
+        <Control Id="Note" Type="Text" X="26" Y="130" Width="310" Height="40" Transparent="yes"
+                 Text="Both can be added or removed later without reinstalling." />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Order 10 beats the stock publishes, so Next reaches the new page and
+           Back from the confirmation page returns to it rather than skipping. -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="ShortcutsDlg" Order="10" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ShortcutsDlg" Order="10"
+               Condition="NOT Installed" />
+    </UI>
+
+
+    <!--
+      Windows Installer removes only what it installed. Everything the program
+      later downloads or builds lives outside the install - the PubMed archive,
+      the databases, and a full working copy of the master database that the ETL
+      leaves in the temp folder. Deleting the program alone strands all of it,
+      and the temp copy in particular is somewhere no user would think to look.
+
+      So on uninstall the application's own uninstaller runs, and both routes
+      agree on what "clean" means. Results are never touched.
+
+      python.exe, not pythonw.exe: the uninstaller writes progress to stdout,
+      and under pythonw stdout is None, so the first print would kill it
+      silently. WixQuietExec hides the console window instead.
+    -->
+    <SetProperty Id="CleanUpData"
+                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER]&quot; --yes"
+                 Before="CleanUpData" Sequence="execute" />
+    <CustomAction Id="CleanUpData" DllEntry="WixQuietExec" Execute="deferred"
+                  Impersonate="yes" Return="ignore" BinaryRef="Wix4UtilCA_X64" />
+
+    <SetProperty Id="CleanUpCacheOnly"
+                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER]&quot; --yes --keep-data"
+                 Before="CleanUpCacheOnly" Sequence="execute" />
+    <CustomAction Id="CleanUpCacheOnly" DllEntry="WixQuietExec" Execute="deferred"
+                  Impersonate="yes" Return="ignore" BinaryRef="Wix4UtilCA_X64" />
+
+    <InstallExecuteSequence>
+      <!-- Before RemoveFiles, while the interpreter it needs is still present. -->
+      <Custom Action="CleanUpData" Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND REMOVEDATA=&quot;1&quot;" />
+      <Custom Action="CleanUpCacheOnly" Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT REMOVEDATA=&quot;1&quot;" />
+    </InstallExecuteSequence>
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
@@ -60,7 +150,9 @@
       Shortcuts run pythonw.exe with the launcher script, so no console window
       appears and the entry looks like any other installed program.
     -->
-    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="B41C7E90-52A8-4F63-8D11-2E5A9C7F30B6">
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder"
+               Guid="B41C7E90-52A8-4F63-8D11-2E5A9C7F30B6"
+               Condition="INSTALLSTARTMENUSHORTCUT">
       <Shortcut Id="StartMenuLink"
                 Name="$(AppName)"
                 Description="Build and validate MeSH concept networks"
@@ -74,7 +166,9 @@
                      Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
-    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="5C93A17D-8B0E-4A26-B7F4-91D3E62C48AA">
+    <Component Id="DesktopShortcut" Directory="DesktopFolder"
+               Guid="5C93A17D-8B0E-4A26-B7F4-91D3E62C48AA"
+               Condition="INSTALLDESKTOPSHORTCUT">
       <Shortcut Id="DesktopLink"
                 Name="$(AppName)"
                 Target="[INSTALLFOLDER]python\pythonw.exe"
@@ -97,8 +191,6 @@
         <Exclude Files="$(PortableDir)\README - Install and First Run.txt" />
       </Files>
       <ComponentRef Id="StartMenuShortcut" />
-    </Feature>
-    <Feature Id="DesktopIcon" Title="Desktop shortcut" Level="1">
       <ComponentRef Id="DesktopShortcut" />
     </Feature>
 

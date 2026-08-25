@@ -58,6 +58,44 @@ def default_portable():
     return os.path.join(mod.BUILD_OUT_DEFAULT, mod.NAME)
 
 
+# Everything a *run* leaves in a build tree. The zip builder assembles a fresh
+# tree each time and never sees any of it; the installers harvest whatever is on
+# disk, so a tree someone has actually launched the program from carries extra
+# baggage into the release. Both were observed: bytecode added 2,108 files and
+# 16 MB to one MSI, and a mesh_config.json written on first run was packaged too.
+RUNTIME_FILES = ('mesh_config.json',)
+RUNTIME_DIRS = ('data', 'results')
+
+
+def purge_runtime_artifacts(tree):
+    """Strip anything a previous run left behind, so the build is reproducible.
+
+    A shipped mesh_config.json is the more serious of the two: this one held
+    only defaults, but a tree the developer had configured would carry their
+    search terms - and their NCBI credentials - into a public download.
+    """
+    removed_dirs = removed_files = 0
+    for base, dirs, _ in os.walk(tree):
+        for d in list(dirs):
+            if d == '__pycache__':
+                shutil.rmtree(os.path.join(base, d), ignore_errors=True)
+                dirs.remove(d)
+                removed_dirs += 1
+    for name in RUNTIME_FILES:
+        p = os.path.join(tree, name)
+        if os.path.isfile(p):
+            os.remove(p)
+            removed_files += 1
+    for name in RUNTIME_DIRS:
+        p = os.path.join(tree, name)
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+            removed_files += 1
+    if removed_dirs or removed_files:
+        print(f'  purged {removed_dirs} __pycache__ dirs, {removed_files} runtime file(s)')
+    return removed_dirs + removed_files
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--portable', default=None,
@@ -75,6 +113,7 @@ def main():
         if not os.path.exists(os.path.join(portable, needed)):
             sys.exit(f'{portable} does not look like a finished build ({needed} missing).')
 
+    purge_runtime_artifacts(portable)
     wix = find_wix(a.wix)
     out_dir = a.out or os.path.dirname(portable)
     os.makedirs(out_dir, exist_ok=True)
@@ -86,6 +125,7 @@ def main():
     cmd = [wix, 'build', WXS,
            '-d', f'PortableDir={portable}',
            '-ext', 'WixToolset.UI.wixext',
+           '-ext', 'WixToolset.Util.wixext',
            '-arch', 'x64',
            '-b', HERE,
            '-o', msi]
