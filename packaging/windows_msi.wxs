@@ -40,7 +40,9 @@
     <Property Id="DISKSPACE" Value="512000" />
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
-    <WixVariable Id="WixUILicenseRtf" Value="" />
+    <!-- Generated from the repository LICENSE by build_msi_windows.py, so the
+         licence the installer shows cannot drift from the one shipped. -->
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
@@ -54,12 +56,6 @@
       Harvest the whole tree. WiX v4 onwards can do this directly; earlier
       versions needed heat.exe and a generated fragment.
     -->
-    <Files Include="$(PortableDir)\**" Directory="INSTALLFOLDER">
-      <Exclude Files="$(PortableDir)\*.bat" />
-      <Exclude Files="$(PortableDir)\portable.marker" />
-      <Exclude Files="$(PortableDir)\README - Install and First Run.txt" />
-    </Files>
-
     <!--
       Shortcuts run pythonw.exe with the launcher script, so no console window
       appears and the entry looks like any other installed program.
@@ -90,7 +86,16 @@
     </Component>
 
     <Feature Id="Main" Title="$(AppName)" Level="1">
-      <ComponentGroupRef Id="Files" />
+      <!--
+        Harvested in place. `Files` generates its own components; it does not
+        publish a ComponentGroup to reference, so it belongs inside the feature
+        rather than beside it.
+      -->
+      <Files Include="$(PortableDir)\**" Directory="INSTALLFOLDER">
+        <Exclude Files="$(PortableDir)\*.bat" />
+        <Exclude Files="$(PortableDir)\portable.marker" />
+        <Exclude Files="$(PortableDir)\README - Install and First Run.txt" />
+      </Files>
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>
     <Feature Id="DesktopIcon" Title="Desktop shortcut" Level="1">
