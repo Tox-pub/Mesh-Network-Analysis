@@ -81,10 +81,13 @@ def main():
     msi = os.path.join(out_dir, 'MeSH-Workbench-3.1.0-win64.msi')
 
     print(f'Building MSI\n  portable : {portable}\n  compiler : {wix}')
+    # -b puts packaging/ on the bind path so license.rtf resolves regardless of
+    # the working directory the build was started from.
     cmd = [wix, 'build', WXS,
            '-d', f'PortableDir={portable}',
            '-ext', 'WixToolset.UI.wixext',
            '-arch', 'x64',
+           '-b', HERE,
            '-o', msi]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:

@@ -73,39 +73,72 @@ the portable zip stays the fallback for locked-down machines.
 
 ## Publishing a release
 
-Two artefacts go on every release:
+Three artefacts, all built from the same tree:
 
-| Asset | For |
-| --- | --- |
-| `MeSH-Workbench-<version>-win64-setup.exe` | Most people. Wizard, shortcuts, Add/Remove Programs. |
-| `MeshWorkbench-<version>-win64-portable.zip` | Locked-down machines, USB sticks, no-install use. |
+| Asset | Size | For |
+| --- | --- | --- |
+| `MeSH-Workbench-<version>-win64.msi` | ~94 MB | Managed machines. `msiexec` performs the install, and that is signed by Microsoft. |
+| `MeSH-Workbench-<version>-win64-setup.exe` | ~68 MB | Ordinary machines. Conventional wizard. |
+| `MeshWorkbench-<version>-win64-portable.zip` | ~117 MB | No install at all, or where both installers are refused. Contains `Install.bat`. |
 
-Neither **can live in the repository** - GitHub rejects any file over 100 MB and
-both are larger. Release assets allow up to 2 GB, and that is the supported
-route. Without a release there is no way for anyone to obtain the program from
-GitHub at all, because the launcher exists only inside these artefacts.
+### Repository or release?
 
-1. Build, and record a checksum:
+**The repository holds source only.** Build scripts, launchers, the WiX and Inno
+sources, the icon generator — everything needed to *produce* an artefact, and
+none of the artefacts themselves. `packaging/portable/` and `packaging/dist/`
+are gitignored precisely so a build cannot land in a commit.
 
-   ```bash
-   python packaging/build_portable_windows.py
-   python packaging/build_installer_windows.py
+**The release holds the artefacts.** GitHub rejects any file over 100 MB
+committed to a repository; release assets are capped at 2 GB each. The zip
+exceeds the repository limit, and even the two that would fit belong in a
+release, because a binary committed to git history stays there forever and
+every clone pays for it.
+
+Releases are free, including the bandwidth to serve them, and they do not count
+against Git LFS quotas.
+
+### Steps
+
+1. Confirm the version agrees everywhere. Ten files carry it, and a mismatch
+   means an asset whose name disagrees with the tag it hangs under.
+
+2. Build all three, onto an internal disk. Building from removable media took
+   roughly three times as long here, and the MSI failed mid-read with "the
+   volume for a file has been externally altered".
+
+   ```
+   python packaging/build_portable_windows.py   --out <build dir>
+   python packaging/build_installer_windows.py  --portable <build dir>\MeshWorkbench --out <build dir>
+   python packaging/build_msi_windows.py        --portable <build dir>\MeshWorkbench --out <build dir>
    ```
 
-   Then hash both, so a download can be verified:
+3. Hash all three, so a download can be verified:
 
-   ```bash
-   certutil -hashfile "D:\mesh_workbench_build\MeshWorkbench-3.1.0-win64-portable.zip" SHA256
+   ```
+   certutil -hashfile "<build dir>\MeshWorkbench-3.1.0-win64-portable.zip" SHA256
    ```
 
-2. Create the release against the tag for the version being shipped, attach
-   both artefacts, and put the checksums in the notes.
+4. Tag the exact commit the artefacts were built from, and push the tag:
 
-3. Point the project README's download link at the new release.
+   ```
+   git tag -a v3.1.0 -m "MeSH Workbench 3.1.0"
+   git push origin v3.1.0
+   ```
 
-The tag, `pyproject.toml`'s version, and `VERSION` in the build script all have
-to agree - a zip whose name disagrees with the tag it hangs under is the kind of
-thing nobody notices until someone reports a bug against the wrong version.
+5. On GitHub: **Releases** → **Draft a new release** → choose the tag → attach
+   the three files → paste the checksums into the notes → publish.
+
+   With the `gh` CLI it is one command instead:
+
+   ```
+   gh release create v3.1.0 --title "MeSH Workbench 3.1.0" --notes-file notes.md *.msi *.exe *.zip
+   ```
+
+6. Point the project README's download link at the new release.
+
+A tag is not required to draft a release — GitHub will create one — but tagging
+first is worth the extra step, since it records exactly which commit produced
+the binaries.
 
 ### Why this rather than a frozen executable
 
