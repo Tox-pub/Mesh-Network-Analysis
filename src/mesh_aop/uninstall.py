@@ -189,6 +189,14 @@ def inventory(project_dir, config=None):
     _add(items, root / 'data' / 'raw' / 'pubmed_baseline', DOWNLOADED,
          'PubMed baseline archive',
          'Re-downloadable from NLM, but that is tens of GB and several hours.')
+    # The daily update files are fetched separately from the yearly baseline and
+    # into their own folder, so an inventory that named only the baseline left
+    # them behind - and they accumulate for as long as the corpus is kept
+    # current.
+    _add(items, root / 'data' / 'raw' / 'pubmed_updates', DOWNLOADED,
+         'PubMed daily update archives',
+         'Records published since the baseline snapshot. Re-downloadable, and '
+         'they grow with every update run.')
     _add(items, root / 'data' / 'raw' / 'master_mesh_database.db', DERIVED,
          'Master annotation database',
          'Compiled from the archive above. Rebuilding takes hours.')
