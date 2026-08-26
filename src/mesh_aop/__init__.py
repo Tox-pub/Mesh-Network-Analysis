@@ -50,6 +50,13 @@ _EXPORTS = {
     "run_network_construction": "network",
     "run_consensus_filtering_and_lcc": "network",
     "run_community_detection": "network",
+
+    # --- Run provenance and the PRISMA flow report ---
+    "RunLedger": "run_ledger",
+    "open_ledger": "run_ledger",
+    "ledger_path": "run_ledger",
+    "write_prisma_report": "prisma",
+    "build_flow": "prisma",
     # --- 5. Filtering & Relevance Scoring ---
     "run_mean_relevancy_scoring": "relevance",
     # --- 6. Secondary Analysis & Export ---
