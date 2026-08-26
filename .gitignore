@@ -244,11 +244,7 @@ data/reference_raw/*
 !data/reference_raw/.gitkeep
 results/*
 !results/.gitkeep
-# The published reference figures are tracked, like the reference corpus they
-# came from: they are the run the paper reports, not output someone regenerated.
-# Un-ignoring the directory is what makes the exception work - git will not
-# reconsider a file inside a directory it has already excluded.
-!results/reference_figures/
+!results/reference_figures/.gitkeep
 results_SNAPSHOT_*.zip
 
 # Local tooling configuration, specific to one machine and one person.
