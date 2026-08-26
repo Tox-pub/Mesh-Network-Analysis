@@ -27,7 +27,8 @@ from tkinter import filedialog, messagebox
 
 from . import settings_schema as schema
 from . import __version__
-from .runner import DONE, LOG, PHASE, PROGRESS, TRANSIENT, PipelineRunner
+from .runner import (AT_CHECKPOINT, DONE, LOG, PAUSED, PHASE, PROGRESS,
+                     TRANSIENT, PipelineRunner)
 
 FACE = '#c0c0c0'
 FIELD = '#ffffff'
@@ -39,7 +40,12 @@ ERR = '#800000'
 WARN = '#7a5c00'
 NAVY = '#000080'
 CONSOLE_BG = '#000000'
-W, H = 880, 610
+# The description pane at the foot of Settings has to hold the longest note in
+# the schema without clipping it - a caveat that is cut off mid-sentence is
+# worse than absent, because the reader cannot tell there was more. HELP_H is
+# measured against every field by the test suite rather than guessed.
+W, H = 880, 720
+HELP_H = 150
 
 
 class Workbench(tk.Tk):
@@ -58,6 +64,10 @@ class Workbench(tk.Tk):
         self.runner = PipelineRunner(repo_dir, python_exe)
         self._elapsed = 0
         self._tick_job = None
+        # Set when a run stops for AOP annotation, so _finish can tell an
+        # intentional pause apart from an ordinary success - both exit zero.
+        self._paused_annotation = None
+        self._scan_rows = []
 
         self.title('MeSH Workbench')
         self.configure(bg=FACE)
@@ -77,6 +87,7 @@ class Workbench(tk.Tk):
         self.screens = {}
         for name, build in (('setup', self._build_setup), ('settings', self._build_settings),
                             ('running', self._build_running), ('results', self._build_results),
+                            ('integrity', self._build_integrity),
                             ('uninstall', self._build_uninstall)):
             fr = tk.Frame(self.body, bg=FACE)
             self.screens[name] = fr
@@ -94,7 +105,13 @@ class Workbench(tk.Tk):
         or directory". A file that exists but cannot be parsed is a real problem
         and still says so.
         """
-        if not os.path.exists(self.cfg_path):
+        # Remembered, because this is what tells first_run_locations that this
+        # is a first run. Testing for the file later cannot work: seeding the
+        # defaults here creates it, so by the time the dialog asked, the answer
+        # was always "it exists" and the dialog never appeared at all - nobody
+        # was ever asked where to put the ~52 GB it is there to ask about.
+        self.first_run = not os.path.exists(self.cfg_path)
+        if self.first_run:
             return self._write_default_cfg()
         try:
             with open(self.cfg_path, encoding='utf-8') as fh:
@@ -203,14 +220,142 @@ class Workbench(tk.Tk):
         # nothing ever displayed it - there was no menu entry and no button.
         bar.add_command(label='Results', command=self.open_results)
         t = tk.Menu(bar, tearoff=0)
-        t.add_command(label='Uninstall…', command=self.open_uninstall)
+        # Held on the instance so their state can follow the run. An entry that
+        # would fail if clicked is greyed rather than left enabled to raise an
+        # error box - which is the difference between a program that tells you
+        # where you are and one that lets you find out the hard way.
+        t.add_command(label='Annotate AOP levels...', command=self.open_annotation)
+        t.add_command(label='Show the annotation guide', command=self.open_annotation_guide)
+        t.add_separator()
+        t.add_command(label='Check and repair files...', command=self.open_integrity)
+        t.add_separator()
+        t.add_command(label='Uninstall...', command=self.open_uninstall)
+        self.menu_tools = t
+        self._tools_idx = {'annotate': 0, 'guide': 1, 'check': 3}
         bar.add_cascade(label='Tools', menu=t)
+
         h = tk.Menu(bar, tearoff=0)
+        # The manual documents every part of what ships here - the pipeline
+        # steps, the settings, the annotation workflow, the run controls, the
+        # repair tool, the ledger and the PRISMA report - so it is first and
+        # named for what it is rather than for its filename.
+        h.add_command(label='The manual - everything this package does',
+                      command=self.open_manual)
+        h.add_separator()
+        h.add_command(label='Installing and updating (INSTALL.md)',
+                      command=lambda: self.open_doc('INSTALL.md'))
+        h.add_command(label='Read me first (README.md)',
+                      command=lambda: self.open_doc('README.md'))
+        h.add_separator()
+        h.add_command(label='Reference figures - what they are',
+                      command=lambda: self.open_doc(
+                          os.path.join('results', 'reference_figures',
+                                       'PROVENANCE.md')))
+        h.add_command(label='How to annotate AOP levels',
+                      command=self.open_annotation_guide)
+        h.add_separator()
         h.add_command(label='About', command=lambda: messagebox.showinfo(
             'About', f'MeSH Workbench {__version__}\n\nDesktop front-end for the '
                      'mesh_aop pipeline.'))
         bar.add_cascade(label='Help', menu=h)
         self.config(menu=bar)
+        self._sync_tools_state()
+
+    # ------------------------------------------------------------ tools state
+    def _annotation_file(self):
+        """The run-annotations file for the current prefix, or None if absent."""
+        try:
+            results = self.vars.get('directories.results_dir')
+            results = results.get() if results else ''
+            if not results:
+                results = str(self.paths.default_user_results_dir(self.repo_dir))
+            prefix = self._current_prefix()
+            path = os.path.join(results, f'{prefix}_run_annotations.csv')
+            return path if os.path.exists(path) else None
+        except Exception:
+            return None
+
+    def _current_prefix(self):
+        try:
+            if self.vars['control_flags.use_reference_data'].get():
+                return 'DAC_Mesh'
+            return self.vars['control_flags.custom_file_prefix'].get() or 'DAC_Mesh'
+        except Exception:
+            return 'DAC_Mesh'
+
+    def _sync_tools_state(self):
+        """Grey out what cannot be done right now.
+
+        The annotation entries only mean anything once a run has produced a file
+        to annotate, which is exactly when the user starts looking for them.
+        """
+        menu = getattr(self, 'menu_tools', None)
+        if menu is None:
+            return
+        anno = self._annotation_file()
+        for name, present in (('annotate', bool(anno)), ('guide', bool(anno))):
+            try:
+                menu.entryconfig(self._tools_idx[name],
+                                 state='normal' if present else 'disabled')
+            except Exception:
+                pass
+
+    def open_annotation(self):
+        anno = self._annotation_file()
+        if not anno:
+            messagebox.showinfo(
+                'Nothing to annotate yet',
+                'The annotation file is written once the network has been built '
+                '(Step 3). Run that first, then come back here.')
+            return
+        self._open_path(anno)
+
+    def open_annotation_guide(self):
+        anno = self._annotation_file()
+        if not anno:
+            # Reachable from the Help menu before any run has produced a file,
+            # so show the instructions rather than doing nothing.
+            from mesh_aop import guides
+            tmp = os.path.join(self._results_dir(),
+                               f'{self._current_prefix()}_run_annotations.csv')
+            path = guides.write_annotation_guide(tmp)
+            if path:
+                self._open_path(path)
+            else:
+                messagebox.showinfo(
+                    'How to annotate',
+                    'The annotation file is written once the network has been '
+                    'built (Step 3). It lists every MeSH term in the network, '
+                    'and you fill in the "aop_level" column with one of:\n\n'
+                    + '\n'.join('    ' + lvl for lvl in guides.AOP_LEVELS)
+                    + '\n\nKeep the file semicolon-delimited - MeSH headings '
+                      'contain commas.')
+            return
+        from mesh_aop import guides
+        guide = os.path.join(os.path.dirname(anno), guides.ANNOTATION_GUIDE_NAME)
+        if not os.path.exists(guide):
+            # Written when a run pauses; produce it on demand for a run that did
+            # not pause but whose annotations the user wants to edit anyway.
+            guides.write_annotation_guide(anno)
+        self._open_path(guide) if os.path.exists(guide) else self._reveal(anno)
+
+    def open_manual(self):
+        self.open_doc('HELP.md')
+
+    def open_doc(self, name):
+        """Open one of the shipped documents, wherever this copy keeps them."""
+        candidates = [
+            os.path.join(self.repo_dir, name),
+            os.path.join(os.path.dirname(self.repo_dir), name),
+            os.path.join(self.repo_dir, 'docs', name),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                self._open_path(path)
+                return
+        messagebox.showinfo(
+            'Not found', f'{name} is not in this copy of the program.\n\n'
+                         f'Looked in:\n' + '\n'.join('  ' + c for c in candidates))
 
     def first_run_locations(self):
         """Ask where results and data should live, the first time only.
@@ -221,15 +366,13 @@ class Workbench(tk.Tk):
 
         A portable copy is self-contained by definition, so it is never asked.
         """
-        if self.paths.is_portable(self.repo_dir) or os.path.exists(self.cfg_path):
+        if self.paths.is_portable(self.repo_dir) or not getattr(self, 'first_run', False):
             return
 
         win = tk.Toplevel(self)
-        win.title('MeSH Workbench - first run')
-        win.configure(bg=FACE)
-        win.transient(self)
-        win.resizable(False, False)
-        win.protocol('WM_DELETE_WINDOW', lambda: None)   # only leaves via a button
+        # Only leaves via a button. It used to swallow the close box in silence,
+        # which looks like a hung window; _make_modal answers instead.
+        self._make_modal(win, 'MeSH Workbench - first run')
 
         tk.Label(win, text='Where should your files go?', bg=FACE, font=self.f_bold,
                  anchor='w').pack(fill='x', padx=12, pady=(12, 2))
@@ -337,17 +480,36 @@ class Workbench(tk.Tk):
         frame.columnconfigure(3, minsize=130)
 
     # ------------------------------------------------------------- screen: setup
+    # ------------------------------------------------------------ screen: setup
+    #
+    # Every path here comes from MeshConfig, never from a repo-relative guess.
+    # The previous version hard-coded `data/raw/...` beneath the program folder
+    # and the DAC_Mesh prefix; on an installed copy the pipeline keeps its data
+    # under the user profile, so the screen reported "Missing" for files that
+    # were plainly there - and the one thing this screen exists to answer is
+    # whether a file is present.
+
+    def _setup_config(self):
+        """The live configuration, or None if it cannot be built."""
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            return MeshConfig(config_path=self.cfg_path)
+        except Exception:
+            return None
+
     def _build_setup(self, root):
         tk.Label(root, text='Local data sources', bg=FACE, font=self.f_bold,
                  anchor='w').pack(fill='x', padx=10, pady=(10, 2))
         tk.Label(root, bg=FACE, anchor='w', justify='left',
                  text='The pipeline runs offline once these are in place. '
-                      'Nothing is re-downloaded unless you ask.'
-                 ).pack(fill='x', padx=10, pady=(0, 8))
+                      'Nothing is downloaded or removed unless you ask.'
+                 ).pack(fill='x', padx=10, pady=(0, 4))
+        self.setup_where = tk.Label(root, bg=FACE, anchor='w', fg=DIM,
+                                    font=self.f_mono)
+        self.setup_where.pack(fill='x', padx=10, pady=(0, 6))
 
         box = self._sunken(root)
         box.pack(fill='both', expand=True, padx=10)
-        # header uses the same grid geometry as the rows, or the columns drift
         hdr = tk.Frame(box, bg=FACE)
         hdr.pack(fill='x', padx=4, pady=(3, 0))
         self._setup_cols(hdr)
@@ -357,133 +519,329 @@ class Workbench(tk.Tk):
                      ).grid(row=0, column=c, sticky='we',
                             padx=(0, 8) if c == 2 else 0)
         tk.Frame(box, bg='#808080', height=1).pack(fill='x', padx=4, pady=(2, 0))
-        self.setup_rows = tk.Frame(box, bg=FACE)
-        self.setup_rows.pack(fill='both', expand=True)
+        canvas = tk.Canvas(box, bg=FACE, highlightthickness=0)
+        sb = tk.Scrollbar(box, command=canvas.yview)
+        canvas.config(yscrollcommand=sb.set)
+        sb.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        self.setup_rows = tk.Frame(canvas, bg=FACE)
+        canvas.create_window((0, 0), window=self.setup_rows, anchor='nw')
+        self.setup_rows.bind('<Configure>',
+                             lambda e: canvas.config(scrollregion=canvas.bbox('all')))
 
         foot = tk.Frame(root, bg=FACE)
         foot.pack(fill='x', padx=10, pady=9)
+
+        # The daily-update choice, in the open. It used to be the third dialog
+        # in a chain that only started once you had already agreed to a build,
+        # so nobody could see whether it was on without committing to one.
+        opts = tk.Frame(foot, bg=FACE)
+        opts.pack(fill='x', pady=(0, 6))
+        self.var_with_updates = tk.BooleanVar(value=False)
+        tk.Checkbutton(opts, variable=self.var_with_updates, bg=FACE,
+                       text='Also fetch the daily update files when building',
+                       anchor='w').pack(side='left')
+        tk.Label(opts, bg=FACE, fg=DIM, anchor='w',
+                 text='  (the baseline is a yearly snapshot; the updates carry '
+                      'everything published since)').pack(side='left')
+
         self.setup_total = tk.Label(foot, bg=FACE, relief='sunken', bd=2, anchor='w')
-        self.setup_total.pack(side='left', fill='x', expand=True, ipady=2, padx=(0, 8))
-        tk.Button(foot, text='Refresh', width=11, command=self.scan_data
-                  ).pack(side='right', padx=2)
-        tk.Button(foot, text='Continue', width=11, font=self.f_bold,
+        self.setup_total.pack(fill='x', ipady=2, pady=(0, 6))
+        act = tk.Frame(foot, bg=FACE)
+        act.pack(fill='x')
+        tk.Button(act, text='Continue', width=11, font=self.f_bold,
                   command=lambda: self.show('settings')).pack(side='right', padx=2)
+        tk.Button(act, text='Refresh', width=11, command=self.scan_data
+                  ).pack(side='right', padx=2)
         self.after(120, self.scan_data)
 
     def scan_data(self):
-        """Measure what is actually on disk - no assumed sizes."""
+        """Measure what is on disk, at the paths the pipeline actually uses."""
         for w in self.setup_rows.winfo_children():
             w.destroy()
-        d = self.repo_dir
+
+        cfg = self._setup_config()
+        if cfg is None:
+            self.setup_where.config(text='  (the configuration could not be read)')
+            self.setup_total.config(text='   Nothing could be measured.')
+            return
+
+        raw, proc = cfg.active_raw_dir, cfg.active_source_dir
+        prefix = cfg.prefix
+        self.setup_where.config(
+            text=f'  data  {raw}\n  work  {proc}')
+
+        f = cfg.files
         items = [
-            ('Master annotation database', os.path.join(d, 'data/raw/master_mesh_database.db'),
-             'Built from the archive. Required for every run.'),
-            ('PubMed baseline archive', os.path.join(d, 'data/raw/pubmed_baseline'),
-             'Only needed to build or rebuild the database.'),
-            ('MeSH descriptor file', os.path.join(d, 'data/raw/desc2025.xml'),
-             'Defines the stop-word vocabulary.'),
-            ('Relevance database', os.path.join(d, 'data/processed/DAC_Mesh_mean_relevancy.db'),
-             'Per-article scores for the current project.'),
-            ('Citation database', os.path.join(d, 'data/processed/DAC_Mesh_cleaned_pmids.db'),
-             'Query results and citation generations.'),
+            dict(key='master', label='Master annotation database',
+                 path=str(f['master_db']),
+                 note='Built from the archive. Required for every run. Hours to rebuild.',
+                 build='Build', rebuild='Rebuild', delete=True, cost='hours'),
+            dict(key='baseline', label='PubMed baseline archive',
+                 path=str(raw / 'pubmed_baseline'),
+                 note='The yearly snapshot, ~44 GB. Only needed to build the database.',
+                 build='Download', rebuild='Re-download', delete=True, cost='hours'),
+            dict(key='updates', label='PubMed daily updates',
+                 path=str(raw / 'pubmed_updates'),
+                 note='Records published since the baseline snapshot.',
+                 build='Download', rebuild='Re-download', delete=True, cost='minutes'),
+            dict(key='desc', label='MeSH descriptor file',
+                 path=str(raw / 'desc2025.xml'),
+                 note='Defines the stop-word vocabulary. Downloaded automatically.',
+                 delete=True, cost='minutes'),
+            dict(key='pmids', label=f'Retrieved PMIDs  ({prefix})',
+                 path=str(f['pmids_db']),
+                 note='Everything the search and its citation hops returned.',
+                 delete=True, cost='hours'),
+            dict(key='cleaned', label=f'Citation database  ({prefix})',
+                 path=str(f['cleaned_db']),
+                 note='Query results and citation generations, with MeSH attached.',
+                 delete=True, cost='minutes'),
+            dict(key='relevance', label=f'Relevance database  ({prefix})',
+                 path=str(f['relevance_db']),
+                 note='Per-article scores for this project.',
+                 delete=True, cost='minutes'),
         ]
-        total = 0.0
-        reclaim = 0.0
-        for label, path, note in items:
-            gb = _size_gb(path)
+
+        total = reclaim = 0.0
+        for it in items:
+            gb = _size_gb(it['path'])
+            present = gb is not None
             total += gb or 0.0
-            if 'baseline' in label.lower():
-                reclaim = gb or 0.0
-            # grid, not nested packs: a fixed-width frame with pack_propagate
-            # off collapses to zero height and clips its labels to slivers.
+            if it['key'] in ('baseline', 'updates'):
+                reclaim += gb or 0.0
+
             row = tk.Frame(self.setup_rows, bg=FACE)
             row.pack(fill='x', pady=2, padx=4)
             self._setup_cols(row)
-            present = gb is not None
-            tk.Label(row, text=label, bg=FACE, font=self.f_bold, anchor='w'
+            tk.Label(row, text=it['label'], bg=FACE, font=self.f_bold, anchor='w'
                      ).grid(row=0, column=0, sticky='w')
-            tk.Label(row, text=note, bg=FACE, fg=DIM, anchor='w'
+            tk.Label(row, text=it['note'], bg=FACE, fg=DIM, anchor='w'
                      ).grid(row=1, column=0, sticky='w')
             tk.Label(row, text=('Present' if present else 'Missing'), bg=FACE,
                      fg=(OK if present else ERR), font=self.f_bold, anchor='w'
                      ).grid(row=0, column=1, sticky='w')
-            tk.Label(row, text=(f'{gb:,.1f} GB' if present else '—'), bg=FACE,
+            tk.Label(row, text=(f'{gb:,.2f} GB' if present else '-'), bg=FACE,
                      anchor='e').grid(row=0, column=2, sticky='e', padx=(0, 8))
-            if 'baseline' in label.lower() and present:
-                tk.Button(row, text='Delete & reclaim',
-                          command=lambda p=path, g=gb: self.reclaim(p, g)
-                          ).grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
-            # Step 0 is the only way to produce the master database, and nothing
-            # else in the pipeline runs without it.
-            if label.startswith('Master annotation'):
-                tk.Button(row, text=('Rebuild' if present else 'Build'),
-                          command=lambda p=present: self.build_database(p)
-                          ).grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
+
+            buttons = tk.Frame(row, bg=FACE)
+            buttons.grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
+            label = it.get('rebuild' if present else 'build')
+            if label:
+                tk.Button(buttons, text=label, width=12,
+                          command=lambda i=it, p=present: self._setup_build(i, p)
+                          ).pack(side='left', padx=2)
+            if it.get('delete') and present:
+                tk.Button(buttons, text='Delete', width=8,
+                          command=lambda i=it, g=gb: self._setup_delete(i, g)
+                          ).pack(side='left', padx=2)
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
                 row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
+
         self.setup_total.config(
-            text=f'   On disk now {total:,.1f} GB' +
-                 (f'   ·   after reclaiming the archive {total - reclaim:,.1f} GB'
+            text=f'   On disk now {total:,.2f} GB' +
+                 (f'   -   {reclaim:,.2f} GB of that is downloaded archive, '
+                  f'removable once the database is built'
                   if reclaim else ''))
 
-    def reclaim(self, path, gb):
-        if not messagebox.askyesno(
-                'Delete the PubMed baseline archive?',
-                f'This removes the archive and frees {gb:,.1f} GB.\n\n'
-                'The master annotation database is unaffected and the pipeline '
-                'keeps working.\n\nYou would need to download the archive again '
-                '- several hours - only if you rebuild the database from '
-                'scratch.\n\nDelete it?', icon='warning'):
+    # -- typed confirmation ------------------------------------------------
+    #
+    # Every action on this screen either destroys something that took hours to
+    # produce or starts something that will take hours to finish. A yes/no box
+    # is one mis-aimed click; typing the word is a deliberate act, and it forces
+    # a reading of what the word is attached to.
+
+    def _make_modal(self, win, title, on_close=None):
+        """Centre a dialog on the window and decide what closing it means.
+
+        `on_close=None` refuses the close box outright: the dialog has to be
+        answered with one of the buttons on it. That is deliberate for anything
+        destructive or expensive - the whole point of the dialog is that the
+        reader takes in what is at stake, and a title-bar X is the one way out
+        that requires reading nothing. Cancel is always present, so nobody is
+        trapped; they are only asked to say which they meant.
+
+        Passing a callable instead routes the close box (and Escape) to it, for
+        dialogs where dismissing genuinely is one of the choices.
+        """
+        win.title(title)
+        win.configure(bg=FACE)
+        win.transient(self)
+        win.resizable(False, False)
+        if on_close is None:
+            def refuse():
+                win.bell()
+                self._flash(win)
+            win.protocol('WM_DELETE_WINDOW', refuse)
+            win.bind('<Escape>', lambda _e: refuse())
+        else:
+            win.protocol('WM_DELETE_WINDOW', on_close)
+            win.bind('<Escape>', lambda _e: on_close())
+        return win
+
+    def _flash(self, win):
+        """Draw the eye back to the dialog when its close box is refused."""
+        try:
+            original = win.cget('bg')
+            win.configure(bg=WARN)
+            win.after(90, lambda: win.configure(bg=original))
+        except Exception:
+            pass
+
+    def _place_modal(self, win, offset=60):
+        win.update_idletasks()
+        win.geometry('+%d+%d' % (self.winfo_rootx() + offset,
+                                 self.winfo_rooty() + offset))
+        win.grab_set()
+
+    def confirm_typed(self, title, word, message, detail=''):
+        """Return True only if the user types `word` exactly.
+
+        There is no way out of this dialog except its own two buttons - see
+        _make_modal. The action it guards either destroys something that took
+        hours to produce or starts something that will take hours to finish.
+        """
+        win = tk.Toplevel(self)
+        self._make_modal(win, title)
+        body = tk.Frame(win, bg=FACE)
+        body.pack(fill='both', expand=True, padx=16, pady=14)
+        tk.Label(body, text=title, bg=FACE, font=self.f_bold, anchor='w'
+                 ).pack(fill='x')
+        tk.Label(body, text=message, bg=FACE, anchor='w', justify='left',
+                 wraplength=520).pack(fill='x', pady=(6, 6))
+        if detail:
+            tk.Label(body, text=detail, bg=FACE, anchor='w', justify='left',
+                     fg=ERR, wraplength=520, font=self.f_bold).pack(fill='x',
+                                                                    pady=(0, 6))
+        tk.Label(body, bg=FACE, anchor='w', fg=DIM, justify='left', wraplength=520,
+                 text='Answer with one of the buttons below - the close box is '
+                      'disabled here on purpose.').pack(fill='x', pady=(0, 8))
+        tk.Label(body, text=f'Type {word} to confirm:', bg=FACE, anchor='w'
+                 ).pack(fill='x', pady=(4, 2))
+        typed = tk.StringVar()
+        entry = tk.Entry(body, bg=FIELD, relief='sunken', bd=2, textvariable=typed)
+        entry.pack(fill='x')
+        entry.focus_set()
+
+        state = {'ok': False}
+        row = tk.Frame(body, bg=FACE)
+        row.pack(fill='x', pady=(12, 0))
+        go = tk.Button(row, text=word.title(), width=12, state='disabled',
+                       command=lambda: (state.update(ok=True), win.destroy()))
+        go.pack(side='left')
+        tk.Button(row, text='Cancel', width=10,
+                  command=win.destroy).pack(side='right')
+
+        # Traced on the variable rather than bound to <KeyRelease>: a word put
+        # in by a right-click paste produces no key event, and the button would
+        # have stayed disabled with the correct word sitting in the box.
+        def check(*_):
+            go.config(state='normal' if typed.get().strip() == word else 'disabled')
+        typed.trace_add('write', check)
+        entry.bind('<Return>',
+                   lambda e: go.invoke() if str(go['state']) == 'normal' else None)
+
+        self._place_modal(win)
+        self.wait_window(win)
+        return state['ok']
+
+    def _setup_delete(self, item, gb):
+        cost = {'hours': 'hours', 'minutes': 'minutes'}.get(item['cost'], 'time')
+        detail = ('Rebuilding this takes HOURS.' if item['cost'] == 'hours' else '')
+        if not self.confirm_typed(
+                f"Delete: {item['label']}", 'DELETE',
+                f"{item['path']}\n\n"
+                f"This frees {gb:,.2f} GB. Nothing else is touched, and the "
+                f"pipeline rebuilds it when it next needs it - which costs "
+                f"{cost}.", detail):
             return
         try:
-            shutil.rmtree(path)
+            if os.path.isdir(item['path']):
+                shutil.rmtree(item['path'])
+            else:
+                os.remove(item['path'])
+                # A database's write-ahead log and health record describe a file
+                # that no longer exists; left behind, SQLite will try to replay
+                # the log into whatever is built next.
+                for suffix in ('-wal', '-shm', '-journal', '.health.json'):
+                    side = item['path'] + suffix
+                    if os.path.exists(side):
+                        os.remove(side)
         except OSError as exc:
-            messagebox.showerror('Could not delete',
-                                 f'The archive was not removed:\n\n{exc}')
+            messagebox.showerror('Could not delete', f"{item['path']}\n\n{exc}")
             return
         self.scan_data()
 
-    def build_database(self, present):
-        """Run Step 0: fetch the PubMed baseline and compile the master database.
-
-        The switches travel on the command line, not through mesh_config.json -
-        a rebuild recorded in the config would repeat on every later run.
-        """
-        archive = os.path.join(self.repo_dir, 'data/raw/pubmed_baseline')
-        have_archive = os.path.isdir(archive) and any(os.scandir(archive))
-        extra = ['--build-database']
-
-        if present and not messagebox.askyesno(
-                'Rebuild the master database?',
-                'The existing master annotation database will be deleted and '
-                'built again from the archive.\n\nThis takes hours. Nothing '
-                'else in the pipeline can run while it is missing.\n\nRebuild?',
-                icon='warning'):
+    def _setup_build(self, item, present):
+        """Build or download one item. Step 0 covers the first three."""
+        if item['key'] == 'desc':
+            messagebox.showinfo(
+                'Downloaded automatically',
+                'The MeSH descriptor file is fetched from the NLM whenever the '
+                'support files are rebuilt. Run Step 1 to refresh it.')
             return
+        if item['key'] in ('pmids', 'cleaned', 'relevance'):
+            messagebox.showinfo(
+                'Produced by a run',
+                f"{item['label']} is written by the pipeline itself.\n\n"
+                'Delete it here if you want it rebuilt, then run the step that '
+                'produces it.')
+            return
+
+        cfg = self._setup_config()
+        extra = ['--build-database']
+        wants_updates = bool(self.var_with_updates.get())
+
+        if item['key'] == 'updates':
+            # Updates alone: compile from what is on disk, plus the update files.
+            extra += ['--skip-baseline-download', '--with-updates']
+            if not self.confirm_typed(
+                    'Fetch the daily updates', 'REBUILD',
+                    'The daily update files will be downloaded and compiled into '
+                    'the master database.\n\nThe baseline archive already on '
+                    'disk is not downloaded again.'):
+                return
+            self.start_run('baseline', extra, title='fetching the daily updates')
+            return
+
+        archive = str(cfg.active_raw_dir / 'pubmed_baseline') if cfg else ''
+        have_archive = os.path.isdir(archive) and any(os.scandir(archive))
+
+        if item['key'] == 'baseline':
+            if present and not self.confirm_typed(
+                    'Download the baseline again', 'REBUILD',
+                    'The PubMed baseline archive is already here. Downloading it '
+                    'again fetches roughly 44 GB and takes hours.',
+                    'You almost certainly do not need this. To rebuild the '
+                    'database from the archive you already have, use Rebuild on '
+                    'the master database row instead.'):
+                return
+            if wants_updates:
+                extra.append('--with-updates')
+            self.start_run('baseline', extra, title='downloading the PubMed baseline')
+            return
+
+        # The master database.
         if present:
+            if not self.confirm_typed(
+                    'Rebuild the master annotation database', 'REBUILD',
+                    'The existing database is deleted and built again from the '
+                    'archive.\n\nNothing else in the pipeline can run while it '
+                    'is missing.',
+                    'This takes HOURS.'):
+                return
             extra.append('--rebuild-corrupt')
+        elif not have_archive and not self.confirm_typed(
+                'Download and build', 'REBUILD',
+                'No archive is present, so it is downloaded first: roughly 44 GB, '
+                'and several hours on a fast connection.\n\nThe download resumes '
+                'if interrupted, and the archive can be deleted afterwards.'):
+            return
 
         if have_archive:
-            if messagebox.askyesno(
-                    'Use the archive already on disk?',
-                    'A PubMed baseline archive is already here.\n\n'
-                    'Yes  - compile from it, no download.\n'
-                    'No   - download the archive again first (~44 GB).',):
-                extra.append('--skip-baseline-download')
-        elif not messagebox.askyesno(
-                'Download the PubMed baseline?',
-                'No archive is present, so it has to be downloaded first: '
-                'roughly 44 GB, and several hours on a fast connection.\n\n'
-                'The download resumes if it is interrupted, and the archive can '
-                'be deleted afterwards.\n\nStart?', icon='warning'):
-            return
-
-        if messagebox.askyesno(
-                'Include the daily updates?',
-                'The baseline is a yearly snapshot. The daily update files carry '
-                'records published since.\n\nFetch them too?'):
+            extra.append('--skip-baseline-download')
+        if wants_updates:
             extra.append('--with-updates')
-
         self.start_run('baseline', extra, title='building the master database')
 
     # ---------------------------------------------------------- screen: settings
@@ -514,9 +872,9 @@ class Workbench(tk.Tk):
             self.tab_btns[name] = b
             pane = tk.Frame(self.sheet, bg=FACE)
             self.panes[name] = pane
-            self._build_fields(pane, fields)
+            self._build_fields(pane, fields, tab_name=name)
 
-        self.help = tk.Frame(root, bg=FACE, relief='sunken', bd=2, height=88)
+        self.help = tk.Frame(root, bg=FACE, relief='sunken', bd=2, height=HELP_H)
         self.help.pack(fill='x', padx=10, pady=(8, 0))
         self.help.pack_propagate(False)
         self.help_title = tk.Label(self.help, bg=FACE, font=self.f_bold, anchor='w')
@@ -549,9 +907,9 @@ class Workbench(tk.Tk):
         self._tab(schema.TABS[0][0])
         self._step_changed()
 
-    def _build_fields(self, pane, fields):
+    def _build_fields(self, pane, fields, tab_name=None):
         grid = tk.Frame(pane, bg=FACE)
-        grid.pack(fill='both', expand=True, padx=10, pady=10)
+        grid.pack(fill='x', padx=10, pady=10)
         grid.columnconfigure(1, weight=1)
         for r, f in enumerate(fields):
             cur = schema.get(self.cfg, f.key, f.default)
@@ -576,6 +934,25 @@ class Workbench(tk.Tk):
             if f.kind in ('int', 'float') and not f.kind == 'bool':
                 w.bind('<FocusIn>', lambda e: e.widget.config(bg=FOCUS), add='+')
                 w.bind('<FocusOut>', lambda e: e.widget.config(bg=FIELD), add='+')
+
+        # A standing note for the tab, if it has one. The description pane below
+        # only ever shows the field you are on, so anything you need to know
+        # before choosing a value has nowhere else to be said.
+        note = schema.TAB_NOTES.get(tab_name)
+        if note:
+            title, text = note
+            box = tk.Frame(pane, bg=FACE, relief='ridge', bd=2)
+            box.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+            tk.Label(box, text=title, bg=FACE, font=self.f_bold, anchor='w'
+                     ).pack(fill='x', padx=8, pady=(6, 2))
+            body = tk.Text(box, bg=FACE, relief='flat', wrap='word',
+                           font=self.f_ui, height=11, cursor='arrow',
+                           highlightthickness=0, padx=8, pady=0)
+            body.insert('1.0', text)
+            # Read-only, but still selectable: these are instructions someone
+            # may well want to copy.
+            body.config(state='disabled')
+            body.pack(fill='both', expand=True, padx=0, pady=(0, 6))
 
     def _browse(self, var):
         p = filedialog.askopenfilename(
@@ -658,11 +1035,17 @@ class Workbench(tk.Tk):
 
         act = tk.Frame(root, bg=FACE)
         act.pack(fill='x', pady=9, **pad)
-        self.btn_cancel = tk.Button(act, text='Cancel', width=12, command=self.cancel_run)
-        self.btn_cancel.pack(side='left')
+        # Pause and Abort are deliberately separate buttons, not one control
+        # with a confirmation: they do entirely different things to three hours
+        # of work, and a user reaching for "stop" under time pressure should not
+        # have to read a dialog to discover which one they got.
+        self.btn_pause = tk.Button(act, text='Pause', width=10, command=self.pause_run)
+        self.btn_pause.pack(side='left')
+        self.btn_cancel = tk.Button(act, text='Abort run', width=11, command=self.cancel_run)
+        self.btn_cancel.pack(side='left', padx=4)
         self.btn_back = tk.Button(act, text='Back to settings', width=16,
                                   command=lambda: self.show('settings'))
-        self.btn_back.pack(side='left', padx=4)
+        self.btn_back.pack(side='left', padx=(0, 4))
         self.btn_results = tk.Button(act, text='View results', width=14,
                                      state='disabled', command=self.open_results)
         self.btn_results.pack(side='left', padx=(0, 4))
@@ -678,6 +1061,8 @@ class Workbench(tk.Tk):
             return
         step = step or 'all'
         title = title or step
+        if not self._confirm_overwrite(step):
+            return
         self.show('running')
         self.run_title.config(text=f'Running: {title}')
         self._log_clear()
@@ -689,18 +1074,198 @@ class Workbench(tk.Tk):
         self._elapsed = 0
         self._spin_i = 0
         self.btn_cancel.config(state='normal')
+        self.btn_pause.config(state='normal', text='Pause')
+        self._paused_annotation = None
         self.runner.start(step, extra)
         self._pump()
+
+    def _confirm_overwrite(self, step):
+        """Warn before replacing results this prefix already has.
+
+        Silent when there is nothing to replace, which is the whole point: a
+        prefix that has not been used for this step raises no question, so a
+        fresh project never meets a dialog it has no reason to read.
+        """
+        # Step 0 is driven from the Data Setup screen, which asks for a typed
+        # confirmation of its own; asking twice would train people to click past.
+        if step == 'baseline':
+            return True
+        try:
+            from mesh_aop import integrity
+            from mesh_aop.config_parser import MeshConfig
+            config = MeshConfig(config_path=self.cfg_path)
+            at_risk = integrity.would_overwrite(config, step)
+        except Exception:
+            return True                 # never block a run over a warning
+        if not at_risk:
+            return True
+
+        total = sum(size for _, _, size in at_risk)
+        lines = []
+        for label, path, size in at_risk[:12]:
+            lines.append(f'    {label}   ({size/1e6:,.1f} MB)')
+        if len(at_risk) > 12:
+            lines.append(f'    ... and {len(at_risk) - 12} more')
+
+        return messagebox.askyesno(
+            'Existing results will be replaced',
+            f'The prefix "{config.prefix}" has already been used for this part '
+            f'of the pipeline. Running it again replaces:\n\n'
+            + '\n'.join(lines) +
+            f'\n\n{len(at_risk)} item(s), {total/1e6:,.1f} MB in total.\n\n'
+            'To keep them, cancel and change the project prefix on the Search '
+            'tab - two prefixes never touch each other\'s files.\n\n'
+            'Steps that are already complete are skipped rather than redone, so '
+            'this is also how you resume an interrupted run.\n\n'
+            'Continue?', icon='warning', default='no')
+
+    def pause_run(self):
+        """Ask the run to stop at its next safe point, or let a stopped one go on."""
+        if not self.runner.is_running():
+            return
+        if self.runner.is_paused() or self.runner.pause_pending():
+            self.runner.resume()
+            self.btn_pause.config(text='Pause')
+            self.run_status.config(text='Running.', fg=INK)
+            return
+        if not self.runner.can_pause():
+            messagebox.showinfo(
+                'Pause unavailable',
+                'This run was not started with pause control, so it can only be '
+                'left to finish or aborted.')
+            return
+        if self.runner.pause():
+            self.btn_pause.config(text='Resume')
+            # Say what is actually true: the request is in, and the run stops
+            # when it reaches a point where stopping is safe. Claiming it is
+            # already paused while the progress bar keeps moving would be a
+            # small lie that costs the user their trust in every other message.
+            self.run_status.config(
+                text='Pausing - it will stop at the next safe point (this can '
+                     'take a few minutes on a long step).', fg=WARN)
 
     def cancel_run(self):
         if not self.runner.is_running():
             self.show('settings')
             return
-        if messagebox.askyesno('Cancel the run?',
-                               'The pipeline stops where it is. Partial outputs '
-                               'may be left on disk.\n\nCancel it?', icon='warning'):
+        # Say what is actually lost. "Partial outputs may be left on disk" told
+        # the user nothing they could act on; the elapsed time and the offer to
+        # pause instead are the two facts that change the decision.
+        mins = self.runner.elapsed() / 60.0
+        spent = (f'{mins:.0f} minutes' if mins >= 1 else 'less than a minute')
+        paused = self.runner.is_paused()
+        if messagebox.askyesno(
+                'Abort this run?',
+                f'The step is stopped for good and its work is lost - '
+                f'{spent} so far.\n\n'
+                'Finished steps are kept, so a later run resumes from the last '
+                'one that completed rather than starting over. Any half-written '
+                'file is removed by Tools > Check and repair files.\n\n'
+                + ('The run is paused at a safe point; it will be released and '
+                   'then stopped.\n\n' if paused
+                   else 'To stop it only temporarily, use Pause instead.\n\n')
+                + 'Abort it?',
+                icon='warning', default='no'):
             self.runner.cancel()
-            self.run_status.config(text='Cancelling…')
+            self.btn_pause.config(state='disabled')
+            self.run_status.config(text='Aborting…', fg=WARN)
+
+    def _annotation_pause(self, anno_path):
+        """The run stopped on purpose and is waiting for the user.
+
+        A console message is not enough here: the pause can last days, this is
+        the one point where the pipeline needs a person, and the file it needs
+        editing is somewhere the user has never had reason to look.
+        """
+        self._paused_annotation = anno_path
+        self._sync_tools_state()
+        self.bar_overall.set(100)
+        self.lab_spin.config(text='  Waiting for you')
+        self.run_status.config(text='Paused for AOP annotation.', fg=WARN)
+
+        from mesh_aop.guides import AOP_LEVELS
+        levels = ', '.join(AOP_LEVELS)
+        win = tk.Toplevel(self)
+        # Here dismissing IS one of the choices - "Later" is on the dialog - so
+        # the close box is allowed, and routed to exactly what that button does
+        # rather than to some undefined fourth outcome.
+        self._make_modal(win, 'The run is paused - it needs your annotation',
+                         on_close=lambda: win.destroy())
+
+        body = tk.Frame(win, bg=FACE)
+        body.pack(fill='both', expand=True, padx=16, pady=14)
+        tk.Label(body, text='The network is built. It now needs you.',
+                 bg=FACE, font=self.f_bold, anchor='w').pack(fill='x')
+        tk.Label(
+            body, bg=FACE, justify='left', anchor='w', wraplength=560,
+            text=('Nothing has gone wrong. Every MeSH term in the network has to '
+                  'be placed on the adverse outcome pathway, and that is a '
+                  'judgement the pipeline cannot make for you.\n\n'
+                  'Open the file below and fill in the "aop_level" column. It is '
+                  'semicolon-delimited - keep it that way, because MeSH headings '
+                  'contain commas.')
+        ).pack(fill='x', pady=(6, 8))
+
+        tk.Label(body, text='Allowed levels, in pathway order:', bg=FACE,
+                 anchor='w', font=self.f_bold).pack(fill='x')
+        tk.Label(body, text='    ' + levels, bg=FACE, anchor='w',
+                 wraplength=560, justify='left').pack(fill='x', pady=(0, 8))
+        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=560, fg=DIM,
+                 text=('Leave a term as "Uncategorized" if it genuinely is not on '
+                       'the pathway. It stays in the network and in the '
+                       'topological figures, and is left out of the AOP ones.')
+                 ).pack(fill='x', pady=(0, 8))
+
+        tk.Label(body, text='The file to edit:', bg=FACE, anchor='w',
+                 font=self.f_bold).pack(fill='x')
+        box = tk.Entry(body, font=self.f_mono, relief='sunken', bd=2)
+        box.insert(0, anno_path)
+        box.config(state='readonly')
+        box.pack(fill='x', pady=(2, 10))
+
+        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=560,
+                 text=('When you have saved it, come back and run Step 4 - '
+                       'Figures. Nothing earlier is recomputed, so it is quick, '
+                       'and you can edit and re-run as often as you like.')
+                 ).pack(fill='x', pady=(0, 12))
+
+        row = tk.Frame(body, bg=FACE)
+        row.pack(fill='x')
+        tk.Button(row, text='Open the file', width=15,
+                  command=lambda: self._open_path(anno_path)).pack(side='left')
+        tk.Button(row, text='Show me the folder', width=18,
+                  command=lambda: self._reveal(anno_path)).pack(side='left', padx=4)
+        tk.Button(row, text='Run Step 4 now', width=16,
+                  command=lambda: (win.destroy(), self.start_run('viz', title='Step 4 - Figures'))
+                  ).pack(side='left', padx=(0, 4))
+        tk.Button(row, text='Later', width=9, command=win.destroy).pack(side='right')
+
+        self._place_modal(win, offset=40)
+
+    def _open_path(self, path):
+        """Open a file with whatever the system uses for it."""
+        try:
+            if sys.platform == 'win32':
+                os.startfile(path)                      # noqa: S606
+            elif sys.platform == 'darwin':
+                subprocess.call(['open', path])
+            else:
+                subprocess.call(['xdg-open', path])
+        except Exception as exc:
+            messagebox.showerror('Could not open it', f'{path}\n\n{exc}')
+
+    def _reveal(self, path):
+        """Open the containing folder with the file selected, where that is possible."""
+        folder = os.path.dirname(os.path.abspath(path))
+        try:
+            if sys.platform == 'win32':
+                subprocess.Popen(['explorer', '/select,', os.path.abspath(path)])
+            elif sys.platform == 'darwin':
+                subprocess.call(['open', '-R', path])
+            else:
+                subprocess.call(['xdg-open', folder])
+        except Exception:
+            self._open_path(folder)
 
     def _pump(self):
         for ev in self.runner.drain():
@@ -717,12 +1282,28 @@ class Workbench(tk.Tk):
                 if total:
                     self.bar_sub.set(100.0 * done / total)
                     self.sub_lab.config(text=f'{done:,} / {total:,}')
+            elif kind == PAUSED:
+                self._annotation_pause(ev[1])
+            elif kind == AT_CHECKPOINT:
+                self.runner._mark_paused(ev[1])
+                if ev[1]:
+                    self.run_status.config(
+                        text='Paused at a safe point - nothing is being computed.',
+                        fg=WARN)
+                    self.lab_spin.config(text='  Paused')
+                else:
+                    self.run_status.config(text='Running.', fg=INK)
+                    self.btn_pause.config(text='Pause')
             elif kind == DONE:
                 self._finish(ev[1], ev[2])
                 return
         if self.runner.is_running():
-            self._elapsed += 0.2
-            if int(self._elapsed * 5) % 3 == 0:
+            # From the runner, which excludes time spent paused - an elapsed
+            # clock that counts a lunch break makes every duration a lie.
+            self._elapsed = self.runner.elapsed()
+            if self.runner.is_paused():
+                self.lab_spin.config(text='  Paused')
+            elif int(self._elapsed * 5) % 3 == 0:
                 self._spin_i = (self._spin_i + 1) % 4
                 self.lab_spin.config(text=' ' + '|/-\\'[self._spin_i] + '  Working…')
             self.lab_elapsed.config(text=' Elapsed ' + _hms(int(self._elapsed)))
@@ -734,14 +1315,30 @@ class Workbench(tk.Tk):
         self.lab_spin.config(text='  Finished')
         self.bar_overall.set(100 if rc == 0 else self.bar_overall.value)
         self.btn_cancel.config(state='disabled')
+        self.btn_pause.config(state='disabled', text='Pause')
+        self._sync_tools_state()
+        if self._paused_annotation:
+            # The pipeline exits 0 when it pauses on purpose. Reporting that as
+            # "completed successfully" would be true of the process and quite
+            # wrong about the analysis, which is unfinished and waiting.
+            self._log('--- paused for AOP annotation ---', 'warn')
+            self.run_status.config(text='Paused for annotation - see the dialog.', fg=WARN)
+            return
         if rc == 0:
             self._log(f'--- completed in {elapsed/60:.1f} min ---', 'ok')
             self.run_status.config(text='Completed successfully.', fg=OK)
             self.refresh_results()
             self.btn_results.config(state='normal')
         elif rc == -1:
-            self._log('--- cancelled ---', 'warn')
-            self.run_status.config(text='Cancelled.', fg=WARN)
+            self._log('--- aborted ---', 'warn')
+            self.run_status.config(text='Aborted.', fg=WARN)
+        elif rc == 130:
+            # The pipeline saw the stop request at a checkpoint and exited
+            # tidily. Worth distinguishing from a crash: nothing is half-written.
+            self._log('--- stopped at a safe point ---', 'warn')
+            self.run_status.config(
+                text='Stopped at a safe point - no file was left half-written.',
+                fg=WARN)
         else:
             self._log(f'--- failed, exit code {rc} ---', 'err')
             self.run_status.config(text=f'Failed (exit {rc}).', fg=ERR)
@@ -760,27 +1357,286 @@ class Workbench(tk.Tk):
     # ----------------------------------------------------------- screen: results
     def _build_results(self, root):
         self.res_title = tk.Label(root, bg=FACE, font=self.f_bold, anchor='w')
-        self.res_title.pack(fill='x', padx=10, pady=(10, 6))
+        self.res_title.pack(fill='x', padx=10, pady=(10, 4))
+
+        # The overview first. After a run this is what someone actually wants:
+        # a single account of what went in, what was excluded at each stage and
+        # why, and what came out. The file listing answers a different and much
+        # less common question, so it goes underneath.
+        tk.Label(root, text='Run overview', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(fill='x', padx=10, pady=(4, 2))
+        obox = self._sunken(root)
+        obox.pack(fill='both', expand=True, padx=10)
+        osb = tk.Scrollbar(obox)
+        osb.pack(side='right', fill='y')
+        self.res_overview = tk.Text(obox, bg=FIELD, font=self.f_mono,
+                                    relief='flat', wrap='none', height=18,
+                                    yscrollcommand=osb.set)
+        osb.config(command=self.res_overview.yview)
+        oxsb = tk.Scrollbar(obox, orient='horizontal',
+                            command=self.res_overview.xview)
+        oxsb.pack(side='bottom', fill='x')
+        self.res_overview.config(xscrollcommand=oxsb.set)
+        self.res_overview.pack(fill='both', expand=True)
+
+        tk.Label(root, text='Files', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(fill='x', padx=10, pady=(8, 2))
         box = self._sunken(root)
         box.pack(fill='both', expand=True, padx=10)
-        self.res_text = tk.Text(box, bg=FIELD, font=self.f_mono, relief='flat',
-                                wrap='none')
-        sb = tk.Scrollbar(box, command=self.res_text.yview)
-        self.res_text.config(yscrollcommand=sb.set)
+        sb = tk.Scrollbar(box)
         sb.pack(side='right', fill='y')
+        self.res_text = tk.Text(box, bg=FIELD, font=self.f_mono, relief='flat',
+                                wrap='none', height=8, yscrollcommand=sb.set)
+        sb.config(command=self.res_text.yview)
         self.res_text.pack(fill='both', expand=True)
+
         act = tk.Frame(root, bg=FACE)
         act.pack(fill='x', padx=10, pady=9)
         tk.Button(act, text='Open results folder', width=18, font=self.f_bold,
                   command=self._open_results).pack(side='left')
-        tk.Button(act, text='Refresh', width=12,
+        self.btn_res_report = tk.Button(
+            act, text='Open the full report', width=18, state='disabled',
+            command=lambda: self._open_path(self._prisma_report_path()))
+        self.btn_res_report.pack(side='left', padx=4)
+        self.btn_res_figure = tk.Button(
+            act, text='Open the diagram', width=15, state='disabled',
+            command=self._open_prisma_figure)
+        self.btn_res_figure.pack(side='left', padx=(0, 4))
+        tk.Button(act, text='Refresh', width=10,
                   command=self.refresh_results).pack(side='left', padx=4)
         tk.Button(act, text='Back to settings', width=16,
-                  command=lambda: self.show('settings')).pack(side='left', padx=4)
+                  command=lambda: self.show('settings')).pack(side='right')
+
+    def _results_dir(self):
+        """The configured results folder, not a repo-relative guess."""
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            return str(MeshConfig(config_path=self.cfg_path).results_dir)
+        except Exception:
+            var = self.vars.get('directories.results_dir')
+            chosen = var.get().strip() if var else ''
+            return chosen or str(self.paths.default_user_results_dir(self.repo_dir))
+
+    def _prisma_report_path(self):
+        return os.path.join(self._results_dir(),
+                            f'{self._current_prefix()}_prisma_flow_report.txt')
+
+    def _open_prisma_figure(self):
+        """Prefer the SVG: its text can be selected and copied out."""
+        base = os.path.join(self._results_dir(), 'figures',
+                            f'{self._current_prefix()}_prisma_flow')
+        for ext in ('svg', 'png', 'jpeg', 'tif', 'pdf'):
+            if os.path.exists(base + '.' + ext):
+                self._open_path(base + '.' + ext)
+                return
+        messagebox.showinfo('Not there yet',
+                            'The flow diagram is written when a run finishes.')
+
+    def refresh_results(self):
+        d = self._results_dir()
+        prefix = self._current_prefix()
+
+        # -- the overview -------------------------------------------------
+        report = self._prisma_report_path()
+        self.res_overview.config(state='normal')
+        self.res_overview.delete('1.0', 'end')
+        if os.path.exists(report):
+            try:
+                with open(report, encoding='utf-8') as fh:
+                    self.res_overview.insert('end', fh.read())
+                self.btn_res_report.config(state='normal')
+            except OSError as exc:
+                self.res_overview.insert('end', f'The report could not be read:\n{exc}')
+        else:
+            self.btn_res_report.config(state='disabled')
+            self.res_overview.insert('end',
+                '  No run overview yet for the prefix "%s".\n\n'
+                '  One is written at the end of every run, into\n'
+                '      %s\n\n'
+                '  It accounts for the whole search: records retrieved per\n'
+                '  citation generation, what the MeSH screen excluded and why,\n'
+                '  what each optimiser kept, what the consensus and the largest\n'
+                '  connected component discarded, and what was finally included.\n'
+                % (prefix, report))
+        self.res_overview.config(state='disabled')
+
+        figures = os.path.join(d, 'figures')
+        has_fig = any(os.path.exists(os.path.join(figures, f'{prefix}_prisma_flow.{e}'))
+                      for e in ('svg', 'png', 'jpeg', 'tif', 'pdf'))
+        self.btn_res_figure.config(state='normal' if has_fig else 'disabled')
+
+        # -- the file listing ---------------------------------------------
+        rows = []
+        for base, _, files in os.walk(d):
+            for f in sorted(files):
+                path = os.path.join(base, f)
+                try:
+                    rows.append((os.path.getmtime(path),
+                                 os.path.relpath(path, d).replace('\\', '/'),
+                                 os.path.getsize(path)))
+                except OSError:
+                    continue
+        rows.sort(reverse=True)
+        self.res_title.config(text=f'Results  -  {len(rows)} files in {d}')
+        self.res_text.config(state='normal')
+        self.res_text.delete('1.0', 'end')
+        if not rows:
+            self.res_text.insert('end', '  Nothing here yet.\n')
+        else:
+            import datetime
+            self.res_text.insert('end', f'{"modified":<18}{"size":>12}  file\n')
+            self.res_text.insert('end', '-' * 92 + '\n')
+            for mt, rel, sz in rows[:400]:
+                ts = datetime.datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M')
+                self.res_text.insert('end', f'{ts:<18}{sz/1024:>10,.0f} KB  {rel}\n')
+            if len(rows) > 400:
+                self.res_text.insert('end', f'... and {len(rows)-400} more\n')
+        self.res_text.config(state='disabled')
 
     def open_results(self):
         self.refresh_results()
         self.show('results')
+
+    # -------------------------------------------------------- screen: integrity
+    def _build_integrity(self, root):
+        tk.Label(root, text='Check and repair files', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(fill='x', padx=10, pady=(10, 2))
+        tk.Label(root, bg=FACE, anchor='w', justify='left', wraplength=760,
+                 text='A run that was interrupted - a machine that slept, a disk '
+                      'that filled, a sync client mid-write - can leave a file '
+                      'that looks complete and is not. Everything the pipeline '
+                      'depends on is opened and read here.\n'
+                      'Nothing listed is your own work: all of it is rebuilt from '
+                      'what is left. Your results are never touched.'
+                 ).pack(fill='x', padx=10, pady=(0, 8))
+
+        box = self._sunken(root)
+        box.pack(fill='both', expand=True, padx=10)
+        canvas = tk.Canvas(box, bg=FACE, highlightthickness=0)
+        bar = tk.Scrollbar(box, command=canvas.yview)
+        canvas.config(yscrollcommand=bar.set)
+        bar.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+        self.ck_rows = tk.Frame(canvas, bg=FACE)
+        canvas.create_window((0, 0), window=self.ck_rows, anchor='nw')
+        self.ck_rows.bind('<Configure>',
+                          lambda e: canvas.config(scrollregion=canvas.bbox('all')))
+
+        foot = tk.Frame(root, bg=FACE)
+        foot.pack(fill='x', padx=10, pady=9)
+        self.ck_summary = tk.Label(foot, bg=FACE, relief='sunken', bd=2, anchor='w',
+                                   justify='left')
+        self.ck_summary.pack(fill='x', ipady=2, pady=(0, 6))
+        act = tk.Frame(foot, bg=FACE)
+        act.pack(fill='x')
+        self.btn_ck_scan = tk.Button(act, text='Scan again', width=13,
+                                     command=lambda: self.scan_integrity(deep=False))
+        self.btn_ck_scan.pack(side='left')
+        self.btn_ck_deep = tk.Button(act, text='Thorough check', width=15,
+                                     command=lambda: self.scan_integrity(deep=True))
+        self.btn_ck_deep.pack(side='left', padx=4)
+        self.btn_ck_fix = tk.Button(act, text='Remove ticked', width=15,
+                                    font=self.f_bold, state='disabled',
+                                    command=self.repair_integrity)
+        self.btn_ck_fix.pack(side='left', padx=4)
+        tk.Button(act, text='Back to settings', width=16,
+                  command=lambda: self.show('settings')).pack(side='right')
+
+    def open_integrity(self):
+        self.show('integrity')
+        self.after(60, lambda: self.scan_integrity(deep=False))
+
+    def scan_integrity(self, deep=False):
+        """Examine every artefact and list what needs a decision."""
+        from mesh_aop import integrity
+        from mesh_aop.config_parser import MeshConfig
+
+        for w in self.ck_rows.winfo_children():
+            w.destroy()
+        self._scan_rows = []
+        self.ck_summary.config(text='Checking...' + (
+            ' A thorough check reads the whole database and can take minutes.'
+            if deep else ''), fg=INK)
+        self.update_idletasks()
+
+        if not self.save_cfg():
+            return
+        try:
+            config = MeshConfig(config_path=self.cfg_path)
+            artifacts = integrity.scan(config, deep=deep)
+        except Exception as exc:
+            self.ck_summary.config(text=f'The check could not run: {exc}', fg=ERR)
+            return
+
+        colour = {integrity.OK: OK, integrity.MISSING: DIM,
+                  integrity.SUSPECT: WARN}
+        for a in artifacts:
+            row = tk.Frame(self.ck_rows, bg=FACE)
+            row.pack(fill='x', pady=1)
+            needs_action = a.status in (integrity.EMPTY, integrity.CORRUPT,
+                                        integrity.ORPHAN, integrity.SUSPECT)
+            if needs_action:
+                var = tk.BooleanVar(value=a.broken)   # suspect starts unticked
+                tk.Checkbutton(row, variable=var, bg=FACE,
+                               command=self._ck_recount).pack(side='left')
+                self._scan_rows.append((var, a))
+            else:
+                tk.Label(row, text='   ', bg=FACE).pack(side='left')
+            mark = {integrity.OK: '[ok]', integrity.MISSING: '[--]'}.get(a.status, '[!!]')
+            tk.Label(row, text=mark, bg=FACE, font=self.f_mono,
+                     fg=colour.get(a.status, ERR), width=5, anchor='w').pack(side='left')
+            tk.Label(row, text=a.label, bg=FACE, anchor='w', width=34,
+                     font=self.f_bold if needs_action else self.f_ui).pack(side='left')
+            detail = 'not built yet' if a.status == integrity.MISSING else a.detail
+            if a.status != integrity.MISSING and a.cost == integrity.COST_HOURS \
+                    and a.status != integrity.OK:
+                detail += '   [rebuilding this takes hours]'
+            tk.Label(row, text=detail, bg=FACE, anchor='w', wraplength=420,
+                     justify='left', fg=colour.get(a.status, ERR)).pack(side='left')
+
+        text = integrity.summarise(artifacts)
+        bad = integrity.problems(artifacts)
+        self.ck_summary.config(text=text.split('\n\n')[0] if not bad else text,
+                               fg=OK if not bad else WARN)
+        self._ck_recount()
+        self._scan_artifacts = artifacts
+
+    def _ck_recount(self):
+        chosen = [a for var, a in self._scan_rows if var.get()]
+        self.btn_ck_fix.config(state='normal' if chosen else 'disabled',
+                               text=f'Remove {len(chosen)} file(s)' if chosen
+                               else 'Remove ticked')
+
+    def repair_integrity(self):
+        from mesh_aop import integrity
+        chosen = [a for var, a in self._scan_rows if var.get()]
+        if not chosen:
+            return
+        costly = [a for a in chosen if a.cost == integrity.COST_HOURS]
+        warning = ''
+        if costly:
+            warning = ('\n\nThese take HOURS to rebuild:\n'
+                       + '\n'.join(f'    {a.label}  ({a.size_mb:,.0f} MB)'
+                                   for a in costly))
+        total = sum(a.size for a in chosen) / 1e6
+        if not messagebox.askyesno(
+                'Remove these files?',
+                f'{len(chosen)} file(s) will be deleted, freeing {total:,.0f} MB.'
+                f'{warning}\n\nThe pipeline rebuilds whatever is missing on the '
+                'next run. Remove them?', icon='warning', default='no'):
+            return
+        removed, freed, failures = integrity.remove(chosen)
+        step = integrity.resume_step(getattr(self, '_scan_artifacts', []))
+        msg = f'Removed {len(removed)} file(s), {freed/1e6:,.0f} MB freed.'
+        if failures:
+            msg += ('\n\nCould not remove:\n'
+                    + '\n'.join(f'    {a.label}: {err}' for a, err in failures)
+                    + '\n\nA file in use cannot be deleted - close anything that '
+                      'has it open, or restart, and try again.')
+        if step:
+            msg += (f'\n\nResume from:\n    {integrity.STEP_LABEL.get(step, step)}')
+        messagebox.showinfo('Repair', msg)
+        self.scan_integrity(deep=False)
 
     # -------------------------------------------------------- screen: uninstall
     def _build_uninstall(self, root):
@@ -913,40 +1769,8 @@ class Workbench(tk.Tk):
         messagebox.showinfo('Uninstall', msg)
         self.scan_uninstall()
 
-    def refresh_results(self):
-        d = os.path.join(self.repo_dir, 'results')
-        rows = []
-        for base, _, files in os.walk(d):
-            for f in sorted(files):
-                p = os.path.join(base, f)
-                try:
-                    sz = os.path.getsize(p)
-                    mt = os.path.getmtime(p)
-                except OSError:
-                    continue
-                rel = os.path.relpath(p, d).replace('\\', '/')
-                rows.append((mt, rel, sz))
-        rows.sort(reverse=True)
-        self.res_title.config(text=f'Results — {len(rows)} files in {d}')
-        self.res_text.config(state='normal')
-        self.res_text.delete('1.0', 'end')
-        self.res_text.insert('end', f'{"modified":<18}{"size":>12}  file\n')
-        self.res_text.insert('end', '-' * 92 + '\n')
-        import datetime
-        for mt, rel, sz in rows[:400]:
-            ts = datetime.datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M')
-            self.res_text.insert('end', f'{ts:<18}{sz/1024:>10,.0f} KB  {rel}\n')
-        self.res_text.config(state='disabled')
-
     def _open_results(self):
-        d = os.path.join(self.repo_dir, 'results')
-        try:
-            if os.name == 'nt':
-                os.startfile(d)                       # noqa: S606
-            else:
-                subprocess.Popen(['xdg-open', d])
-        except Exception as exc:
-            messagebox.showerror('Open folder', str(exc))
+        self._open_path(self._results_dir())
 
     def _on_close(self):
         if self.runner.is_running():

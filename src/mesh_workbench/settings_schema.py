@@ -46,15 +46,18 @@ TABS = [
           'Enter that to reproduce it. Changing this later invalidates every '
           'downstream result.'),
         F('search_parameters.start_date', 'Start date', 'text', '1950/01/01',
-          'Publication window for the initial query.', 'Default: 1950/01/01.',
+          'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
+          'Default: 1950/01/01. Leave it empty to search every date PubMed has.',
           'Keep this identical to the context window on the Analysis tab, or the '
           'query set and the scored corpus describe different periods.'),
         F('search_parameters.end_date', 'End date', 'text', 'TODAY',
-          'Publication window for the initial query.',
-          'Default: TODAY, resolved to the date the run starts.',
+          'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
+          'Default: TODAY, resolved to the date the run starts. Leave it empty '
+          'to search every date PubMed has.',
           'Keep this identical to the context window on the Analysis tab. A '
           'fixed date makes the query reproducible; TODAY moves, so the same '
-          'search repeated later returns a different set.'),
+          'search repeated later returns a different set, and so does an empty '
+          'field.'),
         F('search_parameters.generations_n', 'Citation generations', 'int', 1,
           'How many citation hops to expand from the query result set.',
           'Default: 1. 0 = query only; 1 = adds cited and citing articles; '
@@ -72,6 +75,68 @@ TABS = [
           'Prefix applied to every output file, so runs do not overwrite each other.',
           'Default: DAC_Mesh.'),
     ]),
+    ('Folders', [
+        F('directories.results_dir', 'Results folder', 'text', '',
+          'Where your outputs go - figures, workbooks, reports.',
+          'Default: empty, meaning Documents\\MeSH Workbench for an installed '
+          'copy, or the program folder for a portable one.',
+          'Kept separate from the databases on purpose: two people sharing one '
+          'installed copy each get their own results instead of overwriting one '
+          'another.'),
+        F('directories.data_dir', 'Data folder', 'text', '',
+          'Where downloaded archives and the databases built from them are kept. '
+          'This is the setting that decides which drive holds roughly 52 GB.',
+          'Default: empty, meaning a private folder under your user profile for '
+          'an installed copy, or the program folder for a portable one.',
+          'Choose this before downloading anything. Moving ~52 GB afterwards is '
+          'far slower than picking the right drive now.'),
+        F('directories.output_dir', 'Output folder', 'text', '',
+          'Where every result is written - workbooks, figures, reports, logs.',
+          'Default: empty, meaning the project\'s own results folder.',
+          'Point this somewhere else before a trial run. A step re-run with the '
+          'default writes over the existing results, and the outputs a manuscript '
+          'was written from are not recoverable from the pipeline alone.'),
+        F('directories.input_dir', 'Input folder', 'text', '',
+          'Where source data is read from - and written to. This is the setting '
+          'that decides which drive holds the PubMed baseline archive (about '
+          '44 GB) and the master annotation database built from it (about 8 GB).',
+          'Default: empty, meaning the project\'s own data folder, beside the '
+          'program.',
+          'Set this before downloading, not after: it is the largest storage '
+          'decision here, and moving ~52 GB afterwards is slower than choosing '
+          'correctly first. Changing it once the databases exist, without moving '
+          'them too, makes the run fail at the first step that needs them.'),
+        F('directories.etl_workspace_dir', 'Database build workspace', 'text', '',
+          'Scratch space used while the master database is being compiled.',
+          'Default: empty, meaning the system temp folder.',
+          'The workspace holds a full working copy of the master database - '
+          'several GB - and the system temp folder is on the system drive. If C: '
+          'is small, point this at a roomier disk or the build can run it out of '
+          'space partway through.'),
+        F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', False,
+          'Stop after the network is built so biological strata can be assigned '
+          'by hand before the figures are drawn.', 'Default: off.',
+          'Off, a full run completes unattended and every term stays '
+          'Uncategorized, which drains the biological figures of meaning. Turn '
+          'it on to stop partway and assign the strata first - that is the '
+          'intended workflow for a real analysis, and it needs you present.'),
+        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
+          'Run against the shipped reference corpus instead of your own retrieval.',
+          'Default: off - the normal case is analysing your own corpus.',
+          'Turn it on to reproduce the published reference run, or to draw '
+          'figures before you have retrieved anything. While it is on, the run '
+          'scores the shipped network rather than yours.'),
+    ]),
+    ('Credentials', [
+        F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
+          'Identifies you to Entrez, as NCBI requires.', 'Default: none.',
+          'Required for retrieval. NCBI may block requests that do not carry it.'),
+        F('credentials.entrez_api_key', 'NCBI API key', 'text', '',
+          'Raises the Entrez rate limit from 3 to 10 requests per second.',
+          'Default: none.',
+          'Optional but strongly recommended - retrieval is several times faster '
+          'with one. Stored on this machine only.'),
+    ]),
     ('Analysis', [
         F('analysis_parameters.random_seed', 'Random seed', 'int', 42,
           'Seeds every stochastic component: sampling, permutations, bootstraps '
@@ -79,12 +144,14 @@ TABS = [
           'Changing it shifts results slightly. Record whatever you use - it is '
           'required to reproduce a run.'),
         F('analysis_parameters.context_start_date', 'Context start', 'text', '1950/01/01',
-          'Publication window for scoring and validation.', 'Default: 1950/01/01.',
+          'Publication window for scoring and validation. YYYY/MM/DD, YYYY/MM or YYYY.',
+          'Default: 1950/01/01. Leave it empty to score every date available.',
           'This defines the corpus everywhere - relevance database, validation and '
           'benchmark all use it. Articles outside it are never scored or evaluated.'),
         F('analysis_parameters.context_end_date', 'Context end', 'text', 'TODAY',
-          'Publication window for scoring and validation.',
-          "Default: TODAY, resolved to the date the run starts.",
+          'Publication window for scoring and validation. YYYY/MM/DD, YYYY/MM or YYYY.',
+          'Default: TODAY, resolved to the date the run starts. Leave it empty '
+          'to score every date available.',
           'This defines the corpus everywhere - articles outside it are never '
           'scored. Two cautions: TODAY moves, so the same analysis repeated '
           'next month covers a different corpus; and it can reach past your '
@@ -248,66 +315,21 @@ TABS = [
           'Written as [MRS_]{betweenness|pagerank|eigenvector}[_subgraph]_centrality. '
           'A name the network does not carry fails the validation step.'),
     ]),
-    ('Folders', [
-        F('directories.results_dir', 'Results folder', 'text', '',
-          'Where your outputs go - figures, workbooks, reports.',
-          'Default: empty, meaning Documents\\MeSH Workbench for an installed '
-          'copy, or the program folder for a portable one.',
-          'Kept separate from the databases on purpose: two people sharing one '
-          'installed copy each get their own results instead of overwriting one '
-          'another.'),
-        F('directories.data_dir', 'Data folder', 'text', '',
-          'Where downloaded archives and the databases built from them are kept. '
-          'This is the setting that decides which drive holds roughly 52 GB.',
-          'Default: empty, meaning a private folder under your user profile for '
-          'an installed copy, or the program folder for a portable one.',
-          'Choose this before downloading anything. Moving ~52 GB afterwards is '
-          'far slower than picking the right drive now.'),
-        F('directories.output_dir', 'Output folder', 'text', '',
-          'Where every result is written - workbooks, figures, reports, logs.',
-          'Default: empty, meaning the project\'s own results folder.',
-          'Point this somewhere else before a trial run. A step re-run with the '
-          'default writes over the existing results, and the outputs a manuscript '
-          'was written from are not recoverable from the pipeline alone.'),
-        F('directories.input_dir', 'Input folder', 'text', '',
-          'Where source data is read from - and written to. This is the setting '
-          'that decides which drive holds the PubMed baseline archive (about '
-          '44 GB) and the master annotation database built from it (about 8 GB).',
-          'Default: empty, meaning the project\'s own data folder, beside the '
-          'program.',
-          'Set this before downloading, not after: it is the largest storage '
-          'decision here, and moving ~52 GB afterwards is slower than choosing '
-          'correctly first. Changing it once the databases exist, without moving '
-          'them too, makes the run fail at the first step that needs them.'),
-        F('directories.etl_workspace_dir', 'Database build workspace', 'text', '',
-          'Scratch space used while the master database is being compiled.',
-          'Default: empty, meaning the system temp folder.',
-          'The workspace holds a full working copy of the master database - '
-          'several GB - and the system temp folder is on the system drive. If C: '
-          'is small, point this at a roomier disk or the build can run it out of '
-          'space partway through.'),
-        F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', True,
-          'Stop after the network is built so biological strata can be assigned '
-          'by hand before the figures are drawn.', 'Default: on.',
-          'With this on, a full run stops partway and waits. Turn it off for an '
-          'unattended run - strata then stay Uncategorized and the biological '
-          'figures lose their meaning.'),
-        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
-          'Run against the shipped reference corpus instead of your own retrieval.',
-          'Default: off - the normal case is analysing your own corpus.',
-          'Turn it on to reproduce the published reference run, or to draw '
-          'figures before you have retrieved anything. While it is on, the run '
-          'scores the shipped network rather than yours.'),
-    ]),
-    ('Credentials', [
-        F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
-          'Identifies you to Entrez, as NCBI requires.', 'Default: none.',
-          'Required for retrieval. NCBI may block requests that do not carry it.'),
-        F('credentials.entrez_api_key', 'NCBI API key', 'text', '',
-          'Raises the Entrez rate limit from 3 to 10 requests per second.',
-          'Default: none.',
-          'Optional but strongly recommended - retrieval is several times faster '
-          'with one. Stored on this machine only.'),
+    ('Figures', [
+        F('viz_parameters.figure_dpi', 'Resolution (dpi)', 'int', 300,
+          'Dots per inch for every raster figure the run produces.',
+          'Default: 300, the usual journal minimum for a raster figure.',
+          '600 is what print production normally asks for, and roughly '
+          'quadruples both the time to write each figure and its file size. '
+          'Values are clamped to 50-1200.'),
+        F('viz_parameters.figure_formats', 'File formats', 'text', 'jpeg,tif',
+          'Which image files to write for each figure.',
+          'Default: jpeg,tif - a preview to look at and a lossless copy to '
+          'submit.',
+          'Comma-separated, from jpeg, png, tif, pdf and svg. TIFF is written '
+          'with LZW compression because journals ask for lossless and an '
+          'uncompressed 600 dpi panel runs to tens of megabytes. Listing more '
+          'formats writes every figure more than once.'),
     ]),
 ]
 
@@ -315,6 +337,34 @@ TABS = [
 # the moment a tab is inserted before this one.
 WEIGHT_KEYS = [f.key for _, fields in TABS for f in fields
                if f.key.startswith('network_parameters.node_weight_factors')]
+
+
+# Standing explanations pinned to the foot of a tab, for things that are true of
+# the tab as a whole rather than of one control. The description pane below the
+# form only shows the field you are on, so anything you need to know BEFORE
+# choosing a value has nowhere else to appear.
+TAB_NOTES = {
+    'Search': (
+        'The project prefix decides which run you are working on',
+        'Every file a run produces is named with this prefix. That is what makes '
+        'a run resumable, and what decides whether you continue one or overwrite '
+        'it.\n'
+        '\n'
+        'KEEP THE SAME PREFIX to pick up where you left off. Each step checks for '
+        'its own output first and skips the work if it is already there, so a run '
+        'interrupted after retrieval will go straight to the network step, and a '
+        'run that reached the figures will only redraw them. This is how you '
+        'resume after a pause, an abort, or a machine that was shut down.\n'
+        '\n'
+        'CHANGE THE PREFIX to start clean, or to keep an earlier analysis intact '
+        'while you try something different. Two prefixes never touch each other\'s '
+        'files, so both sets of results survive side by side.\n'
+        '\n'
+        'Re-running a step whose output already exists overwrites it. Before a run '
+        'starts, anything that would be replaced is listed for you to confirm - '
+        'and if the prefix has not been used for that step, there is nothing to '
+        'warn about and you are not asked.'),
+}
 
 
 def get(cfg, dotted, default=None):
