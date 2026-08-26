@@ -41,6 +41,10 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
   - [How to Annotate Your Network](#how-to-annotate-your-network)
   - [Syncing to the Master Dictionary](#what-syncing-to-the-master-dictionary-does)
 - [Output Artifacts](#output-artifacts)
+- [The Workbench Window](#the-workbench-window)
+- [Controlling a Run](#controlling-a-run)
+- [When Files Go Wrong](#when-files-go-wrong)
+- [The Run Ledger & PRISMA Report](#the-run-ledger--prisma-report)
 - [Validation & Benchmarking](#validation--benchmarking)
   - [The Bundled OECD Ground Truth](#the-bundled-oecd-ground-truth)
   - [Supplying Your Own Ground Truth](#supplying-your-own-ground-truth)
@@ -428,6 +432,8 @@ Upon successful completion of the pipeline, the following critical files are gen
 * `*_export.xlsx`: A tabular summary of the final nodes and edges.
 * `*_Top_Network_Articles.csv`: The highest-scoring primary literature driving the network's structure.
 * `*_run_annotations.csv`: The per-run biological-strata template you edit during the annotation pause.
+* `*_run_ledger.csv`: Every count the run produced, at every stage — records per citation generation, MeSH annotations screened, what each optimiser kept, what the consensus and the LCC discarded. Semicolon-delimited (MeSH headings contain commas), one ledger per file prefix, with the timestamp each figure was recorded. See **The Run Ledger & PRISMA Report** below.
+* `*_prisma_flow_report.txt` and `figures/*_prisma_flow.*`: A PRISMA-style flow of records through the pipeline, in text and as a figure — the overview of the whole search, suitable for a methods section or a supplementary figure.
 * `*_network_overlap_membership.csv` / `*_network_overlap_matrix.csv` / `*_Network_Overlap.png`: node-overlap comparison across the networks you named — produced only when **Compare Multiple Networks** is enabled.
 * **Benchmark & validation outputs** (all under `results/benchmark/`): everything the `--step benchmark` step produces is consolidated in one folder — the article-ranking benchmark, the node/edge convergent validation with its figures, and the node-weighting/projection report (nested in `results/benchmark/validation/`). See the **Validation & Benchmarking** section below for the complete list (`*_benchmark_results.json`, `*_benchmark_enrichment.png`, `*_benchmark_quarantined_pmids.csv`, `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, the `*_GT_*.png` figures, and `validation/*_validation_report.xlsx`/`.html` + `validation/*_projection_comparison.csv`).
 * `logs/`: run logs and failed-fetch records.
@@ -441,6 +447,138 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
 
 
+
+---
+
+## The Workbench Window
+
+### Data setup
+
+Lists what is on disk **at the paths the pipeline actually uses** — the configured data folder, and the current project prefix. Each row shows Present/Missing, its size, and the actions available:
+
+| Row | What it is |
+| :--- | :--- |
+| Master annotation database | Built from the archive. Required for every run. Hours to rebuild. |
+| PubMed baseline archive | The yearly snapshot, ~44 GB. Only needed to build the database. |
+| PubMed daily updates | Records published since the baseline snapshot. |
+| MeSH descriptor file | Defines the stop-word vocabulary. Fetched automatically. |
+| Retrieved PMIDs / Citation database / Relevance database | Per-project, named with your prefix. |
+
+**Also fetch the daily update files when building** is a checkbox on this screen, so you can see whether it is on without committing to a build first.
+
+Every Build, Rebuild, Download and Delete here asks you to **type `REBUILD` or `DELETE`** before it proceeds. These actions either destroy something that took hours to produce or start something that will take hours to finish, and a yes/no box is one mis-aimed click. Deleting a database also removes its `-wal`, `-shm` and health sidecars — a stale write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
+
+### Settings
+
+Nine tabs. **Search**, **Folders** and **Credentials** come first, because the query, where things are written, and which NCBI account retrieves them are what a new user has to settle before anything else works.
+
+The **Search** tab carries a standing note on the project prefix: how to resume an interrupted run by keeping it, and how to preserve an earlier analysis by changing it. The description pane at the foot of the window shows what the focused control does, its default, and the caveat that matters.
+
+### Before a run starts
+
+Pressing **Run** checks whether this prefix has already produced output for the steps about to execute. If it has, you are shown exactly what would be replaced, with sizes, and offered the chance to change the prefix instead. **If the prefix has not been used for those steps, nothing is asked** — a fresh project never meets a dialog it has no reason to read.
+
+### Results
+
+Opens on the **run overview**: the PRISMA-style account of the whole search, in a scrollable, selectable box — records retrieved per citation generation, what the MeSH screen excluded and why, what each optimiser kept, what the consensus and the largest connected component discarded, and what was finally included. Buttons open the full report and the flow diagram; the file listing sits underneath.
+
+### Menus
+
+- **Run** — any single step.
+- **Database** — the Data setup screen.
+- **Results** — the run overview.
+- **Tools** — Annotate AOP levels, Show the annotation guide (both greyed until a run has produced something to annotate), Check and repair files, Uninstall.
+- **Help** — this manual, the installation notes, the read-me, the reference-figure provenance, and the annotation instructions.
+
+---
+
+## Controlling a Run
+
+### Pause
+
+**Pause** asks the run to stop at its next safe point — between pipeline stages, and between batches inside the long retrieval loops. It is not instant, and the window says so: on a long step it can take a few minutes, and the status line reads *Pausing* until the run actually reports back, at which point it changes to *Paused at a safe point*. **Resume** lets it continue from exactly where it stopped.
+
+This is deliberately cooperative rather than a process suspend, for two reasons:
+
+- **A suspend is not reliable.** On a managed Windows machine the suspend calls return success, the per-thread suspend counts come back as expected, and the process carries on computing — the security layer virtualises them. A Pause button that silently does nothing is worse than none.
+- **A suspend is not safe.** It freezes the process wherever it happens to be, which here is often the middle of a multi-gigabyte SQLite transaction. Left suspended long enough for a laptop to sleep, it produces precisely the corruption the repair tool exists to clean up.
+
+Time spent paused is excluded from the elapsed clock, so reported durations remain honest.
+
+### Abort
+
+**Abort run** stops the step for good; its work is lost. The confirmation says how long the run has been going, because that is the fact that changes the decision. Completed steps are kept — a later run resumes from the last one that finished rather than starting over.
+
+If the run reaches a checkpoint before the process is killed, it exits tidily and reports *Stopped at a safe point*, meaning nothing was left half-written.
+
+From a terminal, the same controls are files: create `pause.flag` in the directory named by `MESH_CONTROL_DIR` to pause, delete it to resume, create `abort.flag` to stop.
+
+---
+
+## When Files Go Wrong
+
+A run that is interrupted — a machine that slept, a disk that filled, a sync client caught mid-write — can leave a file that looks complete and is not. It has the right name and a plausible size, and it fails much later, inside a step that had no way to know its input was rubbish.
+
+### Tools → Check and repair files
+
+Opens every artefact the pipeline depends on and reports its condition:
+
+| Status | Meaning |
+| :--- | :--- |
+| **ok** | Opens and reads cleanly |
+| *(blank)* | Not built yet — normal, and not a problem |
+| **EMPTY** | Present but zero bytes: a write that never started |
+| **CORRUPT** | Opening or parsing it fails outright |
+| **SUSPECT** | Opens, but the contents do not add up |
+| **ORPHAN** | A temporary or part-file no finished run would leave |
+
+Definitely-broken files are pre-ticked; merely suspect ones are listed unticked, because deleting something odd is not a call to make on your behalf. The dialog warns before removing anything that costs hours to rebuild, and afterwards names the step to resume from. Sidecar files go with their parent — a stale SQLite write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
+
+Nothing listed is your own work. Every one of these files is machinery the pipeline rebuilds; your results are never touched.
+
+From a terminal:
+
+```bash
+python -m mesh_aop.cli --check-files
+```
+
+Add `--repair-files` to delete what is broken, and `--deep-check` for SQLite's full integrity check (thorough, and slow on a large database).
+
+### The master annotation database
+
+This one is treated differently because it is the only artefact whose replacement costs a night rather than a coffee break — roughly 44 GB downloaded and several hours compiled.
+
+- After a successful build, a **health record** (`master_mesh_database.db.health.json`) stores its size, modification time and row count. Later damage is then detectable in seconds instead of by re-scanning eight gigabytes.
+- Before any step that reads it, the pipeline runs a **pre-flight check**: open it, structural `quick_check`, confirm the table has rows, compare against the health record. A corrupt database stops the run *before* it spends hours on work that depends on it; a merely suspect one warns and continues.
+- **Rebuild instructions are written beside the database itself**, as `HOW TO REBUILD THIS DATABASE - read me.txt`. A build log is not where anyone looks a month later when the file will not open.
+
+---
+
+## The Run Ledger & PRISMA Report
+
+Every run writes two provenance artefacts into `results/`, without being asked and regardless of which `--step` was run.
+
+### `*_run_ledger.csv` — the counts
+
+The pipeline computes a great many numbers, prints them once, and throws them away; recovering one afterwards used to mean re-running the stage that produced it. The ledger keeps them. It is a semicolon-delimited table — semicolons because MeSH headings contain commas as a matter of course (*Dermatitis, Allergic Contact*) — with five columns:
+
+| Column | Meaning |
+| :--- | :--- |
+| `stage` | `run`, `identification`, `screening`, `pruning`, `included`, `unipartite` — in pipeline order |
+| `metric` | What was counted |
+| `value` | The count, or the setting |
+| `recorded` | When that row was written |
+| `note` | A plain-language gloss, so the file reads without this manual |
+
+There is **one ledger per file prefix**, and recording **merges**: re-running the network step rewrites the `pruning` and `included` rows and leaves `identification` alone. That is why every row carries its own timestamp — a ledger whose stages were written weeks apart is legible rather than misleading, and the text report calls the mixed dates out explicitly when they differ.
+
+Counts come from whichever source is most trustworthy, in this order: the stage that just ran hands back its own numbers; failing that, the ledger reuses what it recorded last time; failing that, it reads the artefacts on disk. The middle step matters — a resumed run would otherwise re-parse a several-hundred-megabyte network JSON to recover a number it had already written down.
+
+### `*_prisma_flow_report.txt` and `figures/*_prisma_flow.*` — the overview
+
+The same counts, laid out as a PRISMA 2020-style flow: **Identification → Screening → Pruning → Included**, with what was excluded at each step, and why, set beside it. The pipeline has genuinely the same shape as a systematic review — a seeded PubMed search expanded over citation generations, an annotation screen, two optimisers pruning the graph, and a largest connected component that everything downstream reports on — so it is drawn the same way.
+
+The figure is written at the dpi and in the formats set under **Figures** in the settings (default 300 dpi, JPEG + TIFF). A stage the run never reached is left out rather than drawn as zero: *not run* and *found nothing* are different claims, and a reader cannot tell them apart from a box of zeroes.
 
 ---
 
