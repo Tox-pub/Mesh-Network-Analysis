@@ -24,6 +24,8 @@ from Bio import Entrez, Medline
 import pandas as pd
 from tqdm import tqdm
 
+from . import runcontrol as _runcontrol
+
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # Helper and Utility Functions
@@ -290,6 +292,9 @@ def run_initial_data_collection(search_term_param: str, start_date_str: str, end
                 break
 
             for i in tqdm(range(0, len(parent_pmids_in_gen), batch_size), desc=f"Finding children of {parent_gen_label}"):
+                # Between batches: the transaction for the previous one
+                # is committed and the next has not begun.
+                _runcontrol.checkpoint(f"retrieving {child_gen_label}")
                 parent_batch = parent_pmids_in_gen[i:i + batch_size]
                 citation_results = fetch_links_in_batches(parent_batch)
                 time.sleep(entrez_delay)
@@ -324,6 +329,7 @@ def run_initial_data_collection(search_term_param: str, start_date_str: str, end
             final_gen_pmids = [row[0] for row in cursor.fetchall()]
 
             for i in tqdm(range(0, len(final_gen_pmids), batch_size), desc=f"Fetching Links for {final_gen_label}"):
+                _runcontrol.checkpoint(f"fetching links for {final_gen_label}")
                 final_batch = final_gen_pmids[i:i + batch_size]
                 citation_results = fetch_links_in_batches(final_batch)
                 time.sleep(entrez_delay)
@@ -437,6 +443,7 @@ def populate_master_mesh_database(source_pmids_input, master_db_path: str, entre
     empty_pmids, failed_pmids = [], []
 
     for i in tqdm(range(0, len(new_pmids_to_fetch), fetch_batch_size), desc="Populating Master MeSH DB"):
+        _runcontrol.checkpoint("fetching MeSH annotations")
         batch = new_pmids_to_fetch[i : i + fetch_batch_size]
         if not batch:
             continue

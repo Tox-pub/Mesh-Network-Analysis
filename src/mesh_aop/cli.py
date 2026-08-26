@@ -39,12 +39,20 @@ from .data_ops import (
     update_db_with_mesh_batch
 )
 from .network import run_network_construction, run_consensus_filtering_and_lcc, run_community_detection
+from .run_ledger import open_ledger
+from .prisma import write_prisma_report
+from .guides import AOP_LEVELS, write_annotation_guide, write_master_db_guide
+from . import guides
+from . import ledger_collect
+from . import runcontrol
+from .runcontrol import RunAborted
 from .relevance import run_mean_relevancy_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles, run_network_overlay_comparison
 from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
 from .gt_network_validation import run_gt_network_validation
 from .validation_report import run_validation_report, run_projection_comparison
 from .viz import (
+    configure_output,
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
     plot_louvain_community_bars, plot_joint_plot, plot_tsne_louvain_overlap,
@@ -57,7 +65,17 @@ except ImportError:
     MESH_STOP_WORDS = set()
 
 def get_version() -> str:
-    """Dynamically retrieves the package version established in pyproject.toml."""
+    """The version of the code that is actually running.
+
+    Not the installed distribution's: the packaged build is never pip-installed,
+    so metadata there is either absent or - worse - a stale dist-info left in a
+    development environment, which reported 3.1.0 as 1.0.0. The module constant
+    ships with the code it describes and cannot drift from it. Distribution
+    metadata is consulted only if that constant is somehow missing.
+    """
+    from . import __version__ as pkg_version
+    if pkg_version:
+        return pkg_version
     try:
         return version("mesh_aop_network")
     except PackageNotFoundError:
@@ -104,6 +122,116 @@ def _is_valid_db(db_path, table_name="pmids_table"):
         return valid
     except Exception:
         return False
+
+def _run_file_check(config, repair=False, deep=False):
+    """Report every damaged artefact, optionally delete them. Returns an exit code.
+
+    Deleting is offered because these files are all reproducible: the pipeline
+    rebuilds whatever is absent. Keeping a corrupt one is strictly worse than
+    having none, because a present-but-wrong file is what the next step will
+    happily read.
+    """
+    from . import integrity
+
+    print("\n" + "<" * 30 + ">" * 30)
+    print("CHECKING FILES" + (" (full integrity check)" if deep else ""))
+    print("<" * 30 + ">" * 30)
+    print(f"  Data     : {config.active_raw_dir}")
+    print(f"  Processed: {config.active_source_dir}")
+    print(f"  Results  : {config.results_dir}\n")
+
+    artifacts = integrity.scan(config, deep=deep)
+    for a in artifacts:
+        mark = {integrity.OK: '[+]', integrity.MISSING: '[ ]'}.get(a.status, '[!]')
+        note = 'not built yet' if a.status == integrity.MISSING else a.detail
+        print(f"  {mark} {a.label:44} {note}")
+
+    print()
+    print(integrity.summarise(artifacts))
+
+    suspect = [a for a in integrity.problems(artifacts) if a.status == integrity.SUSPECT]
+    if suspect:
+        print("\n  These open but do not look right. They are left alone: the")
+        print("  pipeline rebuilds what it cannot use, and deleting something")
+        print("  merely odd is not a call to make automatically.")
+        for a in suspect:
+            print(f"      {a.label} - {a.detail}")
+        print("  Tools -> Check and repair files in the Workbench can remove them.")
+
+    broken = [a for a in integrity.problems(artifacts) if a.broken]
+    if not broken:
+        return 0
+
+    if not repair:
+        print("\n  Add --repair-files to delete the damaged files listed above.")
+        print("  Nothing has been changed.")
+        return 1
+
+    costly = [a for a in broken if a.cost == integrity.COST_HOURS]
+    if costly:
+        print("\n  [!] This will delete files that take HOURS to rebuild:")
+        for a in costly:
+            print(f"        {a.label} ({a.size_mb:,.0f} MB)")
+
+    removed, freed, failures = integrity.remove(broken)
+    print(f"\n  Removed {len(removed)} file(s), {freed/1e6:,.0f} MB freed.")
+    for a, err in failures:
+        print(f"  [!] Could not remove {a.path}: {err}")
+    step = integrity.resume_step(artifacts)
+    if step:
+        print(f"\n  Now resume from: {integrity.STEP_LABEL.get(step, step)}")
+        print(f"    python -m mesh_aop.cli --step {step}"
+              + (" --build-database" if step == 'baseline' else ""))
+    return 0 if not failures else 1
+
+
+def _preflight(config, step):
+    """Check the inputs a step depends on before it starts, not four hours in.
+
+    Only the master database is examined closely, because it is the one artefact
+    whose replacement costs a night rather than a coffee break, and because the
+    ways it goes wrong - a sync client serving a placeholder, a build cut short
+    by a full disk - all produce a file that looks entirely normal until
+    something tries to read from the middle of it.
+
+    Never fatal on its own: a warning here and a clear failure later beats
+    refusing to start over a check that might itself be wrong.
+    """
+    from . import integrity
+
+    needs_master = step in ('all', 'network', 'secondary', 'benchmark')
+    if not needs_master or not os.path.exists(config.files['master_db']):
+        return True
+
+    print("\n<<< Checking the master annotation database >>>")
+    started = time.time()
+    status, detail, rows = integrity.check_master_db(config.files['master_db'])
+    took = time.time() - started
+
+    if status == integrity.OK:
+        print(f"  [+] Master database OK - {detail} ({took:.1f}s)")
+        return True
+
+    print("\n" + "<" * 30 + ">" * 30)
+    print(f"[!] THE MASTER ANNOTATION DATABASE IS {status.upper()}")
+    print("<" * 30 + ">" * 30)
+    print(f"    {config.files['master_db']}")
+    print(f"    {detail}")
+    if status == integrity.SUSPECT:
+        print("\n    The file opens, so the run will continue - but the results")
+        print("    may be built on incomplete annotations. Worth checking before")
+        print("    you rely on them.")
+        return True
+    print("\n    Scoring reads this database for every article, so continuing")
+    print("    would fail later and waste the intervening hours.")
+    print("\n    To fix it:")
+    print("      Workbench:  Tools -> Check and repair files")
+    print("      Terminal :  python -m mesh_aop.cli --step baseline "
+          "--build-database --rebuild-corrupt")
+    print(f"\n    Instructions are also saved beside the database itself, as")
+    print(f"      {guides.MASTER_DB_GUIDE_NAME}")
+    return False
+
 
 def _ensure_prerequisites(required_files: dict, step_name: str):
     """Abort with a clear message listing any required input files that are missing for a step."""
@@ -271,6 +399,13 @@ def main():
     parser.add_argument('--rebuild-corrupt', action='store_true',
                         help="With --build-database, delete an unreadable master database before rebuilding it.")
 
+    parser.add_argument('--check-files', action='store_true',
+                        help="Check every file this project depends on and report anything damaged, then exit.")
+    parser.add_argument('--repair-files', action='store_true',
+                        help="With --check-files, delete the damaged files so the next run rebuilds them.")
+    parser.add_argument('--deep-check', action='store_true',
+                        help="With --check-files, run SQLite's full integrity check. Thorough, and slow on a large database.")
+
     args = parser.parse_args()
 
     # Intercept Documentation Request
@@ -287,6 +422,9 @@ def main():
     except Exception as e:
         print(f"\n[!] Configuration Error: {e}")
         sys.exit(1)
+
+    if args.check_files:
+        sys.exit(_run_file_check(config, repair=args.repair_files, deep=args.deep_check))
 
     if args.interactive:
         reset_triggered = run_interactive_wizard(config, args.step)
@@ -307,12 +445,38 @@ def main():
 
     total_start = time.time()
 
+    # Counts handed back by the stages that actually execute. A resumed run
+    # leaves these empty and the ledger falls back to reading the artefacts.
+    build_stats, filter_stats = {}, {}
+
+    # Resolution and file types, set before anything is drawn. This has to
+    # happen here rather than in Step 4: Step 3 draws the topological and
+    # distribution figures too, and the PRISMA flow is drawn after every step.
+    _vp = config.params.get('viz_parameters', {})
+    _dpi, _fmts = configure_output(_vp.get('figure_dpi'), _vp.get('figure_formats'))
+    print(f"\nFigure output: {_dpi} dpi, formats {', '.join(_fmts)}")
+
+    # The rebuild instructions live beside the database, refreshed each run so
+    # they always name the current paths. Cheap, and it means the data folder is
+    # never just an unexplained pile of gigabytes.
+    try:
+        write_master_db_guide(config.files['master_db'],
+                              workspace_dir=str(config.params.get('directories', {})
+                                                .get('etl_workspace_dir', '') or ''))
+    except Exception:
+        pass
+
+    # Check the expensive input before spending hours on work that depends on it.
+    if not _preflight(config, args.step):
+        sys.exit(1)
+
     opt_hist_path = os.path.join(os.path.dirname(config.files['full_network']), f"{config.prefix}_optimization_history.json")
     run_anno_path = os.path.join(config.results_dir, f"{config.prefix}_run_annotations.csv")
 
     try:
         # <<< STEP 0: Offline Master DB Generation >>>
         if config.params.get('_run_baseline_etl', False):
+            runcontrol.checkpoint("before Step 0")
             print("\n>>> STARTING: Step 0 - PubMed Baseline ETL (Master Database Generation)")
 
             if config.params.get('_delete_corrupt_db', False):
@@ -337,6 +501,7 @@ def main():
 
         # <<< STEP 1: MeSH Support Files Processing >>>
         if args.step in ['all', 'process']:
+            runcontrol.checkpoint("before Step 1")
             print("\n>>> STARTING: Step 1 - MeSH Raw Data Processing")
 
             # The descriptor XML is only read when the support files are being
@@ -366,6 +531,7 @@ def main():
 
         # <<< STEP 2: Entrez Data Collection >>>
         if args.step in ['all', 'data_ops']:
+            runcontrol.checkpoint("before Step 2")
             print("\n>>> STARTING: Step 2 - Entrez Data Collection & Database Operations")
 
             if not _is_valid_db(config.files['pmids_db'], "pmids_table"):
@@ -401,12 +567,13 @@ def main():
 
         # <<< STEP 3: Network Construction & Analysis >>>
         if args.step in ['all', 'network']:
+            runcontrol.checkpoint("before Step 3")
             print("\n>>> STARTING: Step 3 - Network Construction & Statistical Filtering")
 
             _ensure_prerequisites({"Cleaned Database": config.files['cleaned_db']}, "Step 3 (Network Construction)")
 
             if not os.path.exists(config.files['full_network']):
-                run_network_construction(
+                build_stats = run_network_construction(
                 db_path_param=config.files['cleaned_db'],
                 output_json_path=config.files['full_network'],
                 lambda_val=config.get('network_parameters', 'lambda_val'),
@@ -419,7 +586,7 @@ def main():
             )
 
             if not os.path.exists(config.files['consensus_lcc']):
-                run_consensus_filtering_and_lcc(
+                filter_stats = run_consensus_filtering_and_lcc(
                     input_json_path=config.files['full_network'],
                     glf_output_path=config.files['glf_subgraph'],
                     sa_output_path=config.files['sa_subgraph'],
@@ -529,6 +696,7 @@ def main():
         should_run_sec = True if args.step == 'secondary' else sec_params.get('export_top_articles', True)
 
         if args.step in ['all', 'secondary'] and should_run_sec:
+            runcontrol.checkpoint("before Secondary Analysis")
             print("\n>>> STARTING: Secondary Analysis Operations")
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db'],
@@ -594,19 +762,56 @@ def main():
 
         if args.step == 'all':
             if config.params.get('control_flags', {}).get('pause_for_annotation', False):
-                print(f"\n[!] Pipeline paused - AOP-level steps are not yet complete.")
-                print(f"    The MeSH terms in the LCC need an AOP level assigned manually before visualization.")
-                print(f"    1. Open and edit this file (set the AOP level for each term):")
-                print(f"         {os.path.abspath(run_anno_path)}")
-                print(f"    2. Then resume the pipeline with:")
-                print(f"         python -m mesh_aop.cli --step viz")
+                anno = os.path.abspath(run_anno_path)
+                # Instructions on screen AND in a file beside the one to edit:
+                # a paused run can sit for days, and the window that explained
+                # what to do is usually long closed by the time anyone returns.
+                guide = write_annotation_guide(anno, config)
+                print("\n" + "<" * 30 + ">" * 30)
+                print("PIPELINE PAUSED - the network needs AOP levels before figures")
+                print("<" * 30 + ">" * 30)
+                print("\n  The consensus network is built and scored. Each MeSH term in")
+                print("  it now needs a biological level assigned, which is a judgement")
+                print("  the pipeline cannot make for you.")
+                print(f"\n  1. Open this file and fill in the 'aop_level' column:")
+                print(f"       {anno}")
+                print(f"\n     Allowed levels, in pathway order:")
+                print(f"       {', '.join(AOP_LEVELS)}")
+                print("     Leave a term as 'Unassigned' if it does not belong to the")
+                print("     pathway; it is kept in the network and omitted from the")
+                print("     AOP-specific figures. Save as CSV, keeping the semicolons.")
+                print(f"\n  2. Then run the figures step:")
+                print("       Workbench:  Run -> Step 4 (figures)")
+                print("       Terminal :  python -m mesh_aop.cli --step viz")
+                if guide:
+                    print(f"\n  These instructions are also saved beside the file:")
+                    print(f"       {guide}")
+                # A marker the Workbench can recognise. Prefixed and on one line
+                # so it survives the log reader without being mistaken for prose.
+                print(f"\n[PAUSED-FOR-ANNOTATION] {anno}")
                 sys.exit(0)
             else:
                 print(f"AFK Override Active. Proceeding to visualization with 'Unassigned' AOP levels...")
 
         # <<< STEP 4: Visualization (AOP-Dependent) >>>
         if args.step in ['all', 'viz']:
+            runcontrol.checkpoint("before Step 4")
             print("\n>>> STARTING: Step 4 - Biological Figure Generation")
+
+            # The run annotations are normally written by the network step. When
+            # this step is run on its own - which is the whole point of reference
+            # mode, where the network already exists - there is nothing to have
+            # written them, and the step used to stop dead asking for a file the
+            # user had no way to produce. Rebuild it from the stratum dictionary
+            # instead; both inputs ship with the reference corpus.
+            if not os.path.exists(run_anno_path):
+                if (os.path.exists(config.files['final_network'])
+                        and os.path.exists(config.files['annotations'])):
+                    print("\n    Run annotations absent - rebuilding from the "
+                          "stratum dictionary.")
+                    _generate_run_annotations(config.files['final_network'],
+                                              config.files['annotations'],
+                                              run_anno_path)
 
             _ensure_prerequisites({
                 "Final Network JSON": config.files['final_network'],
@@ -630,6 +835,7 @@ def main():
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
         gt_enabled = False
         if args.step == 'benchmark':
+            runcontrol.checkpoint("before Step 5")
             print("\n>>> STARTING: Step 5 - Ground-Truth Validation & Benchmarking")
 
             bench_params = config.params.get('benchmark', {})
@@ -795,6 +1001,17 @@ def main():
                 print("  column of PMIDs, or a plain .txt list with one PMID per line.")
                 sys.exit(1)
 
+    except RunAborted as e:
+        # Asked to stop, and it reached a checkpoint before being killed. The
+        # files on disk are consistent, which is the whole point of stopping
+        # here rather than being terminated mid-write.
+        print("\n" + "<"*30 + ">"*30)
+        print(f"[!] RUN STOPPED - {e}")
+        print("<"*30 + ">"*30)
+        print("    It stopped at a safe point: no file was left half-written,")
+        print("    and completed steps are kept. Running again resumes from the")
+        print("    last step that finished.")
+        sys.exit(130)
     except Exception as e:
         print("\n" + "<"*30 + ">"*30)
         print(f"[CRITICAL ERROR] Pipeline Execution Failed: {e}")
@@ -805,6 +1022,29 @@ def main():
         sys.exit(130)
 
     total_time = time.time() - total_start
+
+    # <<< RUN LEDGER & PRISMA FLOW REPORT >>>
+    # Written last, from the counts the stages returned plus whatever the run
+    # left on disk, so a resumed run reports the same totals as a fresh one.
+    try:
+        ledger = open_ledger(config.results_dir, config.prefix)
+        ledger_collect.collect_all(
+            ledger, config, args.step, version=get_version(),
+            build_stats=build_stats, filter_stats=filter_stats,
+            comparison_files=(config.params.get('secondary_analysis', {})
+                              .get('comparison_networks', '')
+                              if config.params.get('secondary_analysis', {})
+                              .get('compare_networks', False) else '')
+        )
+        ledger.record('run', 'runtime_minutes', f"{total_time/60:.2f}")
+        if ledger.save():
+            print(f"\n  [+] Run ledger written: {ledger.path}")
+        for path in write_prisma_report(ledger, config):
+            print(f"  [+] PRISMA flow report written: {path}")
+    except Exception as e:
+        # A missing report must never turn a completed run into a failed one.
+        print(f"\n  [!] Could not write the run ledger / PRISMA report: {e}")
+
     print("\n" + "<"*30 + ">"*30)
     print(f"PIPELINE COMPLETED SUCCESSFULLY in {total_time/60:.2f} minutes.")
     print("<"*30 + ">"*30)

@@ -49,7 +49,11 @@ class MeshConfig:
                 # Off: the default is a user analysing their own corpus. Turn it
                 # on to reproduce the published reference run.
                 "use_reference_data": False,
-                "custom_file_prefix": "DAC_Mesh"
+                "custom_file_prefix": "DAC_Mesh",
+                # Off, matching the documented behaviour: the run completes
+                # unattended with every term left 'Unassigned'. Turn it on to
+                # stop after Step 3 and assign AOP levels by hand first.
+                "pause_for_annotation": False
             },
             "directories": {
                 "input_dir": "",
@@ -90,7 +94,21 @@ class MeshConfig:
                 "random_seed": 42,
                 "betweenness_k_samples": 1000,
                 "context_start_date": "1950/01/01",
-                "context_end_date": "TODAY"
+                "context_end_date": "TODAY",
+                # Both of these have fallbacks in network.py, so the pipeline
+                # ran without them - but the settings window showed its own
+                # defaults for keys the file did not contain, which is how a
+                # displayed value and an applied value come to differ. Seeded
+                # here so there is one answer rather than two.
+                "eigenvector_max_iter": 1000,
+                "eigenvector_tol": 1.0e-6
+            },
+            # Figure output. 300 dpi is the usual journal minimum for raster
+            # figures and is fast; 600 is what print production asks for and
+            # roughly quadruples both time and file size.
+            "viz_parameters": {
+                "figure_dpi": 300,
+                "figure_formats": "jpeg,tif"
             },
             "network_parameters": {
                 "lambda_val": 1.0,
@@ -122,7 +140,17 @@ class MeshConfig:
                 "run_projection_comparison": True,
                 "network_validation_weight_key": "MRS_pagerank_centrality",
                 "min_articles_per_node": 2,
-                "background_pool_size": 50000
+                "background_pool_size": 50000,
+                # Bootstrap depth for the validation report, kept separate from
+                # n_boot so the cheap benchmark and the expensive report can be
+                # tuned independently.
+                "validation_report_n_boot": 2000
+                # run_ground_truth_analysis is deliberately NOT seeded here. Its
+                # default is not a constant: absent, it follows 'Use reference
+                # data', so the bundled corpus benchmarks itself and a user's own
+                # corpus does not until they ask. Writing a fixed value would
+                # pin it and lose that. The settings window still offers it, and
+                # saving from there pins it on purpose.
             },
             # Step 3.5. Declared here so saved values survive a reload: the
             # wizard used to create this section in memory only, and load_config
@@ -183,6 +211,29 @@ class MeshConfig:
             if self.params.get(section, {}).get(key) == "TODAY":
                 self.params[section][key] = today
 
+    def _annotations_path(self):
+        """The AOP stratum dictionary, preferring the user's own copy.
+
+        It lives in the raw data folder, which on a fresh install is empty - so
+        the figure step failed on a clean machine even in reference mode, asking
+        for a run-annotations file it could not generate without this. The copy
+        shipped beside the reference corpus is the fallback, so an install can
+        reproduce the reference figures before retrieving anything.
+        """
+        own = self.active_raw_dir / "aop_annotations_master.csv"
+        if own.exists():
+            return own
+        from . import paths as _paths
+        # The packaged build copies the dictionary in beside the reference
+        # corpus; a source checkout keeps it in data/raw, which is not the
+        # active raw folder while reference mode is on. Try both, so reference
+        # mode draws its figures from a clone as readily as from an installer.
+        for fallback in (_paths.bundled_reference_dir(self.root) / "aop_annotations_master.csv",
+                         self.root / "data" / "raw" / "aop_annotations_master.csv"):
+            if fallback.exists():
+                return fallback
+        return own
+
     def get_default_directories(self, use_ref_data: bool):
         """Return the default (input, output) directories for the active data mode.
 
@@ -242,7 +293,7 @@ class MeshConfig:
     def _map_files(self):
         """Maps all explicit file paths required by the pipeline modules."""
         self.files = {
-            "annotations": self.active_raw_dir / "aop_annotations_master.csv",
+            "annotations": self._annotations_path(),
             "master_db": self.active_raw_dir / "master_mesh_database.db",
             "pmids_db": self.active_raw_dir / f"{self.prefix}_pmids.db",
 
