@@ -134,7 +134,13 @@ def calculate_generation_weight(generation, lambda_val: float) -> float:
         return 0.0
 
 def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
-    """Calculates article citation ranks and MeSH term citation statistics."""
+    """Calculates article citation ranks and MeSH term citation statistics.
+
+    Returns (df, mesh_stats_df, screening_stats). The third element counts what
+    the term screen let through and what it discarded - subheadings, stop words -
+    for the run ledger; nothing downstream depends on it.
+    """
+    screening = {}
     print("  Calculating numeric citation counts per article...")
     df['cited_by_count'] = df['cited_by'].apply(
         lambda x: len(x.split(';')) if isinstance(x, str) and x.strip() and x.lower() != 'nan' else 0
@@ -150,6 +156,20 @@ def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
             if '/' not in term and term.strip()
         ]
 
+    def count_all_terms(mesh_string):
+        """Every annotation on an article, subheadings included - the denominator."""
+        if not isinstance(mesh_string, str):
+            return (0, 0)
+        parts = [p for p in mesh_string.split(';') if p.strip()]
+        return (len(parts), sum(1 for p in parts if '/' in p))
+
+    # Denominator for the term screen, counted before anything is dropped.
+    _raw = df['mesh_terms'].apply(count_all_terms)
+    screening['annotations_total'] = int(sum(a for a, _ in _raw))
+    screening['annotations_subheadings_removed'] = int(sum(s for _, s in _raw))
+    screening['articles_with_mesh'] = int((df['mesh_terms'].fillna('').astype(str).str.strip() != '').sum())
+    screening['articles_without_mesh'] = int(len(df) - screening['articles_with_mesh'])
+
     df_exploded = df[['mesh_terms', 'cited_by_count']].copy()
     df_exploded['mesh_terms'] = df_exploded['mesh_terms'].apply(extract_main_mesh_terms)
     df_exploded = df_exploded.explode('mesh_terms')
@@ -157,7 +177,13 @@ def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
     df_exploded.dropna(subset=['mesh_term'], inplace=True)
 
     stop_words_lower = {s.lower() for s in stop_words_set}
+    screening['stop_words_in_list'] = len(stop_words_lower)
+    _before = set(df_exploded['mesh_term'].str.lower().unique())
+    screening['terms_before_stop_words'] = len(_before)
+    screening['terms_removed_as_stop_words'] = len(_before & stop_words_lower)
+
     df_exploded = df_exploded[~df_exploded['mesh_term'].str.lower().isin(stop_words_lower)]
+    screening['terms_after_stop_words'] = int(df_exploded['mesh_term'].nunique())
 
     print("  Aggregating citation counts per term using groupby...")
     if not df_exploded.empty:
@@ -201,7 +227,8 @@ def normalize_cited_by_per_mesh(df: pd.DataFrame, stop_words_set: set) -> tuple:
     else:
         df['normalized_cited_by'] = 0.0
 
-    return df, mesh_stats_df
+    screening['articles_screened'] = int(len(df))
+    return df, mesh_stats_df, screening
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # CORE PIPELINE OPERATIONS
@@ -233,11 +260,19 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
 
     if df.empty:
         print("Loaded DataFrame is empty. Exiting network construction.")
-        return
+        return {}
+
+    # Records reaching the network, by generation - the identification counts,
+    # taken from the same frame the network is built from rather than from a
+    # separate query that could disagree with it.
+    build_stats = {'articles_loaded': int(len(df))}
+    for gen, n in df['generation'].value_counts().items():
+        build_stats[f'records_generation_{gen}'] = int(n)
 
     print("\n<<< Pre-computation >>>")
     df['generation_weight'] = df['generation'].apply(calculate_generation_weight, lambda_val=lambda_val)
-    df, mesh_stats_df = normalize_cited_by_per_mesh(df, MESH_STOP_WORDS)
+    df, mesh_stats_df, screening = normalize_cited_by_per_mesh(df, MESH_STOP_WORDS)
+    build_stats.update(screening)
 
     rank_norm_weight_dicts = {}
     if not mesh_stats_df.empty:
@@ -525,6 +560,8 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
     print("\n<<< Full Network Summary >>>")
     print(f"Total Nodes in Full Graph: {len(nodes_list_for_cytoscape):,}")
     print(f"Total Edges in Full Graph: {len(edges_list_for_cytoscape):,}")
+    build_stats['full_network_nodes'] = len(nodes_list_for_cytoscape)
+    build_stats['full_network_edges'] = len(edges_list_for_cytoscape)
 
     final_output_path = Path(output_json_path)
     temp_output_path = final_output_path.with_suffix('.json.tmp')
@@ -541,6 +578,8 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
         if temp_output_path.exists():
             temp_output_path.unlink()
         raise RuntimeError(f"Failed to write final JSON file: {e}")
+
+    return build_stats
 
 def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
                                     sa_output_path: str, final_lcc_output_path: str,
@@ -560,7 +599,7 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     all_nodes_data, all_edges_data = load_full_graph_data(input_json_path)
     if not all_edges_data:
         print("No edges in the unfiltered graph. Aborting filtering.")
-        return
+        return {}
 
     global_T, global_node_strengths = calculate_graph_stats(all_edges_data)
 
@@ -583,13 +622,35 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     consensus_keys = glf_keys.intersection(sa_keys)
     print(f"Found {len(consensus_keys)} consensus edges (intersection of GLF and SA).")
 
+    # Counts for the run ledger. Every one of these is already known at this
+    # point and was previously printed and discarded; returning them costs
+    # nothing and saves re-running a three-hour stage to find out what it did.
+    glf_nodes = {n for key in glf_keys for n in key}
+    sa_nodes = {n for key in sa_keys for n in key}
+    consensus_nodes = {n for key in consensus_keys for n in key}
+    kept_nodes = glf_nodes | sa_nodes
+    kept_edges = glf_keys | sa_keys
+    stats = {
+        'target_edges': target_num_edges,
+        'glf_nodes': len(glf_nodes), 'glf_edges': len(glf_keys),
+        'sa_nodes': len(sa_nodes), 'sa_edges': len(sa_keys),
+        'pruning_nodes_considered': len(all_nodes_data),
+        'pruning_nodes_excluded': len(all_nodes_data) - len(kept_nodes),
+        'pruning_edges_considered': len(all_edges_data),
+        'pruning_edges_excluded': len(all_edges_data) - len(kept_edges),
+        'consensus_nodes': len(consensus_nodes),
+        'consensus_edges': len(consensus_keys),
+        'consensus_nodes_excluded': len(kept_nodes - consensus_nodes),
+        'consensus_edges_excluded': len(kept_edges - consensus_keys),
+    }
+
     print("\n<<< Extracting Largest Connected Component (LCC) from Consensus Network >>>")
     if not consensus_keys:
         print("Consensus network is empty. No LCC to extract.")
         os.makedirs(os.path.dirname(final_lcc_output_path), exist_ok=True)
         with open(final_lcc_output_path, 'w') as f:
             json.dump({"elements": {"nodes": [], "edges": []}}, f)
-        return
+        return stats
 
     G_consensus = nx.Graph()
     G_consensus.add_edges_from(list(consensus_keys))
@@ -600,7 +661,7 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
         os.makedirs(os.path.dirname(final_lcc_output_path), exist_ok=True)
         with open(final_lcc_output_path, 'w') as f:
             json.dump({"elements": {"nodes": [], "edges": []}}, f)
-        return
+        return stats
 
     print(f"Found {len(components)} separate component(s).")
     sorted_components = sorted(components, key=len, reverse=True)
@@ -618,6 +679,17 @@ def run_consensus_filtering_and_lcc(input_json_path: str, glf_output_path: str,
     lcc_edge_keys = {key for key in consensus_keys if key[0] in lcc_nodes and key[1] in lcc_nodes}
     save_subgraph_to_json(final_lcc_output_path, lcc_edge_keys, all_nodes_data, all_edges_data)
     print("\nConsensus filtering and LCC extraction complete.")
+
+    stats.update({
+        'components_found': len(components),
+        'components_excluded': len(smaller_components),
+        'largest_excluded_component': len(smaller_components[0]) if smaller_components else 0,
+        'lcc_nodes': len(lcc_nodes),
+        'lcc_edges': len(lcc_edge_keys),
+        'lcc_nodes_excluded': len(consensus_nodes) - len(lcc_nodes),
+        'lcc_edges_excluded': len(consensus_keys) - len(lcc_edge_keys),
+    })
+    return stats
 
 def run_community_detection(network_file_path: str, random_seed: int,
                             compute_subgraph_centrality: bool = False):
