@@ -1,0 +1,384 @@
+# -*- coding: utf-8 -*-
+"""
+build_unix_bundle.py - a self-contained Linux or macOS package, built anywhere.
+
+This can be run on Windows. That is worth stating plainly, because the received
+wisdom is that you cannot build for one operating system on another, and for
+compiled software that is true: PyInstaller, Nuitka and appimagetool all need to
+run the target's own toolchain, and none of them can cross-compile.
+
+None of that applies here, because this application has nothing to compile.
+Every piece of it is one of two things:
+
+  * pure Python - the application itself, which is the same bytes everywhere;
+  * a prebuilt wheel - numpy, scipy, scikit-learn and the rest, for which PyPI
+    already publishes compiled manylinux and macOS wheels. `pip download
+    --platform` fetches them from any machine, because it is a download, not a
+    build.
+
+The interpreter is the one piece that is genuinely platform-specific, and it
+does not have to be built either: python-build-standalone publishes
+redistributable CPython for every target as a tarball. Statically linked,
+relocatable, and - checked, because the window depends on it - carrying
+_tkinter and its Tcl/Tk runtime.
+
+So the whole package is an assembly job, and assembly is platform-agnostic.
+
+WHAT THIS CANNOT DO is test the result. A bundle built here has never been run
+on the system it targets. The CI workflow does that on real runners; this script
+is for producing something today, on one machine, without waiting for a tag.
+
+    python packaging/build_unix_bundle.py --target linux
+    python packaging/build_unix_bundle.py --target macos-arm --out D:/builds
+"""
+
+import argparse
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+NAME = 'MeSH-Workbench'
+PY_SERIES = '3.12'
+
+# Each target names three things: the CPython triple published by
+# python-build-standalone, the pip platform tag its wheels are built for, and
+# what a human calls it.
+TARGETS = {
+    'linux': dict(
+        triple='x86_64-unknown-linux-gnu',
+        wheel_tags=['manylinux_2_17_x86_64', 'manylinux2014_x86_64'],
+        label='linux-x86_64', pretty='Linux (Intel/AMD 64-bit)'),
+    'linux-arm': dict(
+        triple='aarch64-unknown-linux-gnu',
+        wheel_tags=['manylinux_2_17_aarch64', 'manylinux2014_aarch64'],
+        label='linux-arm64', pretty='Linux (ARM 64-bit)'),
+    'macos-arm': dict(
+        triple='aarch64-apple-darwin',
+        wheel_tags=['macosx_12_0_arm64', 'macosx_11_0_arm64'],
+        label='macos-arm64', pretty='macOS (Apple silicon)'),
+    'macos-intel': dict(
+        triple='x86_64-apple-darwin',
+        wheel_tags=['macosx_12_0_x86_64', 'macosx_10_13_x86_64'],
+        label='macos-x86_64', pretty='macOS (Intel)'),
+}
+
+PBS_API = 'https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest'
+
+
+def version():
+    with open(os.path.join(REPO, 'pyproject.toml'), encoding='utf-8') as fh:
+        for line in fh:
+            if line.startswith('version'):
+                return line.split('"')[1]
+    return '0.0.0'
+
+
+def dependencies():
+    """The runtime dependencies, from pyproject, without their version pins.
+
+    python-louvain is separated out: it publishes no wheel, only an sdist, and
+    pip refuses to mix --platform with a source download. It is pure Python, so
+    the sdist is correct for every target anyway.
+    """
+    deps, inside = [], False
+    with open(os.path.join(REPO, 'pyproject.toml'), encoding='utf-8') as fh:
+        for line in fh:
+            if line.startswith('dependencies'):
+                inside = True
+                continue
+            if inside:
+                if line.strip().startswith(']'):
+                    break
+                name = line.strip().strip('",').split('>')[0].split('<')[0].split('=')[0]
+                if name:
+                    deps.append(name)
+    pure = [d for d in deps if d.lower() in ('python-louvain',)]
+    return [d for d in deps if d not in pure], pure
+
+
+def fetch_python(triple, dest, stripped=True):
+    """Download and unpack a redistributable CPython for the target."""
+    print(f'  interpreter: looking up python-build-standalone')
+    req = urllib.request.Request(PBS_API, headers={'User-Agent': 'mesh-workbench-build'})
+    release = json.load(urllib.request.urlopen(req))
+    suffix = 'install_only_stripped' if stripped else 'install_only'
+    wanted = None
+    for asset in release['assets']:
+        n = asset['name']
+        if (n.startswith(f'cpython-{PY_SERIES}.') and triple in n
+                and n.endswith(f'-{suffix}.tar.gz')):
+            wanted = asset
+            break
+    if not wanted:
+        sys.exit(f'no {suffix} build for {triple} in release {release["tag_name"]}')
+
+    print(f'  interpreter: {wanted["name"]}  ({wanted["size"]/1e6:.0f} MB)')
+    # Cached: the interpreter is tens of megabytes and does not change between
+    # targets rebuilt in the same session.
+    cache_dir = os.path.join(HERE, '_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    cached = os.path.join(cache_dir, wanted['name'])
+    if os.path.exists(cached) and os.path.getsize(cached) == wanted['size']:
+        print('    (from cache)')
+        blob = open(cached, 'rb').read()
+    else:
+        req = urllib.request.Request(wanted['browser_download_url'],
+                                     headers={'User-Agent': 'mesh-workbench-build'})
+        blob = urllib.request.urlopen(req).read()
+        with open(cached, 'wb') as fh:
+            fh.write(blob)
+    with tarfile.open(fileobj=io.BytesIO(blob), mode='r:gz') as tf:
+        # The archive contains a single top-level "python/" directory.
+        tf.extractall(dest, filter='data')
+    root = os.path.join(dest, 'python')
+    if not os.path.isdir(root):
+        sys.exit('the interpreter archive did not contain python/')
+
+    # The window will not open without these, and a bundle that fails at that
+    # point has already been shipped. Check now, on this machine.
+    lib = os.path.join(root, 'lib', f'python{PY_SERIES}')
+    checks = {
+        'tkinter': os.path.isdir(os.path.join(lib, 'tkinter')),
+        '_tkinter': any(f.startswith('_tkinter') for f in
+                        os.listdir(os.path.join(lib, 'lib-dynload'))
+                        if os.path.isdir(os.path.join(lib, 'lib-dynload'))),
+        'sqlite3': os.path.isdir(os.path.join(lib, 'sqlite3')),
+        'Tcl/Tk runtime': any(d.startswith(('tcl', 'tk')) for d in
+                              os.listdir(os.path.join(root, 'lib'))),
+    }
+    for what, ok in checks.items():
+        print(f'    {what:16} {"present" if ok else "MISSING"}')
+    if not all(checks.values()):
+        sys.exit('the interpreter is missing something the application needs')
+    return root
+
+
+def fetch_wheels(tags, dest):
+    """Download every dependency as a wheel built for the target platform."""
+    os.makedirs(dest, exist_ok=True)
+    wheeled, pure = dependencies()
+    base = [sys.executable, '-m', 'pip', 'download', '--quiet',
+            '--only-binary=:all:', '--python-version', PY_SERIES, '--dest', dest]
+
+    # Several platform tags per target: a project that has dropped an older
+    # macOS deployment target still resolves under the newer one, and vice
+    # versa for a project that has not moved yet.
+    last = None
+    for tag in tags:
+        cmd = base + ['--platform', tag] + wheeled
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(f'  wheels: {len(os.listdir(dest))} for {tag}')
+            break
+        last = proc.stderr.strip().splitlines()[-1:] or ['(no output)']
+    else:
+        sys.exit('could not resolve wheels for any of %s:\n  %s' % (tags, last[0]))
+
+    # The pure-Python stragglers, which have no platform to speak of.
+    if pure:
+        subprocess.run([sys.executable, '-m', 'pip', 'download', '--quiet',
+                        '--no-deps', '--dest', dest] + pure, check=True)
+        print(f'  wheels: + {len(pure)} pure-Python source distribution(s)')
+    return dest
+
+
+LAUNCH_SH = '''#!/bin/sh
+# MeSH Workbench - launcher.
+#
+# The first run installs the bundled wheels into the bundled interpreter. That
+# happens once, offline, from the files beside this script - there is no
+# download and no system Python involved.
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PY="$HERE/python/bin/python3.12"
+STAMP="$HERE/.installed"
+
+if [ ! -f "$STAMP" ]; then
+    echo "First run: installing the application (about a minute, no network needed)..."
+    "$PY" -m pip install --quiet --no-index --find-links "$HERE/wheels" \\
+        --no-warn-script-location -r "$HERE/requirements.txt"
+    "$PY" -m pip install --quiet --no-index --no-deps --no-build-isolation \\
+        --no-warn-script-location "$HERE/app"
+    touch "$STAMP"
+    echo "Done."
+fi
+
+exec "$PY" -m mesh_workbench "$@"
+'''
+
+PIPELINE_SH = '''#!/bin/sh
+# The pipeline, without the window - for a machine with no desktop.
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$HERE/.installed" ] || "$HERE/MeSH Workbench" --setup-only 2>/dev/null || true
+exec "$HERE/python/bin/python3.12" -m mesh_aop.cli "$@"
+'''
+
+
+def repack(target, out_dir):
+    """Re-archive a staging folder that is already assembled.
+
+    Only the permission bookkeeping and the compression change, so this is the
+    fast path when the packaging is being corrected rather than the contents.
+    """
+    spec = TARGETS[target]
+    stem = f'{NAME}-{version()}-{spec["label"]}'
+    staging = os.path.join(out_dir, stem)
+    if not os.path.isdir(staging):
+        sys.exit(f'nothing to repack: {staging} does not exist')
+    archive = os.path.join(out_dir, stem + '.tar.gz')
+    if os.path.exists(archive):
+        os.remove(archive)
+    print(f'\nRe-packing {spec["pretty"]}')
+    t0 = time.time()
+    with tarfile.open(archive, 'w:gz', compresslevel=6) as tf:
+        tf.add(staging, arcname=stem, filter=_unix_permissions)
+    print(f'  archive: {archive}  ({os.path.getsize(archive)/1e6:,.0f} MB)'
+          f'  in {time.time()-t0:.0f}s')
+    return archive
+
+
+def _unix_permissions(info):
+    """Restore the executable bit, which Windows cannot store.
+
+    NTFS has no execute permission, so everything unpacked and re-packed here
+    comes out 0666 - and on the far side `./MeSH Workbench` fails with
+    "Permission denied", as does the interpreter it would have called. tar
+    carries the mode, so the mode is reconstructed from what the file is.
+
+    This is the one genuine difficulty in building a Unix package on Windows,
+    and it is a bookkeeping problem rather than a compilation one.
+    """
+    name = info.name
+    if info.isdir():
+        info.mode = 0o755
+    elif ('/python/bin/' in name
+            or name.endswith(('.so', '.dylib'))
+            or '.so.' in os.path.basename(name)
+            or os.path.basename(name) in ('MeSH Workbench', 'mesh-pipeline')):
+        info.mode = 0o755
+    else:
+        info.mode = 0o644
+    # Files built on one machine should not carry that machine's account.
+    info.uid = info.gid = 0
+    info.uname = info.gname = 'root'
+    return info
+
+
+def build(target, out_dir, stripped=True):
+    spec = TARGETS[target]
+    ver = version()
+    stem = f'{NAME}-{ver}-{spec["label"]}'
+    staging = os.path.join(out_dir, stem)
+    shutil.rmtree(staging, ignore_errors=True)
+    os.makedirs(staging, exist_ok=True)
+
+    print(f'\nBuilding {spec["pretty"]}  ({stem})')
+    t0 = time.time()
+
+    fetch_python(spec['triple'], staging, stripped=stripped)
+    fetch_wheels(spec['wheel_tags'], os.path.join(staging, 'wheels'))
+
+    # The application source, installed at first run from this directory.
+    app = os.path.join(staging, 'app')
+    os.makedirs(app, exist_ok=True)
+    skip = shutil.ignore_patterns('__pycache__', '*.pyc', '.ipynb_checkpoints')
+    shutil.copytree(os.path.join(REPO, 'src'), os.path.join(app, 'src'),
+                    dirs_exist_ok=True, ignore=skip)
+    for f in ('pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
+        src = os.path.join(REPO, f)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(app, f))
+
+    # The reference corpus, so the program can draw its figures before anyone
+    # has downloaded 44 GB of PubMed.
+    ref = os.path.join(REPO, 'data', 'reference_processed')
+    if os.path.isdir(ref):
+        shutil.copytree(ref, os.path.join(staging, 'reference_processed'),
+                        dirs_exist_ok=True, ignore=skip)
+    anno = os.path.join(REPO, 'data', 'raw', 'aop_annotations_master.csv')
+    if os.path.exists(anno):
+        shutil.copy2(anno, os.path.join(staging, 'reference_processed',
+                                        'aop_annotations_master.csv'))
+
+    # A requirements file naming exactly what is in wheels/, so the offline
+    # install resolves to the bundled files and nothing else.
+    wheeled, pure = dependencies()
+    with open(os.path.join(staging, 'requirements.txt'), 'w',
+              encoding='utf-8', newline='\n') as fh:
+        fh.write('\n'.join(wheeled + pure) + '\n')
+
+    for fname, body in (('MeSH Workbench', LAUNCH_SH), ('mesh-pipeline', PIPELINE_SH)):
+        path = os.path.join(staging, fname)
+        with open(path, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write(body)
+        os.chmod(path, 0o755)
+
+    with open(os.path.join(staging, 'README.txt'), 'w',
+              encoding='utf-8', newline='\n') as fh:
+        fh.write(f'''MeSH Workbench {ver} - {spec["pretty"]}
+
+    ./"MeSH Workbench"
+
+That is all. This folder carries its own Python, so nothing needs to be
+installed first - no system Python, no tkinter package, no administrator
+rights. The first run unpacks the libraries from wheels/ and takes about a
+minute; it needs no network.
+
+Without a desktop, the pipeline runs on its own:
+
+    ./mesh-pipeline --step all
+
+The folder can be moved or copied anywhere, including onto a USB stick.
+Delete it to uninstall; nothing is written outside it until you choose a
+data folder on first run.
+''')
+
+    archive = os.path.join(out_dir, stem + '.tar.gz')
+    if os.path.exists(archive):
+        os.remove(archive)
+    print('  packing ...')
+    with tarfile.open(archive, 'w:gz', compresslevel=6) as tf:
+        tf.add(staging, arcname=stem, filter=_unix_permissions)
+    size = os.path.getsize(archive) / 1e6
+    print(f'  archive: {archive}  ({size:,.0f} MB)  in {time.time()-t0:.0f}s')
+    return archive
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
+    ap.add_argument('--target', choices=sorted(TARGETS), default='linux')
+    ap.add_argument('--all', action='store_true', help='build every target')
+    ap.add_argument('--out', default=os.path.join(os.path.expanduser('~'),
+                                                  'Documents', 'mesh_workbench_build'))
+    ap.add_argument('--full-python', action='store_true',
+                    help='use the unstripped interpreter (larger, with symbols)')
+    ap.add_argument('--repack', action='store_true',
+                    help='re-pack an already-assembled staging folder, no downloads')
+    a = ap.parse_args()
+
+    os.makedirs(a.out, exist_ok=True)
+    targets = sorted(TARGETS) if a.all else [a.target]
+    if a.repack:
+        made = [repack(t, a.out) for t in targets]
+    else:
+        made = [build(t, a.out, stripped=not a.full_python) for t in targets]
+
+    print('\nBuilt:')
+    for m in made:
+        print(f'  {os.path.basename(m):<48} {os.path.getsize(m)/1e6:,.0f} MB')
+    print('\nNot tested: these were assembled on this machine and have not been'
+          '\nrun on the system they target. The release workflow does that on'
+          '\nreal runners.')
+
+
+if __name__ == '__main__':
+    main()
