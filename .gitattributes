@@ -3,8 +3,22 @@
 # checkout on any platform has to produce the form Windows will run.
 *.bat text eol=crlf
 
-# Icons are binary; never let line-ending conversion near them.
+# Shell scripts must reach the working tree with LF, for the mirror-image
+# reason: a .sh checked out with CRLF fails on Linux at the shebang, with
+# "bad interpreter: /usr/bin/env bash^M" - which names the interpreter and so
+# reads as a missing bash rather than a mangled file.
+*.sh text eol=lf
+
+# Binary; never let line-ending conversion near them. Git's own heuristic would
+# catch most of these by their NUL bytes, but saying so is free and does not
+# depend on the first 8 KB happening to contain one.
 *.ico binary
 *.png binary
+*.jpg binary
+*.jpeg binary
+*.tif binary
+*.tiff binary
 *.xlsx binary
 *.db binary
+*.gz binary
+*.zip binary
