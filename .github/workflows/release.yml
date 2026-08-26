@@ -1,14 +1,18 @@
-# Build one package per operating system, on that operating system.
+# Build one self-contained package per operating system, and prove each one
+# runs on the system it targets.
 #
-# Three assets, three platforms, one command to trigger them:
+#   MeSH-Workbench-<version>-windows.msi          double-click
+#   MeSH-Workbench-<version>-linux-x86_64.tar.gz  extract, ./"MeSH Workbench"
+#   MeSH-Workbench-<version>-macos-arm64.tar.gz   extract, ./"MeSH Workbench"
 #
-#   MeSH-Workbench-<version>-windows.msi        double-click, installs per user
-#   MeSH-Workbench-<version>-linux.tar.gz       extract, ./install.sh
-#   MeSH-Workbench-<version>-macos.tar.gz       extract, ./install.sh
+# Every one carries its own Python. Nothing needs installing first - no system
+# Python, no python3-tk, no administrator rights.
 #
-# This exists because the Windows artefacts cannot be built anywhere but
-# Windows, and the developer machine is Windows - so the macOS and Linux halves
-# had no way to be produced at all. GitHub's runners have all three.
+# The Unix bundles can be ASSEMBLED anywhere, including on Windows, because
+# this application has nothing to compile: the dependencies are prebuilt wheels
+# and the interpreter is a prebuilt redistributable. What cannot be done off
+# the target is RUNNING them, which is the only reason these jobs are matrixed
+# onto real runners rather than all built in one place.
 #
 # Trigger: push a tag (v3.1.0), or run it by hand from the Actions tab.
 
@@ -18,10 +22,6 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (e.g. 3.1.0)'
-        required: false
 
 permissions:
   contents: write
@@ -31,14 +31,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # The portable tree is the input to the MSI: the MSI is a wrapper around
-      # it, not a separate build. --no-zip because the zip is not a release
-      # asset any more; one artefact per platform is the whole point.
       - name: Assemble the application tree
         run: python packaging/build_portable_windows.py --out build --no-zip
 
@@ -61,55 +57,77 @@ jobs:
           name: windows
           path: 'MeSH-Workbench-*-windows.msi'
 
-  # macOS and Linux ship the same thing - the source plus install.sh, which
-  # creates a private virtualenv and a launcher. They are built and named
-  # separately so that a user downloads the file with their own system's name
-  # on it rather than working out which of two identical archives is theirs.
   unix:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            label: linux
+            target: linux
+            label: linux-x86_64
           - os: macos-latest
-            label: macos
+            target: macos-arm
+            label: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # Proves install.sh works on this platform before anyone downloads it.
-      # tkinter is checked by the script itself and is absent from the Ubuntu
-      # runner's Python by default, which is exactly the failure a user hits.
-      - name: Install tkinter (Linux)
-        if: matrix.label == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - name: Build the bundle
+        run: python packaging/build_unix_bundle.py --target ${{ matrix.target }} --out build
 
-      - name: Install it, the way a user would
-        run: |
-          chmod +x packaging/install.sh
-          ./packaging/install.sh --prefix "$HOME/mw-test"
+      # Everything that can be established without running it: permissions,
+      # wheel/interpreter match, offline completeness, line endings.
+      - name: Inspect the bundle
+        run: python packaging/verify_unix_bundle.py build/*.tar.gz
 
-      - name: Check the installed program answers
+      # And now the part no other machine can do.
+      - name: Extract and run it
         run: |
-          "$HOME/mw-test/venv/bin/mesh-pipeline" --version
-          "$HOME/mw-test/venv/bin/python" -c "import mesh_aop, mesh_workbench; print('imports OK')"
+          set -eux
+          mkdir -p /tmp/run && tar -xzf build/*.tar.gz -C /tmp/run
+          cd /tmp/run/MeSH-Workbench-*
 
-      - name: Build the archive
+          # The interpreter must work before anything else can.
+          ./python/bin/python3.12 -c "import sys; print(sys.version)"
+
+          # First run: unpacks the wheels offline. This is the step that would
+          # fail on a missing setuptools or a wheel for the wrong platform.
+          ./mesh-pipeline --version
+
+          # Every dependency the pipeline actually imports.
+          PYTHONPATH="$PWD/app/src" ./python/bin/python3.12 - <<'PY'
+          import importlib
+          for m in ('numpy', 'scipy', 'pandas', 'sklearn', 'matplotlib',
+                    'networkx', 'gensim', 'seaborn', 'statsmodels', 'plotly',
+                    'Bio', 'community', 'openpyxl', 'tqdm', 'requests',
+                    'sqlite3', 'tkinter'):
+              importlib.import_module(m)
+              print('  ok', m)
+          import mesh_aop, mesh_workbench
+          print('application imports fine')
+          PY
+
+      # The window itself, on a virtual display. tkinter importing is not the
+      # same as tkinter being able to open something.
+      - name: Open the window (Linux, headless)
+        if: matrix.target == 'linux'
         run: |
-          ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
-          name="MeSH-Workbench-${ver}"
-          git archive --format=tar.gz --prefix="${name}/" \
-              -o "${name}-${{ matrix.label }}.tar.gz" HEAD
+          sudo apt-get update && sudo apt-get install -y xvfb
+          cd /tmp/run/MeSH-Workbench-*
+          PYTHONPATH="$PWD/app/src" xvfb-run -a ./python/bin/python3.12 - <<'PY'
+          import tkinter as tk
+          r = tk.Tk(); r.withdraw()
+          print('Tk', r.tk.call('info', 'patchlevel'), '- a window can be created')
+          r.destroy()
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.label }}
-          path: 'MeSH-Workbench-*.tar.gz'
+          path: 'build/MeSH-Workbench-*.tar.gz'
 
   publish:
     needs: [windows, unix]
@@ -120,23 +138,24 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-
-      - name: List what will be published
-        run: ls -la dist
-
+      - run: ls -la dist
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
           body: |
-            Download the one file for your system.
+            Download the one file for your system. Each carries its own Python -
+            nothing needs installing first.
 
-            | System | File | How to install |
-            | :--- | :--- | :--- |
-            | Windows | `...-windows.msi` | Double-click. Installs for you alone, no administrator rights. |
-            | Linux | `...-linux.tar.gz` | Extract, then `./packaging/install.sh` |
-            | macOS | `...-macos.tar.gz` | Extract, then `./packaging/install.sh` |
+            | System | File |
+            | :--- | :--- |
+            | Windows | `...-windows.msi` - double-click |
+            | Linux | `...-linux-x86_64.tar.gz` - extract, then `./"MeSH Workbench"` |
+            | macOS (Apple silicon) | `...-macos-arm64.tar.gz` - extract, then `./"MeSH Workbench"` |
 
-            Linux and macOS need Python 3.11-3.13 with tkinter
-            (`sudo apt install python3-tk`, or `brew install python-tk`).
-            The installer checks for both before it changes anything.
+            **macOS users:** the download is unsigned, so macOS quarantines it.
+            The launcher clears that itself on first run - no password, no Apple
+            account, nothing to pay. Open Terminal, `cd` to the extracted folder
+            and run `./"MeSH Workbench"`. If you would rather do it by hand:
+
+                xattr -dr com.apple.quarantine "/path/to/the/folder"

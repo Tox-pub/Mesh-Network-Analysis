@@ -187,40 +187,90 @@ def fetch_wheels(tags, dest):
         subprocess.run([sys.executable, '-m', 'pip', 'download', '--quiet',
                         '--no-deps', '--dest', dest] + pure, check=True)
         print(f'  wheels: + {len(pure)} pure-Python source distribution(s)')
+
+        # An sdist has to be BUILT, and the standalone interpreter ships pip
+        # but not setuptools - Python 3.12 dropped it from the default install.
+        # Without these the first run fails offline with "No module named
+        # setuptools", or silently reaches for PyPI and defeats the point.
+        subprocess.run([sys.executable, '-m', 'pip', 'download', '--quiet',
+                        '--no-deps', '--dest', dest, 'setuptools', 'wheel'],
+                       check=True)
+        print('  wheels: + setuptools and wheel, to build that sdist offline')
     return dest
 
 
-LAUNCH_SH = '''#!/bin/sh
+LAUNCH_SH = """#!/bin/sh
 # MeSH Workbench - launcher.
 #
-# The first run installs the bundled wheels into the bundled interpreter. That
-# happens once, offline, from the files beside this script - there is no
-# download and no system Python involved.
+# Two jobs before the window opens.
+#
+# 1. macOS quarantine. Anything downloaded through a browser is tagged
+#    com.apple.quarantine, and Gatekeeper then refuses to run the unsigned
+#    interpreter inside this folder - "cannot be opened because the developer
+#    cannot be verified", with no obvious way forward. Clearing the tag needs
+#    no password, no Apple account and no money; it is one command, and this
+#    script runs it on the folder it lives in. THIS script is not blocked
+#    itself, because a shell script is read by /bin/sh, which Apple signs.
+#
+# 2. First-run install. The libraries are unpacked from wheels/ into the
+#    bundled interpreter, offline. The application itself is not installed at
+#    all - it is put on PYTHONPATH, so there is no build step and nothing to
+#    go wrong on a machine with no compiler.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/python/bin/python3.12"
 STAMP="$HERE/.installed"
 
+if [ "$(uname -s)" = "Darwin" ] && command -v xattr >/dev/null 2>&1; then
+    if xattr -p com.apple.quarantine "$PY" >/dev/null 2>&1; then
+        echo "macOS has quarantined this download. Clearing that flag..."
+        if xattr -dr com.apple.quarantine "$HERE" 2>/dev/null; then
+            echo "  Done - no password or Apple account needed."
+        else
+            echo "  Could not clear it automatically. Run this once, by hand:" >&2
+            echo "" >&2
+            echo "      xattr -dr com.apple.quarantine \\"$HERE\\"" >&2
+            echo "" >&2
+            exit 1
+        fi
+    fi
+fi
+
 if [ ! -f "$STAMP" ]; then
-    echo "First run: installing the application (about a minute, no network needed)..."
-    "$PY" -m pip install --quiet --no-index --find-links "$HERE/wheels" \\
+    echo "First run: unpacking the libraries (about a minute, no network needed)..."
+    "$PY" -m pip install --quiet --no-index --find-links "$HERE/wheels" \
         --no-warn-script-location -r "$HERE/requirements.txt"
-    "$PY" -m pip install --quiet --no-index --no-deps --no-build-isolation \\
-        --no-warn-script-location "$HERE/app"
     touch "$STAMP"
     echo "Done."
 fi
 
+# The application runs from source on the path: pure Python, nothing to build.
+PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
 exec "$PY" -m mesh_workbench "$@"
-'''
+"""
 
-PIPELINE_SH = '''#!/bin/sh
+PIPELINE_SH = """#!/bin/sh
 # The pipeline, without the window - for a machine with no desktop.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-[ -f "$HERE/.installed" ] || "$HERE/MeSH Workbench" --setup-only 2>/dev/null || true
-exec "$HERE/python/bin/python3.12" -m mesh_aop.cli "$@"
-'''
+PY="$HERE/python/bin/python3.12"
+
+if [ "$(uname -s)" = "Darwin" ] && command -v xattr >/dev/null 2>&1; then
+    xattr -dr com.apple.quarantine "$HERE" 2>/dev/null || true
+fi
+
+if [ ! -f "$HERE/.installed" ]; then
+    echo "First run: unpacking the libraries (no network needed)..."
+    "$PY" -m pip install --quiet --no-index --find-links "$HERE/wheels" \
+        --no-warn-script-location -r "$HERE/requirements.txt"
+    touch "$HERE/.installed"
+fi
+
+PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$PY" -m mesh_aop.cli "$@"
+"""
 
 
 def repack(target, out_dir):
@@ -322,9 +372,40 @@ def build(target, out_dir, stripped=True):
             fh.write(body)
         os.chmod(path, 0o755)
 
+    is_mac = target.startswith('macos')
+    gatekeeper = '''
+BEFORE THE FIRST RUN, ON macOS
+    macOS tags everything downloaded through a browser as quarantined, and
+    refuses to run unsigned programs carrying that tag. This program is
+    unsigned - signing requires a paid Apple Developer ID - so you will meet
+    that.
+
+    Clearing the tag needs no password, no Apple account and nothing to pay.
+    The launcher does it for you: open Terminal, change to this folder, and
+
+        ./"MeSH Workbench"
+
+    The launcher itself is a shell script, which macOS reads with its own
+    signed /bin/sh, so it is not blocked and can clear the flag from
+    everything else here.
+
+    Start it from Terminal, not by double-clicking in Finder - Finder will
+    either open this in a text editor or refuse it outright. After the first
+    run, either works.
+
+    To clear the flag by hand instead:
+
+        xattr -dr com.apple.quarantine "<this folder>"
+
+    Nothing here is hidden from you: that command removes one extended
+    attribute from these files and touches nothing else on your Mac.
+''' if is_mac else ''
+
     with open(os.path.join(staging, 'README.txt'), 'w',
               encoding='utf-8', newline='\n') as fh:
         fh.write(f'''MeSH Workbench {ver} - {spec["pretty"]}
+{gatekeeper}
+TO RUN IT
 
     ./"MeSH Workbench"
 
@@ -337,9 +418,15 @@ Without a desktop, the pipeline runs on its own:
 
     ./mesh-pipeline --step all
 
+TO CHECK IT WORKS WITHOUT DOWNLOADING 44 GB
+
+    Turn on "Use bundled reference data" on the Folders tab of Settings, then
+    run Step 4 - Figures. The reference corpus is in this folder, so that
+    draws every figure and the PRISMA report from data already on disk.
+
 The folder can be moved or copied anywhere, including onto a USB stick.
-Delete it to uninstall; nothing is written outside it until you choose a
-data folder on first run.
+Delete it to uninstall; nothing is written outside it until you choose a data
+folder on first run.
 ''')
 
     archive = os.path.join(out_dir, stem + '.tar.gz')

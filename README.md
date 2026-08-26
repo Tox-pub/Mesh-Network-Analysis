@@ -15,18 +15,22 @@ A desktop application for Windows, and a command-line pipeline for any platform.
 
 | System | Download | What to do |
 | :--- | :--- | :--- |
-| Windows | `MeSH-Workbench-<version>-windows.msi` | Double-click it. Carries its own Python; nothing else needed. |
-| Linux | `MeSH-Workbench-<version>-linux.tar.gz` | Extract, then `./packaging/install.sh` |
-| macOS | `MeSH-Workbench-<version>-macos.tar.gz` | Extract, then `./packaging/install.sh` |
+| Windows | `MeSH-Workbench-<version>-windows.msi` | Double-click it. |
+| Linux | `MeSH-Workbench-<version>-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` |
+| macOS | `MeSH-Workbench-<version>-macos-arm64.tar.gz` | Extract, then `./"MeSH Workbench"` |
 
-Everything installs for the current user - no administrator rights, nothing
-written outside your own profile.
+**Each one carries its own Python.** Nothing needs installing first - no system
+Python, no `python3-tk`, no administrator rights, nothing written outside your
+own profile. Delete the folder to uninstall.
 
 On Windows the only program that ever executes is `python.exe`, signed by the
-Python Software Foundation, and the installer itself is run by `msiexec.exe`,
-which is part of Windows. On Linux and macOS the installer creates a private
-virtual environment and needs Python 3.11-3.13 with tkinter - it checks for
-both before changing anything.
+Python Software Foundation, and the installer is run by `msiexec.exe`, which is
+part of Windows.
+
+On macOS the download is unsigned - signing needs a paid Apple Developer ID -
+so macOS quarantines it. The launcher clears that itself on first run, with no
+password and nothing to pay; start it from Terminal that first time. See
+[INSTALL.md](INSTALL.md#macos).
 
 Full instructions, including what to do if a download is blocked:
 **[INSTALL.md](INSTALL.md)**

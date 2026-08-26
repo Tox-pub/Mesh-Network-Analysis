@@ -7,14 +7,16 @@ ignore the other two.
 | System | File | What to do |
 | :--- | :--- | :--- |
 | **Windows** | `MeSH-Workbench-3.1.0-windows.msi` | Double-click it. |
-| **Linux** | `MeSH-Workbench-3.1.0-linux.tar.gz` | Extract, then `./packaging/install.sh` |
-| **macOS** | `MeSH-Workbench-3.1.0-macos.tar.gz` | Extract, then `./packaging/install.sh` |
+| **Linux** | `MeSH-Workbench-3.1.0-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` |
+| **macOS** | `MeSH-Workbench-3.1.0-macos-arm64.tar.gz` | Extract, then `./"MeSH Workbench"` |
 
-Everything installs for the current user only - no administrator rights, and
-nothing written outside your own profile.
+**Every one carries its own Python.** There is nothing to install first - no
+system Python, no `python3-tk`, no administrator rights, and nothing written
+outside your own profile.
 
 - [Windows](#windows)
-- [Linux and macOS](#linux-and-macos)
+- [Linux](#linux)
+- [macOS](#macos)
 - [If a download is blocked](#if-a-download-is-blocked)
 - [Where things are kept](#where-things-are-kept)
 - [Updating](#updating)
@@ -42,47 +44,77 @@ msiexec /i "MeSH-Workbench-3.1.0-windows.msi" /qn
 
 ---
 
-## Linux and macOS
+## Linux
 
-**Requirements:** Python 3.11 to 3.13, including tkinter. On most Linux
-distributions tkinter is a separate package and is missing by default - and its
-absence is only discovered when the window fails to open, so install it now:
+Download `MeSH-Workbench-3.1.0-linux-x86_64.tar.gz`, then:
 
 ```
-sudo apt install python3.12 python3.12-venv python3-tk     # Debian, Ubuntu
-sudo dnf install python3 python3-tkinter                   # Fedora
-brew install python@3.12 python-tk                         # macOS
+tar -xzf MeSH-Workbench-3.1.0-linux-x86_64.tar.gz
+cd MeSH-Workbench-3.1.0-linux-x86_64
+./"MeSH Workbench"
 ```
 
-Then:
+That is all. The folder carries its own Python, its own Tk, and every library
+already compiled - **you do not need a system Python, and you do not need
+`python3-tk`**. The first run unpacks the libraries from `wheels/`, takes about
+a minute, and needs no network.
+
+Without a desktop:
 
 ```
-tar -xzf MeSH-Workbench-3.1.0-linux.tar.gz      # or -macos
-cd MeSH-Workbench-3.1.0
-./packaging/install.sh
+./mesh-pipeline --step all
 ```
 
-The script checks for a supported Python and for tkinter **before** changing
-anything, creates a private virtual environment, installs the package into it,
-and adds a menu entry (Linux) or an application bundle in `~/Applications`
-(macOS). `--prefix DIR` puts the environment somewhere else.
+---
 
-Resolving the dependencies needs a network connection and takes a few minutes
-the first time - scipy, scikit-learn, gensim, statsmodels and matplotlib are
-all sizeable.
+## macOS
 
-To run it without a desktop, the pipeline works headless:
+**Yes, this runs on a Mac without paying Apple anything.**
+
+Download `MeSH-Workbench-3.1.0-macos-arm64.tar.gz` (Apple silicon), extract it,
+then **open Terminal**, change to the extracted folder and run:
 
 ```
-~/.local/share/mesh-workbench/venv/bin/mesh-pipeline --step all
+./"MeSH Workbench"
 ```
 
-### Checking the install without downloading 44 GB
+### Why Terminal, and not a double-click
 
-Turn on **Use bundled reference data** on the Folders tab, then run
-**Step 4 - Figures**. The reference corpus ships with the program, so this
-draws all eight figures and the PRISMA report from data already on disk. It is
-the quickest honest end-to-end test.
+macOS tags everything downloaded through a browser with a `com.apple.quarantine`
+attribute, and Gatekeeper refuses to run unsigned programs carrying it. This
+program is unsigned, because signing requires a paid Apple Developer ID. So the
+tag has to be cleared once.
+
+Clearing it needs **no password, no Apple account and no payment**. The launcher
+does it for you: it is a shell script, which macOS reads with its own signed
+`/bin/sh`, so it is not itself blocked and can clear the flag from everything
+else in the folder. You will see it say so on the first run.
+
+Start it from Terminal rather than Finder for that first run - Finder will
+either open the script in a text editor or refuse it. Afterwards, either works.
+
+### Doing it by hand instead
+
+If you would rather not have a script change attributes on your behalf:
+
+```
+xattr -dr com.apple.quarantine "/path/to/MeSH-Workbench-3.1.0-macos-arm64"
+```
+
+That removes one extended attribute from the files in that folder and touches
+nothing else on your Mac. `xattr` is part of macOS.
+
+### If macOS still refuses
+
+On macOS Sequoia and later, the override moved: **System Settings → Privacy &
+Security**, scroll to the bottom, and press **Open Anyway** next to the blocked
+item. That button appears only after the first refusal.
+
+### Intel Macs
+
+The published build is for Apple silicon. An Intel build is one command away -
+`python packaging/build_unix_bundle.py --target macos-intel` - and can be added
+to a release on request.
 
 ---
 
