@@ -1,5 +1,9 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+# No trailing slash: the pattern has to match a stray FILE called __pycache__
+# as well as the directory. One was committed once, and because it occupied the
+# name Python needed for the directory, the interpreter could not cache bytecode
+# for the package at all.
+__pycache__
 *.py[codz]
 *$py.class
 
@@ -240,6 +244,14 @@ data/reference_raw/*
 !data/reference_raw/.gitkeep
 results/*
 !results/.gitkeep
+# The published reference figures are tracked, like the reference corpus they
+# came from: they are the run the paper reports, not output someone regenerated.
+# Un-ignoring the directory is what makes the exception work - git will not
+# reconsider a file inside a directory it has already excluded.
+!results/reference_figures/
 results_SNAPSHOT_*.zip
+
+# Local tooling configuration, specific to one machine and one person.
+.claude/
 mesh_config.json
 mesh_config.json.bak*
