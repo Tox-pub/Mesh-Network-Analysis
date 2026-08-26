@@ -235,10 +235,32 @@ def copy_app(repo, dst):
                     os.path.join(dst, 'mesh_workbench'), dirs_exist_ok=True, ignore=skip)
     shutil.copytree(os.path.join(repo, 'src', 'mesh_aop'),
                     os.path.join(dst, 'mesh_aop'), dirs_exist_ok=True, ignore=skip)
+    # The AOP stratum dictionary travels with the reference corpus. Without it
+    # the figure step cannot build its run-annotations file, so a fresh install
+    # could not draw a single figure even in reference mode.
+    anno = os.path.join(repo, 'data', 'raw', 'aop_annotations_master.csv')
+    if os.path.exists(anno):
+        os.makedirs(os.path.join(dst, 'reference_processed'), exist_ok=True)
+        shutil.copy2(anno, os.path.join(dst, 'reference_processed',
+                                        'aop_annotations_master.csv'))
     ref = os.path.join(repo, 'data', 'reference_processed')
     if os.path.isdir(ref):
         shutil.copytree(ref, os.path.join(dst, 'reference_processed'),
                         dirs_exist_ok=True, ignore=skip)
+    # The documentation. The Help menu opens these, and without them every entry
+    # in it reported the file missing - the bundle shipped no markdown at all.
+    # They go one level above app/, beside the launchers, where a user browsing
+    # the folder will also find them.
+    docs_dst = os.path.dirname(dst)
+    for name in ('HELP.md', 'INSTALL.md', 'README.md'):
+        src_doc = os.path.join(repo, name)
+        if os.path.exists(src_doc):
+            shutil.copy2(src_doc, os.path.join(docs_dst, name))
+    prov = os.path.join(repo, 'results', 'reference_figures', 'PROVENANCE.md')
+    if os.path.exists(prov):
+        os.makedirs(os.path.join(dst, 'reference_figures'), exist_ok=True)
+        shutil.copy2(prov, os.path.join(dst, 'reference_figures', 'PROVENANCE.md'))
+
     cfg = os.path.join(repo, 'mesh_config.json')
     if os.path.exists(cfg):
         shutil.copy(cfg, os.path.join(dst, 'mesh_config.default.json'))
