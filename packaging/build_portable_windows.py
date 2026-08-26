@@ -35,7 +35,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME = 'MeshWorkbench'          # zip/folder stem, no spaces
 DISPLAY = 'MeSH Workbench'      # what the user sees and clicks
-VERSION = '3.1.0'   # tracks the project version in pyproject.toml
+VERSION = '3.2.0'   # tracks the project version in pyproject.toml
 PY_VER = '3.12.7'
 EMBED_URL = f'https://www.python.org/ftp/python/{PY_VER}/python-{PY_VER}-embed-amd64.zip'
 # This script lives in <repo>/packaging, so the project it packages is its parent.

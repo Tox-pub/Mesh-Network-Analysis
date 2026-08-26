@@ -6,9 +6,9 @@ ignore the other two.
 
 | System | File | What to do |
 | :--- | :--- | :--- |
-| **Windows** | `MeSH-Workbench-3.1.0-windows.msi` | Double-click it. |
-| **Linux** | `MeSH-Workbench-3.1.0-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` |
-| **macOS** | `MeSH-Workbench-3.1.0-macos-arm64.tar.gz` | Extract, then `./"MeSH Workbench"` |
+| **Windows** | `MeSH-Workbench-3.2.0-windows.msi` | Double-click it. |
+| **Linux** | `MeSH-Workbench-3.2.0-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` |
+| **macOS** | `MeSH-Workbench-3.2.0-macos-arm64.tar.gz` | Extract, then `./"MeSH Workbench"` |
 
 **Every one carries its own Python.** There is nothing to install first - no
 system Python, no `python3-tk`, no administrator rights, and nothing written
@@ -26,7 +26,7 @@ outside your own profile.
 
 ## Windows
 
-Double-click `MeSH-Workbench-3.1.0-windows.msi`. It asks where to install,
+Double-click `MeSH-Workbench-3.2.0-windows.msi`. It asks where to install,
 offers a desktop and Start-menu shortcut, and appears in Add/Remove Programs
 afterwards.
 
@@ -39,18 +39,18 @@ with `0x80070005` and nothing to click. An MSI introduces no new binary.
 Silent install, for deploying to several machines:
 
 ```
-msiexec /i "MeSH-Workbench-3.1.0-windows.msi" /qn
+msiexec /i "MeSH-Workbench-3.2.0-windows.msi" /qn
 ```
 
 ---
 
 ## Linux
 
-Download `MeSH-Workbench-3.1.0-linux-x86_64.tar.gz`, then:
+Download `MeSH-Workbench-3.2.0-linux-x86_64.tar.gz`, then:
 
 ```
-tar -xzf MeSH-Workbench-3.1.0-linux-x86_64.tar.gz
-cd MeSH-Workbench-3.1.0-linux-x86_64
+tar -xzf MeSH-Workbench-3.2.0-linux-x86_64.tar.gz
+cd MeSH-Workbench-3.2.0-linux-x86_64
 ./"MeSH Workbench"
 ```
 
@@ -71,7 +71,7 @@ Without a desktop:
 
 **Yes, this runs on a Mac without paying Apple anything.**
 
-Download `MeSH-Workbench-3.1.0-macos-arm64.tar.gz` (Apple silicon), extract it,
+Download `MeSH-Workbench-3.2.0-macos-arm64.tar.gz` (Apple silicon), extract it,
 then **open Terminal**, change to the extracted folder and run:
 
 ```
@@ -98,7 +98,7 @@ either open the script in a text editor or refuse it. Afterwards, either works.
 If you would rather not have a script change attributes on your behalf:
 
 ```
-xattr -dr com.apple.quarantine "/path/to/MeSH-Workbench-3.1.0-macos-arm64"
+xattr -dr com.apple.quarantine "/path/to/MeSH-Workbench-3.2.0-macos-arm64"
 ```
 
 That removes one extended attribute from the files in that folder and touches
@@ -179,7 +179,7 @@ slow to fetch again, and always clears the temporary working copy the database
 build leaves in your Windows temp folder. To remove the downloaded data too:
 
 ```
-msiexec /x "MeSH-Workbench-3.1.0-win64.msi" REMOVEDATA=1
+msiexec /x "MeSH-Workbench-3.2.0-win64.msi" REMOVEDATA=1
 ```
 
 **Portable:** run `Uninstall.bat`, then delete the folder.

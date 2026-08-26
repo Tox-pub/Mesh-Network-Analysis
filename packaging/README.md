@@ -115,14 +115,14 @@ against Git LFS quotas.
 3. Hash all three, so a download can be verified:
 
    ```
-   certutil -hashfile "<build dir>\MeshWorkbench-3.1.0-win64-portable.zip" SHA256
+   certutil -hashfile "<build dir>\MeshWorkbench-3.2.0-win64-portable.zip" SHA256
    ```
 
 4. Tag the exact commit the artefacts were built from, and push the tag:
 
    ```
-   git tag -a v3.1.0 -m "MeSH Workbench 3.1.0"
-   git push origin v3.1.0
+   git tag -a v3.2.0 -m "MeSH Workbench 3.2.0"
+   git push origin v3.2.0
    ```
 
 5. On GitHub: **Releases** → **Draft a new release** → choose the tag → attach
@@ -131,7 +131,7 @@ against Git LFS quotas.
    With the `gh` CLI it is one command instead:
 
    ```
-   gh release create v3.1.0 --title "MeSH Workbench 3.1.0" --notes-file notes.md *.msi *.exe *.zip
+   gh release create v3.2.0 --title "MeSH Workbench 3.2.0" --notes-file notes.md *.msi *.exe *.zip
    ```
 
 6. Point the project README's download link at the new release.
