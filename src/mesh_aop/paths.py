@@ -151,6 +151,29 @@ def scratch_dir():
     return user_root()
 
 
+def long_path(path):
+    """A path Windows will accept even past its 260-character limit.
+
+    Windows APIs reject paths longer than MAX_PATH unless they are absolute,
+    fully backslash-separated, and prefixed with \\\\?\\ - which switches the
+    kernel to the extended-length form. Without it the failure is a bare
+    "No such file or directory" naming a path that plainly exists, which reads
+    as a bug in the program rather than a limit of the filesystem.
+
+    This is not hypothetical here: results land under Documents, Documents is
+    frequently redirected into OneDrive with a long organisation name in it, and
+    the figure filenames are descriptive. Three such segments is all it takes.
+
+    Returns the path unchanged on any other platform, for a UNC path (which
+    needs the different \\\\?\\UNC\\ form), or if it is already prefixed.
+    """
+    p = str(path)
+    if os.name != 'nt' or p.startswith('\\\\'):
+        return p
+    absolute = os.path.abspath(p)
+    return '\\\\?\\' + absolute if len(absolute) >= 250 else p
+
+
 def free_gb(path):
     """Free space on the volume holding `path`, following it up to one that exists.
 

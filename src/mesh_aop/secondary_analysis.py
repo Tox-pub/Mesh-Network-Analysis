@@ -23,6 +23,8 @@ from Bio import Entrez, Medline
 
 from .baseline_manager import _keep_on_device
 
+from . import paths as _paths
+
 
 def _open_readonly_resilient(db_path):
     """Open a database read-only, resilient to OneDrive dehydration.
@@ -258,7 +260,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
             os.makedirs(results_dir, exist_ok=True)
             safe_name = node_name.replace(" ", "_").replace("/", "-")
             out_file = os.path.join(results_dir, f"{file_prefix}_relevance_{safe_name}.csv")
-            df.to_csv(out_file, index=False)
+            df.to_csv(_paths.long_path(out_file), index=False)
             print(f"  Saved full results to: {os.path.basename(out_file)}")
         else:
             print("  -> No valid articles remained after applying filters.")
@@ -318,7 +320,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
             safe_n1 = node1.replace(" ", "_").replace(",", "")
             safe_n2 = node2.replace(" ", "_").replace(",", "")
             out_file = os.path.join(results_dir, f"{file_prefix}_edge_relevance_{safe_n1}_{safe_n2}.csv")
-            df.to_csv(out_file, index=False)
+            df.to_csv(_paths.long_path(out_file), index=False)
             print(f"  Saved full results to: {os.path.basename(out_file)}")
         else:
             print("  -> No valid articles remained after applying filters.")
@@ -375,7 +377,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
 
             os.makedirs(results_dir, exist_ok=True)
             out_file = os.path.join(results_dir, f"{file_prefix}_Top_Network_Articles.csv")
-            df.to_csv(out_file, index=False)
+            df.to_csv(_paths.long_path(out_file), index=False)
             print(f"  Saved full results to: {os.path.basename(out_file)}")
         else:
             print("  -> No valid articles remained after applying filters.")
@@ -411,7 +413,7 @@ def convert_network_json_to_excel(input_json_path: str, output_excel_path: str):
             edges_df = pd.DataFrame([e.get('data', {}) for e in edges])
 
         os.makedirs(os.path.dirname(output_excel_path), exist_ok=True)
-        with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
+        with pd.ExcelWriter(_paths.long_path(output_excel_path), engine='openpyxl') as writer:
             nodes_df.to_excel(writer, sheet_name='Nodes', index=False)
             edges_df.to_excel(writer, sheet_name='Edges', index=False)
 
@@ -528,7 +530,7 @@ def run_network_overlay_comparison(network_files, search_dir: str, results_dir: 
     membership_df = membership_df.sort_values(["kept_in_N_networks", "node"],
                                               ascending=[False, True]).reset_index(drop=True)
     membership_path = os.path.join(results_dir, f"{file_prefix}_network_overlap_membership.csv")
-    membership_df.to_csv(membership_path, index=False, encoding="utf-8-sig")
+    membership_df.to_csv(_paths.long_path(membership_path), index=False, encoding="utf-8-sig")
 
     # --- Pairwise intersection count and Jaccard similarity ---
     inter = pd.DataFrame(index=labels, columns=labels, dtype=float)
@@ -540,7 +542,7 @@ def run_network_overlay_comparison(network_files, search_dir: str, results_dir: 
             inter.loc[a, b] = common
             jacc.loc[a, b] = (common / union) if union else 0.0
     matrix_path = os.path.join(results_dir, f"{file_prefix}_network_overlap_matrix.csv")
-    with open(matrix_path, "w", encoding="utf-8-sig", newline="") as f:
+    with open(_paths.long_path(matrix_path), "w", encoding="utf-8-sig", newline="") as f:
         f.write("# Pairwise node-set intersection counts\n")
         inter.astype(int).to_csv(f)
         f.write("\n# Pairwise Jaccard similarity (|A n B| / |A u B|)\n")

@@ -38,6 +38,7 @@ from contextlib import redirect_stdout
 
 # Relative imports from our package
 from .stats import calculate_graph_stats
+from . import paths as _paths
 
 # Node2Vec embedding for the dendrogram figure. We use a vendored, dependency-light
 # implementation (node2vec_embedding) instead of the `node2vec` package, so the
@@ -69,15 +70,57 @@ MARKERS_LIST = ['o', 's', '^', 'D', 'v', 'X', 'P']
 # DATA IO & HELPER FUNCTIONS
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
+# Figure output, overridable from the settings form. Set by configure_output()
+# before any figure is drawn; the defaults stand if nothing calls it, so the
+# module still behaves when driven directly from a notebook.
+_FIGURE_DPI = 300
+_FIGURE_FORMATS = ('jpeg', 'tif')
+
+# TIFF is written with LZW because journals ask for lossless at submission and
+# an uncompressed 600 dpi panel runs to tens of megabytes.
+_FORMAT_KWARGS = {'tif': {'pil_kwargs': {'compression': 'tiff_lzw'}},
+                  'tiff': {'pil_kwargs': {'compression': 'tiff_lzw'}}}
+
+
+def configure_output(dpi=None, formats=None):
+    """Set the resolution and file types every figure is written at.
+
+    Called once from the CLI with the user's settings. Kept as module state
+    rather than threaded through twenty plotting functions, each of which would
+    have to pass it on unchanged.
+    """
+    global _FIGURE_DPI, _FIGURE_FORMATS
+    if dpi:
+        try:
+            _FIGURE_DPI = max(50, min(1200, int(dpi)))
+        except (TypeError, ValueError):
+            pass
+    if formats:
+        if isinstance(formats, str):
+            formats = [f.strip().lower().lstrip('.') for f in formats.split(',')]
+        keep = [f for f in formats if f in ('jpeg', 'jpg', 'png', 'tif', 'tiff', 'pdf', 'svg')]
+        if keep:
+            _FIGURE_FORMATS = tuple(keep)
+    return _FIGURE_DPI, _FIGURE_FORMATS
+
+
 def save_high_res(filename_base: str, output_dir: str, file_prefix: str):
-    """Helper to save JPEG preview and TIFF high-res."""
-    os.makedirs(output_dir, exist_ok=True)
-    try:
-        plt.savefig(os.path.join(output_dir, f"{file_prefix}_{filename_base}.jpeg"), dpi=300, bbox_inches='tight')
-        plt.savefig(os.path.join(output_dir, f"{file_prefix}_{filename_base}.tif"), dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
-        print(f"    Saved figures: {filename_base} (JPEG & TIFF)")
-    except Exception as e:
-        print(f"    [!] Error saving high-res image {filename_base}: {e}")
+    """Write the current figure in every configured format."""
+    os.makedirs(_paths.long_path(output_dir), exist_ok=True)
+    written = []
+    for ext in _FIGURE_FORMATS:
+        path = os.path.join(output_dir, f"{file_prefix}_{filename_base}.{ext}")
+        try:
+            # long_path: a redirected Documents folder plus a descriptive figure
+            # name clears 260 characters easily, and Windows then refuses the
+            # write with a "file not found" naming a path that exists.
+            plt.savefig(_paths.long_path(path), dpi=_FIGURE_DPI, bbox_inches='tight',
+                        **_FORMAT_KWARGS.get(ext, {}))
+            written.append(ext.upper())
+        except Exception as e:
+            print(f"    [!] Error saving {filename_base}.{ext}: {e}")
+    if written:
+        print(f"    Saved figures: {filename_base} ({', '.join(written)} at {_FIGURE_DPI} dpi)")
 
 # <<< Download resolution for the interactive HTML figures >>>
 # Plotly's camera button captures the plot at its ON-SCREEN pixel size unless it
@@ -125,7 +168,7 @@ def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: 
 
     try:
         # HTML generation relies on pure Python string formatting (100% stable on Py 3.12)
-        fig.write_html(html_path, config=config)
+        fig.write_html(_paths.long_path(html_path), config=config)
         print(f"    [+] Saved interactive HTML figure: {os.path.basename(html_path)}"
               f"  (downloads at {export_size_in[0]:g}x{export_size_in[1]:g} in / "
               f"{export_dpi} dpi = {int(w_px * scale):,}x{int(h_px * scale):,} px)")
@@ -334,10 +377,7 @@ def run_optimization_comparison(history_json_path: str, output_dir: str, file_pr
         plt.ylabel('Log-Likelihood Score')
         plt.legend()
 
-        os.makedirs(output_dir, exist_ok=True)
-        traj_path = os.path.join(output_dir, f"{file_prefix}_GLF_SA_Trajectory.png")
-        plt.savefig(traj_path, dpi=600)
-        print(f"    Saved: {os.path.basename(traj_path)}")
+        save_high_res("GLF_SA_Trajectory", output_dir, file_prefix)
 
     except Exception as e:
         print(f"[!] Error in Simulation Comparison processing: {e}")
@@ -524,7 +564,7 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
         # If empty, this will create an empty DataFrame and still output the CSV structurally intact
         csv_data = [{"Source": levels[s], "Target": levels[t], "Weight": w} for (s, t), w in flows.items()]
         csv_path = os.path.join(output_dir, f"{file_prefix}_Alluvial_Connections_Table_F6.csv")
-        pd.DataFrame(csv_data, columns=["Source", "Target", "Weight"]).sort_values(['Source', 'Target']).to_csv(csv_path, index=False)
+        pd.DataFrame(csv_data, columns=["Source", "Target", "Weight"]).sort_values(['Source', 'Target']).to_csv(_paths.long_path(csv_path), index=False)
         print(f"    Exported connection data to: {os.path.basename(csv_path)}")
 
         # Labeled Plot
@@ -628,10 +668,7 @@ def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str
         ax_b.set_xlabel('Raw Betweenness Centrality (Log Scale)', fontsize=12)
         ax_b.set_ylabel('MRS (Betweenness) (Log Scale)', fontsize=12)
         ax_b.grid(True, which="both", ls="--", alpha=0.5)
-        os.makedirs(output_dir, exist_ok=True)
-        out_b = os.path.join(output_dir, f"{file_prefix}_Panel_C_Scatter_Betweenness.tif")
-        plt.savefig(out_b, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
-        print(f"    Saved: {os.path.basename(out_b)}")
+        save_high_res("Panel_C_Scatter_Betweenness", output_dir, file_prefix)
         plt.close()
 
         print("  - Generating Panel D: Raw PageRank vs MRS (PageRank)...")
@@ -643,9 +680,7 @@ def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str
         ax_p.set_xlabel('Raw PageRank Centrality (Log Scale)', fontsize=12)
         ax_p.set_ylabel('MRS (PageRank) (Log Scale)', fontsize=12)
         ax_p.grid(True, which="both", ls="--", alpha=0.5)
-        out_p = os.path.join(output_dir, f"{file_prefix}_Panel_D_Scatter_PageRank.tif")
-        plt.savefig(out_p, dpi=600, pil_kwargs={'compression': 'tiff_lzw'}, bbox_inches='tight')
-        print(f"    Saved: {os.path.basename(out_p)}")
+        save_high_res("Panel_D_Scatter_PageRank", output_dir, file_prefix)
         plt.close()
     except Exception as e:
         print(f"[!] Error generating Figure 8 (Scatter Panels): {e}")
