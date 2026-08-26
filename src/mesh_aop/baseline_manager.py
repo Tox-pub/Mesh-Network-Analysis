@@ -499,6 +499,28 @@ class PubMedBaselineManager:
             print("      later reports it missing, let OneDrive finish (right-click > 'Always")
             print("      keep on this device') and re-run.")
 
+        # Record what a good build looks like. Nothing else can tell later
+        # whether an 8 GB file has been altered since - a sync client serving a
+        # dehydrated copy, an interrupted move, a backup tool writing it back -
+        # and re-scanning it on every run to find out would cost minutes each
+        # time. Size, mtime and row count are checked in seconds instead.
+        try:
+            from .integrity import write_health
+            write_health(self.master_db_path, rows=record_count,
+                         note=f'built from {parsed_count} input files')
+            print("  Health record written .. OK (used to detect later damage)")
+        except Exception as exc:
+            print(f"  [!] Could not write the health record: {exc}")
+
+        # Leave the rebuild instructions beside the database itself. A build log
+        # is not where anyone looks a month later when the file will not open.
+        try:
+            from .guides import write_master_db_guide
+            write_master_db_guide(self.master_db_path,
+                                  workspace_dir=str(getattr(self, 'workspace_dir', '') or ''))
+        except Exception:
+            pass
+
         print("  [+] Verification PASSED - build output is complete and non-empty.")
         return record_count
 

@@ -45,6 +45,7 @@ import os
 import math
 import json
 import sqlite3
+import datetime as _dt
 from collections import defaultdict
 
 from tqdm import tqdm
@@ -147,8 +148,13 @@ def run_mean_relevancy_scoring(input_nodes_file: str, output_nodes_file: str,
         return
 
     # <<< Enforce ISO Dates for High-Speed SQLite Query >>>
-    start_iso = parse_date_robust(start_date_param).strftime('%Y-%m-%d')
-    end_iso = parse_date_robust(end_date_param).strftime('%Y-%m-%d')
+    # Blank means "no bound", matching the search dates, which have always
+    # accepted an empty field. Without these fallbacks a blank context window
+    # aborted the run several hours in, with a date-format error naming a field
+    # the user had deliberately left empty.
+    start_iso = parse_date_robust(start_date_param or "1900/01/01").strftime('%Y-%m-%d')
+    end_iso = parse_date_robust(
+        end_date_param or _dt.date.today().strftime("%Y/%m/%d")).strftime('%Y-%m-%d')
 
     print("\n" + "<"*30 + ">"*30)
     print("<<< Calculating Mean Relevancy (Local Data Lake) >>>")
