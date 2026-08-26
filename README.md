@@ -10,21 +10,23 @@ A desktop application for Windows, and a command-line pipeline for any platform.
 
 ## Get it
 
-**Windows — download from [Releases](https://github.com/Tox-pub/Mesh-Network-Analysis/releases).**
+**One file per system**, from
+[Releases](https://github.com/Tox-pub/Mesh-Network-Analysis/releases).
 
-| Download | When to use it |
-| --- | --- |
-| `MeSH-Workbench-<version>-win64.msi` | **Start here.** Ordinary installer, and the one most likely to be permitted on a managed or work computer. |
-| `MeSH-Workbench-<version>-win64-setup.exe` | A conventional Setup wizard, for a personal machine. |
-| `MeshWorkbench-<version>-win64-portable.zip` | No installation at all. Extract and run, or use the `Install.bat` inside it. |
+| System | Download | What to do |
+| :--- | :--- | :--- |
+| Windows | `MeSH-Workbench-<version>-windows.msi` | Double-click it. Carries its own Python; nothing else needed. |
+| Linux | `MeSH-Workbench-<version>-linux.tar.gz` | Extract, then `./packaging/install.sh` |
+| macOS | `MeSH-Workbench-<version>-macos.tar.gz` | Extract, then `./packaging/install.sh` |
 
-Nothing else is needed — no Python, no runtime, no administrator rights. Every
-download carries its own interpreter, and the only program that ever executes is
-`python.exe`, signed by the Python Software Foundation.
+Everything installs for the current user - no administrator rights, nothing
+written outside your own profile.
 
-**macOS and Linux** — clone the repository and run `packaging/install.sh`. It
-builds a private environment, installs the package into it, and adds a menu
-entry or an application bundle. Python 3.11–3.13 with tkinter is required.
+On Windows the only program that ever executes is `python.exe`, signed by the
+Python Software Foundation, and the installer itself is run by `msiexec.exe`,
+which is part of Windows. On Linux and macOS the installer creates a private
+virtual environment and needs Python 3.11-3.13 with tkinter - it checks for
+both before changing anything.
 
 Full instructions, including what to do if a download is blocked:
 **[INSTALL.md](INSTALL.md)**

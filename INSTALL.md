@@ -1,10 +1,20 @@
 # Installing MeSH Workbench
 
-Three ways on Windows, one on macOS and Linux. All install for the current user
-only — no administrator rights, and nothing written outside your own profile.
+**One file per system.** Download the one with your system's name on it from
+[Releases](https://github.com/Tox-pub/Mesh-Network-Analysis/releases), and
+ignore the other two.
+
+| System | File | What to do |
+| :--- | :--- | :--- |
+| **Windows** | `MeSH-Workbench-3.1.0-windows.msi` | Double-click it. |
+| **Linux** | `MeSH-Workbench-3.1.0-linux.tar.gz` | Extract, then `./packaging/install.sh` |
+| **macOS** | `MeSH-Workbench-3.1.0-macos.tar.gz` | Extract, then `./packaging/install.sh` |
+
+Everything installs for the current user only - no administrator rights, and
+nothing written outside your own profile.
 
 - [Windows](#windows)
-- [macOS and Linux](#macos-and-linux)
+- [Linux and macOS](#linux-and-macos)
 - [If a download is blocked](#if-a-download-is-blocked)
 - [Where things are kept](#where-things-are-kept)
 - [Updating](#updating)
@@ -14,60 +24,29 @@ only — no administrator rights, and nothing written outside your own profile.
 
 ## Windows
 
-Download from [Releases](https://github.com/Tox-pub/Mesh-Network-Analysis/releases).
-Each download carries its own Python, so nothing needs installing first.
+Double-click `MeSH-Workbench-3.1.0-windows.msi`. It asks where to install,
+offers a desktop and Start-menu shortcut, and appears in Add/Remove Programs
+afterwards.
 
-### The installer (`.msi`) — start here
+It carries its own Python, so nothing needs installing first, and it is
+executed by `msiexec.exe`, which is part of Windows and signed by Microsoft.
+That matters on a managed machine: a freshly built `.exe` installer has no
+signature and no prevalence, and Defender Exploit Guard refuses it outright
+with `0x80070005` and nothing to click. An MSI introduces no new binary.
 
-Double-click it. The wizard asks where to install, and whether you want a Start
-menu entry and a desktop shortcut. It appears in **Settings → Apps** afterwards
-like any other program.
-
-This is the one to try first on a **work or managed computer**. The install is
-performed by `msiexec`, which is part of Windows and signed by Microsoft, so it
-does not introduce any new program for security policy to object to.
-
-For unattended deployment:
+Silent install, for deploying to several machines:
 
 ```
-msiexec /i "MeSH-Workbench-3.1.0-win64.msi" /qn
+msiexec /i "MeSH-Workbench-3.1.0-windows.msi" /qn
 ```
-
-### The Setup wizard (`.exe`)
-
-A conventional installer, and fine on a personal machine. It is not signed, so
-Windows shows *"Windows protected your PC"* the first time — click **More info**
-then **Run anyway**.
-
-On some managed machines this one is refused outright rather than merely warned
-about; see [below](#if-a-download-is-blocked).
-
-### The portable zip
-
-1. Right-click the zip → **Extract All** → choose any folder you can write to.
-2. Open the extracted folder.
-3. Double-click **`MeSH Workbench.bat`**.
-
-Nothing is installed and nothing is written outside that folder — settings,
-data and results all stay inside it. Move it, copy it to a USB stick, or delete
-it; it leaves nothing behind.
-
-To turn it into a proper installation instead, run **`Install.bat`** from inside
-the folder. That copies it into your profile, adds shortcuts, and registers it
-in Settings → Apps, using only tools Windows already has. Add `/S` to install
-silently.
-
-If the window does not appear, run **`MeSH Workbench (Troubleshooting).bat`** —
-it keeps a console open so any error stays on screen.
 
 ---
 
-## macOS and Linux
-
-There is no packaged download; install from source.
+## Linux and macOS
 
 **Requirements:** Python 3.11 to 3.13, including tkinter. On most Linux
-distributions tkinter is a separate package and is missing by default:
+distributions tkinter is a separate package and is missing by default - and its
+absence is only discovered when the window fails to open, so install it now:
 
 ```
 sudo apt install python3.12 python3.12-venv python3-tk     # Debian, Ubuntu
@@ -78,16 +57,32 @@ brew install python@3.12 python-tk                         # macOS
 Then:
 
 ```
-git clone https://github.com/Tox-pub/Mesh-Network-Analysis.git
-cd Mesh-Network-Analysis
+tar -xzf MeSH-Workbench-3.1.0-linux.tar.gz      # or -macos
+cd MeSH-Workbench-3.1.0
 ./packaging/install.sh
 ```
 
-It checks for a supported Python and for tkinter before doing anything, creates
-a private virtual environment, installs the package into it, and adds a menu
-entry (Linux) or an application bundle in `~/Applications` (macOS).
+The script checks for a supported Python and for tkinter **before** changing
+anything, creates a private virtual environment, installs the package into it,
+and adds a menu entry (Linux) or an application bundle in `~/Applications`
+(macOS). `--prefix DIR` puts the environment somewhere else.
 
-`./packaging/install.sh --prefix DIR` puts the environment somewhere else.
+Resolving the dependencies needs a network connection and takes a few minutes
+the first time - scipy, scikit-learn, gensim, statsmodels and matplotlib are
+all sizeable.
+
+To run it without a desktop, the pipeline works headless:
+
+```
+~/.local/share/mesh-workbench/venv/bin/mesh-pipeline --step all
+```
+
+### Checking the install without downloading 44 GB
+
+Turn on **Use bundled reference data** on the Folders tab, then run
+**Step 4 - Figures**. The reference corpus ships with the program, so this
+draws all eight figures and the PRISMA report from data already on disk. It is
+the quickest honest end-to-end test.
 
 ---
 
@@ -105,7 +100,7 @@ your IT administrator"*, or error `0x80070005`, means a security policy —
 usually Defender Exploit Guard — has refused the file because it is newly
 compiled and unsigned. There is nothing to click through.
 
-If that happens, use the **`.msi`**, or the portable zip with `Install.bat`.
+If that happens the `.msi` is the route that works: it is executed by `msiexec.exe`, which is part of Windows and signed by Microsoft, so no unsigned binary is introduced.
 Neither creates a new executable, so neither trips that rule.
 
 **A file that arrived over the network** may also be flagged. Right-click it →
