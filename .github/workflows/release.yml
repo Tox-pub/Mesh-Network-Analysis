@@ -43,13 +43,51 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      # The portable tree copies its dependencies OUT OF a working virtual
+      # environment - that is deliberate, so a release ships the versions that
+      # were actually tested rather than whatever resolves on build day. A CI
+      # runner has no such environment, so this has to create one first.
+      #
+      # Without it the build still "succeeds" and produces an installer
+      # containing an interpreter and no libraries: the first run fails on
+      # "No module named numpy". That happened, and the job was green, because
+      # nothing here looked inside the tree. The check below now does.
+      - name: Create the build environment
+        run: |
+          python -m venv build-venv
+          build-venv\Scripts\python -m pip install --upgrade pip --quiet
+          build-venv\Scripts\python -m pip install . --quiet
+
       - name: Assemble the application tree
-        run: python packaging/build_portable_windows.py --out build --no-zip
+        run: python packaging/build_portable_windows.py --out build --no-zip --venv build-venv
+
+      - name: Check the tree contains a working application
+        shell: bash
+        run: |
+          set -eu
+          tree=build/MeshWorkbench
+          du -sm "$tree" | awk '{print "  assembled tree: " $1 " MB"}'
+          # An interpreter with no libraries is about 20 MB; a real one is 300+.
+          size=$(du -sm "$tree" | cut -f1)
+          if [ "$size" -lt 150 ]; then
+            echo "::error::The assembled tree is only ${size} MB - the dependencies are missing."
+            exit 1
+          fi
+          # And prove it, by importing through the interpreter that will ship.
+          "$tree/python/python.exe" -c "
+          import numpy, scipy, pandas, sklearn, matplotlib, networkx, gensim
+          import statsmodels, seaborn, plotly, Bio, community, openpyxl, tqdm
+          import sqlite3, tkinter
+          import sys; sys.path.insert(0, r'$PWD/$tree/app')
+          import mesh_aop, mesh_workbench
+          print('  every dependency imports from the bundled interpreter')
+          print('  mesh_aop', mesh_aop.__version__)
+          "
 
       # Pinned, and matching what the .wxs is written against. Unpinned,
       # `dotnet tool install wix` takes the newest major - v7 - which requires
@@ -71,16 +109,28 @@ jobs:
       - name: Build the MSI
         run: python packaging/build_msi_windows.py --portable build/MeshWorkbench --out build
 
-      - name: Name it for the platform
+      - name: Name it for the platform, and check its size
         shell: bash
         run: |
+          set -eu
           ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
-          mv build/*.msi "MeSH-Workbench-${ver}-windows.msi"
+          msi="MeSH-Workbench-${ver}-windows.msi"
+          mv build/*.msi "$msi"
+          mb=$(du -m "$msi" | cut -f1)
+          echo "  $msi  ${mb} MB"
+          # A complete installer is ~90 MB. One that slipped through at 0.3 MB
+          # is what this guards against: it was an MSI wrapped around an empty
+          # tree, and it shipped as a green build.
+          if [ "$mb" -lt 40 ]; then
+            echo "::error::$msi is only ${mb} MB - it cannot contain the application."
+            exit 1
+          fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: windows
           path: 'MeSH-Workbench-*-windows.msi'
+          if-no-files-found: error
 
   unix:
     strategy:
@@ -95,8 +145,8 @@ jobs:
             label: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -167,7 +217,7 @@ jobs:
           r.destroy()
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.label }}
           path: 'build/MeSH-Workbench-*.tar.gz'
@@ -178,7 +228,7 @@ jobs:
     # Only on a hand-run with the box ticked. Never on a tag.
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
