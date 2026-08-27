@@ -273,14 +273,158 @@ def inventory(project_dir, config=None):
     return items
 
 
+def _clear_readonly(func, path, _exc):
+    """rmtree error handler: drop the read-only bit and try that entry again.
+
+    shutil.rmtree refuses a read-only file with "Access is denied", which reads
+    like a permissions problem the user has to solve and is usually just an
+    attribute. Files arriving from an archive or a sync client carry it often.
+    """
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        raise
+
+
+def _delete(target, attempts=3):
+    """Remove a file or tree, tolerating read-only bits and transient locks.
+
+    OneDrive, the search indexer and antivirus all take brief handles on files
+    they have just seen. A single attempt turns that into a permanent failure
+    reported to the user; a short retry usually turns it into nothing at all.
+    """
+    import time
+    last = None
+    for attempt in range(attempts):
+        try:
+            if target.is_dir():
+                # onexc replaced onerror in 3.12; support both so this works
+                # under the bundled interpreter and an older system one.
+                if sys.version_info >= (3, 12):
+                    shutil.rmtree(target, onexc=lambda f, p, e: _clear_readonly(f, p, e))
+                else:
+                    shutil.rmtree(target, onerror=lambda f, p, e: _clear_readonly(f, p, e))
+            elif target.exists():
+                target.unlink()
+            return None
+        except OSError as exc:
+            last = exc
+            time.sleep(0.4 * (attempt + 1))
+    return last
+
+
+def _is_running_from(target):
+    """True if this interpreter lives inside `target`.
+
+    Windows will not delete a loaded DLL, so an uninstaller running on the
+    Python it is trying to remove cannot finish the job from inside - it fails
+    on its own tcl or its own python3.dll. Recognising that is what lets it be
+    handled rather than reported as a mystery.
+    """
+    try:
+        exe = Path(sys.executable).resolve()
+        target = Path(target).resolve()
+        return target == exe or target in exe.parents
+    except OSError:
+        return False
+
+
+def _safe_to_delete_unattended(folder):
+    """Would `rmdir /s /q folder` be a reasonable thing to run with nobody watching?
+
+    The deferred delete runs after this process is gone, so nothing can stop it
+    and nothing will report what it did. That deserves more caution than a
+    deletion the user is watching: the cost of refusing a legitimate folder is
+    one manual delete, and the cost of accepting a wrong one is unbounded.
+
+    So: it must be several levels deep, must not be a home or system directory,
+    and must actually look like an installation of this program.
+    """
+    folder = Path(folder).resolve()
+    parts = folder.parts
+    if len(parts) < 3:                       # C:\ or C:\something
+        return False
+
+    protected = {Path.home().resolve()}
+    for var in ('ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)', 'SystemRoot',
+                'WINDIR', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'TEMP'):
+        value = os.environ.get(var)
+        if value:
+            try:
+                protected.add(Path(value).resolve())
+            except OSError:
+                pass
+    for name in ('Documents', 'Desktop', 'Downloads', 'OneDrive'):
+        protected.add((Path.home() / name).resolve())
+    if folder in protected:
+        return False
+
+    # It has to look like ours. Either the folder is named for the program, or
+    # it holds the things an installation holds.
+    looks_like_ours = (
+        'mesh' in folder.name.lower()
+        or (folder / 'portable.marker').exists()
+        or ((folder / 'app').is_dir() and (folder / 'python').is_dir())
+        or (folder.name.lower() == 'python' and (folder.parent / 'app').is_dir())
+    )
+    return bool(looks_like_ours)
+
+
+def schedule_delete_after_exit(folder):
+    """Have the folder removed once this process has let go of it.
+
+    The only way to delete the interpreter you are running on. A small batch
+    file waits for this process ID to disappear, removes the folder, and then
+    removes itself; it is launched detached so it outlives us. Windows only -
+    every other system allows deleting a file that is open.
+
+    Returns the helper's path, or None if it could not be arranged.
+    """
+    if os.name != 'nt':
+        return None
+    folder = Path(folder).resolve()
+    if not _safe_to_delete_unattended(folder):
+        return None
+    folder = str(folder)
+    script = Path(tempfile.gettempdir()) / f'mesh_uninstall_{os.getpid()}.bat'
+    body = (
+        '@echo off\r\n'
+        'rem Written by the MeSH Workbench uninstaller. Waits for the program\r\n'
+        'rem to close, removes its folder, then removes itself.\r\n'
+        f':wait\r\n'
+        f'tasklist /FI "PID eq {os.getpid()}" 2>nul | find "{os.getpid()}" >nul\r\n'
+        'if not errorlevel 1 (\r\n'
+        '  ping -n 2 127.0.0.1 >nul\r\n'
+        '  goto wait\r\n'
+        ')\r\n'
+        f'rmdir /s /q "{folder}" 2>nul\r\n'
+        f'del /f /q "%~f0" >nul 2>&1\r\n'
+    )
+    try:
+        script.write_text(body, encoding='utf-8')
+        import subprocess
+        subprocess.Popen(['cmd', '/c', str(script)],
+                         creationflags=0x00000008 | 0x08000000,   # DETACHED, NO_WINDOW
+                         close_fds=True)
+        return str(script)
+    except OSError:
+        return None
+
+
 def remove(items, dry_run=False, on_event=None):
-    """Delete the given items. Returns (removed, freed_bytes, failures).
+    """Delete the given items. Returns (removed, freed_bytes, failures, deferred).
 
     A failure never stops the pass: a file held open by another program should
     not prevent the other 50 GB from being reclaimed.
+
+    `deferred` names anything that could not be deleted because this program is
+    running from inside it. That is not a failure the user can act on - it is
+    arranged to happen the moment the window closes.
     """
     say = on_event or (lambda *_: None)
-    removed, freed, failures = 0, 0, []
+    removed, freed, failures, deferred = 0, 0, [], []
 
     for item in items:
         # Defence in depth: a front-end should never offer these, but a bug in
@@ -292,20 +436,24 @@ def remove(items, dry_run=False, on_event=None):
         for target in item.targets:
             if dry_run:
                 continue
-            try:
-                if target.is_dir():
-                    shutil.rmtree(target)
-                elif target.exists():
-                    target.unlink()
-            except OSError as exc:
-                ok = False
-                failures.append((target, str(exc)))
-                say('fail', f'{target}: {exc}')
+            exc = _delete(target)
+            if exc is None:
+                continue
+            if _is_running_from(target):
+                # Expected, and handled: we cannot delete the interpreter we
+                # are executing. Hand it to a helper that runs after we exit.
+                if schedule_delete_after_exit(target):
+                    deferred.append(target)
+                    say('deferred', f'{target}: will be removed when the program closes')
+                    continue
+            ok = False
+            failures.append((target, str(exc)))
+            say('fail', f'{target}: {exc}')
         if ok:
             removed += 1
             freed += item.bytes
             say('done', f'{item.label} ({item.gb:.2f} GB)')
-    return removed, freed, failures
+    return removed, freed, failures, deferred
 
 
 def pip_hint():

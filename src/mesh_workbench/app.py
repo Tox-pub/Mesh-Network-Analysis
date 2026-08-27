@@ -1896,18 +1896,27 @@ class Workbench(tk.Tk):
             return
 
         portable = U.is_portable(self.repo_dir)
-        removed, freed, failures = U.remove(chosen)
+        removed, freed, failures, deferred = U.remove(chosen)
         msg = f'Removed {removed} of {len(chosen)} item(s), freeing {freed/1e9:,.2f} GB.'
+
+        # Not a failure: Windows will not delete the interpreter that is
+        # running, so those are handed to a helper that waits for this window
+        # to close. Reporting them as "could not be removed" sent the user
+        # hunting for a program holding the file, and it was this one.
+        if deferred:
+            msg += ('\n\nThese are in use by this program itself, and will be '
+                    'removed automatically when you close it:\n\n' +
+                    '\n'.join(f'    {p}' for p in deferred[:4]))
         if failures:
-            msg += (f'\n\n{len(failures)} could not be removed, usually because '
-                    'another program still has them open:\n\n' +
-                    '\n'.join(f'{p}: {e}' for p, e in failures[:5]))
+            msg += (f'\n\n{len(failures)} could not be removed. Close anything '
+                    'that has them open - a file manager, an editor, or a sync '
+                    'client mid-upload - then run this again:\n\n' +
+                    '\n'.join(f'    {p}\n        {e}' for p, e in failures[:4]))
         if not portable:
             msg += ('\n\nThe package itself is still installed. To remove it, run:\n\n'
                     f'    {U.pip_hint()}')
-        else:
-            msg += ('\n\nTo finish, close this window and delete the program '
-                    'folder:\n\n' + self.repo_dir)
+        if deferred:
+            msg += '\n\nClose the window now to finish.'
         messagebox.showinfo('Uninstall', msg)
         self.scan_uninstall()
 

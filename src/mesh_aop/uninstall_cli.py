@@ -113,16 +113,22 @@ def main(argv=None):
             return 1
 
     print()
-    removed, freed, failures = U.remove(
+    removed, freed, failures, deferred = U.remove(
         chosen, on_event=lambda kind, msg: print(
             f'  {"removed" if kind == "done" else "FAILED "}  {msg}'))
 
     print(f'\n  Removed {removed} of {len(chosen)}, reclaimed {_fmt(freed)}.')
+    if deferred:
+        print('\n  In use by this program itself - scheduled for removal as soon')
+        print('  as it exits:')
+        for path in deferred[:10]:
+            print(f'    {path}')
     if failures:
-        print(f'  {len(failures)} item(s) could not be removed - usually because '
-              'something still has them open:')
+        print(f'\n  {len(failures)} item(s) could not be removed. Close anything '
+              'holding them open - a\n  file manager, an editor, or a sync client '
+              'mid-upload - and run this again:')
         for path, err in failures[:10]:
-            print(f'    {path}: {err}')
+            print(f'    {path}\n        {err}')
 
     if not portable:
         print(f'\n  The package itself is still installed. To remove it:\n'
