@@ -31,6 +31,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 
+from . import memory as _memory
+
 
 def _keep_on_device(path):
     """Best-effort: mark a file 'always keep on this device' so OneDrive will not
@@ -203,7 +205,16 @@ def build_local_shard(job):
 
     conn.commit()
     conn.close()
-    return str(shard_path), processed_names, total_articles
+    # The worker's own high-water mark travels back with its result. A spawned
+    # process's peak dies with the process, so the parent cannot read it after
+    # the fact - and without it there is no way to tell a pool that is using
+    # 700 MB a worker from one using three gigabytes each.
+    try:
+        from .memory import usage as _usage
+        peak = _usage().get('peak')
+    except Exception:
+        peak = None
+    return str(shard_path), processed_names, total_articles, peak
 
 
 # ==========================================
@@ -213,7 +224,8 @@ def build_local_shard(job):
 class PubMedBaselineManager:
     """Downloads the NLM PubMed XML archives and compiles them into the local master database."""
 
-    def __init__(self, raw_data_dir: Path, master_db_path: Path, workspace_dir=None):
+    def __init__(self, raw_data_dir: Path, master_db_path: Path, workspace_dir=None,
+                 max_workers=None):
         """Set up the raw/download directories, fast local workspace, and FTP endpoints.
 
         `workspace_dir` is where the build does its scratch work. It defaults to
@@ -245,6 +257,9 @@ class PubMedBaselineManager:
         self.baseline_ftp_path = "/pubmed/baseline/"
         self.updates_ftp_path = "/pubmed/updatefiles/"
 
+        # None means "work it out from the machine"; a number is the user
+        # saying they know better, which on their own hardware they may.
+        self.max_workers = int(max_workers) if max_workers else None
         self.chunk_size = 25
         self.checkpoint_interval = 4  # Heavy DB checkpoint every 100 files (plus an early one after the first block)
 
@@ -625,14 +640,27 @@ class PubMedBaselineManager:
             print(f"  Resuming with {len(pending_files)} files...")
 
             chunks = [pending_files[i:i + self.chunk_size] for i in range(0, len(pending_files), self.chunk_size)]
-            cores = max(1, multiprocessing.cpu_count() - 1)
+            # One worker per core less one put a whole Python interpreter, an XML
+            # parser and a batch list on every core the machine had, and the
+            # memory cost is the sum of them. On a 16 GB workstation that is most
+            # of the machine - which is what a build appearing to hold sixteen
+            # gigabytes looks like from Task Manager. Cores are not the
+            # bottleneck: the work is gzip decompression feeding a single SQLite
+            # writer that the workers merge into one at a time.
+            cores = self.max_workers or _memory.worker_budget(
+                max(1, multiprocessing.cpu_count() - 1))
 
             print("\n" + "<"*30 + ">"*30)
             print(f"<<< Phase 1 & 2: Distributed Parsing & Aggregation ({cores} Cores) >>>")
             print("<"*30 + ">"*30)
+            if _memory.total_ram():
+                print(f"  {cores} parser processes; {multiprocessing.cpu_count()} "
+                      f"cores and {_memory.fmt(_memory.total_ram())} of RAM here.")
+                print("  --max-workers overrides this if you want more or fewer.")
 
             start_time = time.time()
             global_articles = 0
+            worker_peak = 0
 
             # One worker pool for the whole run; re-creating it per chunk paid
             # process-spawn overhead on every block (dozens of times per ETL).
@@ -649,7 +677,8 @@ class PubMedBaselineManager:
                     sub_chunks = [(sc, str(self.local_workspace))
                                   for sc in sub_chunks if sc]
 
-                    for shard_path_str, parsed_names, article_count in pool.imap_unordered(build_local_shard, sub_chunks):
+                    for shard_path_str, parsed_names, article_count, peak in pool.imap_unordered(build_local_shard, sub_chunks):
+                        worker_peak = max(worker_peak, peak or 0)
                         cursor.execute("ATTACH DATABASE ? AS temp_shard", (shard_path_str,))
                         cursor.execute("BEGIN TRANSACTION;")
 
@@ -671,6 +700,11 @@ class PubMedBaselineManager:
                     total_done = cursor.fetchone()[0]
                     elapsed = time.time() - start_time
                     print(f"  -> Processed Block {chunk_idx}/{len(chunks)}. (Total: {total_done}/{len(all_files)}) [+ {global_articles:,} articles] [{elapsed/60:.1f} min]")
+                    if worker_peak:
+                        print(f"     memory: this process peaked at "
+                              f"{_memory.fmt(_memory.usage()['peak'])}; heaviest worker "
+                              f"{_memory.fmt(worker_peak)}, so up to "
+                              f"{_memory.fmt(worker_peak * cores)} across {cores} of them")
 
                     # <<< ATOMIC CHECKPOINT >>>
                     # Checkpoint after the very first block (cheap - the DB is tiny)
