@@ -44,7 +44,6 @@ from .prisma import write_prisma_report
 from .guides import AOP_LEVELS, write_annotation_guide, write_master_db_guide
 from . import guides
 from . import ledger_collect
-from . import memory
 from . import runcontrol
 from .runcontrol import RunAborted
 from .relevance import run_mean_relevancy_scoring
@@ -1063,15 +1062,6 @@ def main():
 
     total_time = time.time() - total_start
 
-    # What the run cost in memory, recorded where it can be read afterwards
-    # rather than watched for in Task Manager. Peak is the useful figure: it is
-    # what the machine had to find, and unlike the current reading it does not
-    # fall away the moment the expensive stage ends.
-    try:
-        _mem = memory.report(f'step {args.step}')
-    except Exception:
-        _mem = {}
-
     # <<< RUN LEDGER & PRISMA FLOW REPORT >>>
     # Written last, from the counts the stages returned plus whatever the run
     # left on disk, so a resumed run reports the same totals as a fresh one.
@@ -1086,10 +1076,6 @@ def main():
                               .get('compare_networks', False) else '')
         )
         ledger.record('run', 'runtime_minutes', f"{total_time/60:.2f}")
-        if _mem.get('total_peak') or _mem.get('peak'):
-            ledger.record('run', 'peak_memory',
-                          memory.fmt(_mem.get('total_peak') or _mem.get('peak')).strip(),
-                          'High-water mark for this run, workers included')
         if ledger.save():
             print(f"\n  [+] Run ledger written: {ledger.path}")
         for path in write_prisma_report(ledger, config):

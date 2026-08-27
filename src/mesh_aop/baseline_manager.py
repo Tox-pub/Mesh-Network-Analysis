@@ -205,16 +205,7 @@ def build_local_shard(job):
 
     conn.commit()
     conn.close()
-    # The worker's own high-water mark travels back with its result. A spawned
-    # process's peak dies with the process, so the parent cannot read it after
-    # the fact - and without it there is no way to tell a pool that is using
-    # 700 MB a worker from one using three gigabytes each.
-    try:
-        from .memory import usage as _usage
-        peak = _usage().get('peak')
-    except Exception:
-        peak = None
-    return str(shard_path), processed_names, total_articles, peak
+    return str(shard_path), processed_names, total_articles
 
 
 # ==========================================
@@ -660,7 +651,6 @@ class PubMedBaselineManager:
 
             start_time = time.time()
             global_articles = 0
-            worker_peak = 0
 
             # One worker pool for the whole run; re-creating it per chunk paid
             # process-spawn overhead on every block (dozens of times per ETL).
@@ -677,8 +667,7 @@ class PubMedBaselineManager:
                     sub_chunks = [(sc, str(self.local_workspace))
                                   for sc in sub_chunks if sc]
 
-                    for shard_path_str, parsed_names, article_count, peak in pool.imap_unordered(build_local_shard, sub_chunks):
-                        worker_peak = max(worker_peak, peak or 0)
+                    for shard_path_str, parsed_names, article_count in pool.imap_unordered(build_local_shard, sub_chunks):
                         cursor.execute("ATTACH DATABASE ? AS temp_shard", (shard_path_str,))
                         cursor.execute("BEGIN TRANSACTION;")
 
@@ -700,11 +689,6 @@ class PubMedBaselineManager:
                     total_done = cursor.fetchone()[0]
                     elapsed = time.time() - start_time
                     print(f"  -> Processed Block {chunk_idx}/{len(chunks)}. (Total: {total_done}/{len(all_files)}) [+ {global_articles:,} articles] [{elapsed/60:.1f} min]")
-                    if worker_peak:
-                        print(f"     memory: this process peaked at "
-                              f"{_memory.fmt(_memory.usage()['peak'])}; heaviest worker "
-                              f"{_memory.fmt(worker_peak)}, so up to "
-                              f"{_memory.fmt(worker_peak * cores)} across {cores} of them")
 
                     # <<< ATOMIC CHECKPOINT >>>
                     # Checkpoint after the very first block (cheap - the DB is tiny)

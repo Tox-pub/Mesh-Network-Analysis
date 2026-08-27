@@ -506,18 +506,7 @@ def populate_master_mesh_database(source_pmids_input, master_db_path: str, entre
         entrez_delay = resolved_delay
         _announce_rate(entrez_api_key)
 
-    if isinstance(source_pmids_input, (str, os.PathLike)) and os.path.exists(source_pmids_input):
-        try:
-            conn = sqlite3.connect(source_pmids_input)
-            cursor = conn.cursor()
-            cursor.execute("SELECT pmid FROM pmids_table")
-            source_pmids = {row[0] for row in cursor.fetchall()}
-            conn.close()
-        except sqlite3.Error as e:
-            raise RuntimeError(f"Database Error reading PMIDs: {e}")
-    elif isinstance(source_pmids_input, (list, set)):
-        source_pmids = set(source_pmids_input)
-    else:
+    if not (isinstance(source_pmids_input, (str, os.PathLike, list, set))):
         raise ValueError(f"Invalid input. Got {type(source_pmids_input)}. Expecting DB path or list of PMIDs.")
 
     os.makedirs(os.path.dirname(master_db_path), exist_ok=True)
@@ -529,64 +518,138 @@ def populate_master_mesh_database(source_pmids_input, master_db_path: str, entre
     # pmid lookups/joins are indexed even when the baseline ETL never ran.
     m_cursor.execute("CREATE TABLE IF NOT EXISTS master_mesh_annotations (pmid INTEGER PRIMARY KEY, pub_date TEXT, mesh_terms TEXT, source_file TEXT)")
 
-    m_cursor.execute("SELECT pmid FROM master_mesh_annotations")
-    master_pmids = {row[0] for row in m_cursor.fetchall()}
-
-    new_pmids_to_fetch = list(source_pmids - master_pmids)
-    if not new_pmids_to_fetch:
-        print("No new PMIDs from this analysis to add to the master database.")
-        master_conn.close()
-        return
-
-    empty_pmids, failed_pmids = [], []
-
-    for i in tqdm(range(0, len(new_pmids_to_fetch), fetch_batch_size), desc="Populating Master MeSH DB"):
-        _runcontrol.checkpoint("fetching MeSH annotations")
-        batch = new_pmids_to_fetch[i : i + fetch_batch_size]
-        if not batch:
-            continue
-
-        try:
-            epost_handle = Entrez.epost(db="pubmed", id=",".join(map(str, batch)))
-            results = Entrez.read(epost_handle)
-            epost_handle.close()
-            webenv, query_key = results["WebEnv"], results["QueryKey"]
-            efetch_handle = Entrez.efetch(db="pubmed", rettype="medline", retmode="text", webenv=webenv, query_key=query_key)
-            records = Medline.parse(efetch_handle)
-
-            all_batch_updates, processed_in_batch = [], set()
-
-            for record in records:
-                pmid_str = record.get("PMID")
-                if pmid_str:
-                    pmid_int = int(pmid_str)
-                    processed_in_batch.add(pmid_int)
-                    mesh_terms_list = record.get("MH", [])
-                    pub_date = _parse_medline_date(record)
-
-                    # UPDATED: Insert matches new 4-column format
-                    all_batch_updates.append((pmid_int, pub_date, ";".join(mesh_terms_list), "Entrez_API"))
-
-                    if not mesh_terms_list:
-                        empty_pmids.append(pmid_int)
-
-            missing_pmids = set(map(int, batch)) - processed_in_batch
-            for pmid in missing_pmids:
-                # UPDATED: Insert matches new 4-column format
-                all_batch_updates.append((pmid, "1900-01-01", "", "Entrez_API"))
-                failed_pmids.append(pmid)
-
-            if all_batch_updates:
-                m_cursor.executemany("INSERT OR IGNORE INTO master_mesh_annotations (pmid, pub_date, mesh_terms, source_file) VALUES (?, ?, ?, ?)", all_batch_updates)
+    # WHICH PMIDs STILL NEED FETCHING - worked out in SQLite, not in Python.
+    #
+    # This is the memory. The previous version read every PMID in the master
+    # database into a Python set:
+    #
+    #     m_cursor.execute("SELECT pmid FROM master_mesh_annotations")
+    #     master_pmids = {row[0] for row in m_cursor.fetchall()}
+    #
+    # After a first full build that table holds the whole PubMed baseline -
+    # tens of millions of rows. Measured at 116 bytes per PMID while the
+    # fetchall list and the set are both alive, and 108 bytes per PMID for the
+    # set alone: about 4 GB peak on a 37-million-row master database, and the
+    # set then stayed alive for the entire fetch loop, which is the part that
+    # runs for hours. Python does not return freed arenas of small objects to
+    # the operating system either, so it did not come back afterwards.
+    #
+    # Nothing here needed the PMIDs in Python. The work list is built by an
+    # anti-join into a temporary table, exactly as update_db_with_mesh_batch
+    # already does its lookup, and read back a batch at a time. Peak memory is
+    # now one batch - about ten thousand integers - whatever the size of the
+    # master database.
+    m_cursor.execute("PRAGMA temp_store = FILE")   # keep the work list off the heap
+    m_cursor.execute("CREATE TEMP TABLE pending_pmids (pmid INTEGER PRIMARY KEY)")
+    try:
+        if isinstance(source_pmids_input, (str, os.PathLike)) and os.path.exists(source_pmids_input):
+            try:
+                m_cursor.execute("ATTACH DATABASE ? AS src", (str(source_pmids_input),))
+                m_cursor.execute(
+                    "INSERT OR IGNORE INTO pending_pmids (pmid) "
+                    "SELECT s.pmid FROM src.pmids_table AS s "
+                    "WHERE NOT EXISTS (SELECT 1 FROM master_mesh_annotations AS m "
+                    "                  WHERE m.pmid = s.pmid)")
+                # The INSERT opened an implicit transaction and SQLite will not
+                # detach a database while one is open - it answers "database is
+                # locked", which reads like a permissions problem and is not.
                 master_conn.commit()
+                m_cursor.execute("DETACH DATABASE src")
+            except sqlite3.Error as e:
+                raise RuntimeError(f"Database Error reading PMIDs: {e}")
+        elif isinstance(source_pmids_input, (str, os.PathLike)):
+            raise RuntimeError(f"Database Error reading PMIDs: {source_pmids_input} does not exist")
+        else:
+            # An in-memory collection from the caller. Already theirs and
+            # already bounded, so it only has to be got into SQLite - in
+            # batches, so the parameter list never becomes the problem either.
+            pmids = list(source_pmids_input)
+            for start in range(0, len(pmids), 50_000):
+                m_cursor.executemany(
+                    "INSERT OR IGNORE INTO pending_pmids (pmid) VALUES (?)",
+                    ((int(p),) for p in pmids[start:start + 50_000]))
+            m_cursor.execute(
+                "DELETE FROM pending_pmids WHERE pmid IN "
+                "(SELECT pmid FROM master_mesh_annotations)")
+            del pmids
+        master_conn.commit()
 
-            time.sleep(entrez_delay)
+        total_pending = m_cursor.execute("SELECT COUNT(*) FROM pending_pmids").fetchone()[0]
+        if not total_pending:
+            print("No new PMIDs from this analysis to add to the master database.")
+            return
 
-        except Exception as e:
-            print(f"Error occurred during master DB population for batch starting with {batch[0]}: {e}")
-            failed_pmids.extend(map(int, batch))
+        empty_pmids, failed_pmids = [], []
 
-    master_conn.close()
+        # Paged by primary key rather than LIMIT/OFFSET, which re-walks the
+        # table from the start on every page. A separate cursor reads the
+        # pending list so the loop is never scanning a table it is inserting
+        # into.
+        read_cursor = master_conn.cursor()
+        last_pmid = -1
+        batches = (total_pending + fetch_batch_size - 1) // fetch_batch_size
+        for _ in tqdm(range(batches), desc="Populating Master MeSH DB"):
+            _runcontrol.checkpoint("fetching MeSH annotations")
+            batch = [row[0] for row in read_cursor.execute(
+                "SELECT pmid FROM pending_pmids WHERE pmid > ? ORDER BY pmid LIMIT ?",
+                (last_pmid, fetch_batch_size)).fetchall()]
+            if not batch:
+                break
+            last_pmid = batch[-1]
+
+            try:
+                epost_handle = Entrez.epost(db="pubmed", id=",".join(map(str, batch)))
+                results = Entrez.read(epost_handle)
+                epost_handle.close()
+                webenv, query_key = results["WebEnv"], results["QueryKey"]
+                efetch_handle = Entrez.efetch(db="pubmed", rettype="medline", retmode="text", webenv=webenv, query_key=query_key)
+                records = Medline.parse(efetch_handle)
+
+                all_batch_updates, processed_in_batch = [], set()
+
+                for record in records:
+                    pmid_str = record.get("PMID")
+                    if pmid_str:
+                        pmid_int = int(pmid_str)
+                        processed_in_batch.add(pmid_int)
+                        mesh_terms_list = record.get("MH", [])
+                        pub_date = _parse_medline_date(record)
+
+                        # UPDATED: Insert matches new 4-column format
+                        all_batch_updates.append((pmid_int, pub_date, ";".join(mesh_terms_list), "Entrez_API"))
+
+                        if not mesh_terms_list:
+                            empty_pmids.append(pmid_int)
+
+                missing_pmids = set(map(int, batch)) - processed_in_batch
+                for pmid in missing_pmids:
+                    # UPDATED: Insert matches new 4-column format
+                    all_batch_updates.append((pmid, "1900-01-01", "", "Entrez_API"))
+                    failed_pmids.append(pmid)
+
+                if all_batch_updates:
+                    m_cursor.executemany("INSERT OR IGNORE INTO master_mesh_annotations (pmid, pub_date, mesh_terms, source_file) VALUES (?, ?, ?, ?)", all_batch_updates)
+                    master_conn.commit()
+
+                # Released explicitly at the end of every batch rather than left
+                # to be replaced on the next pass. Two batches' worth of records
+                # were alive at once, for no reason.
+                del all_batch_updates, processed_in_batch, records
+
+                time.sleep(entrez_delay)
+
+            except Exception as e:
+                print(f"Error occurred during master DB population for batch starting with {batch[0]}: {e}")
+                failed_pmids.extend(map(int, batch))
+    finally:
+        # The temporary work list goes with the connection; dropping it first
+        # means the space is returned even if the caller keeps a reference to
+        # something unexpected.
+        try:
+            m_cursor.execute("DROP TABLE IF EXISTS pending_pmids")
+        except sqlite3.Error:
+            pass
+        master_conn.close()
 
     if failed_log and failed_pmids:
         try:
