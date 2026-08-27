@@ -14,14 +14,27 @@
 # the target is RUNNING them, which is the only reason these jobs are matrixed
 # onto real runners rather than all built in one place.
 #
-# Trigger: push a tag (v3.1.0), or run it by hand from the Actions tab.
+# Trigger: push a tag to BUILD AND TEST. Run it by hand with publish=true to
+# actually release.
 
 name: Release
 
+# A TAG DOES NOT PUBLISH. It builds all three packages and runs them on their
+# own systems, and leaves the results attached to the run for whoever wants to
+# download and try them. Creating a public Release is a separate, deliberate
+# act: run this workflow by hand from the Actions tab and set `publish` to
+# true. Tagging used to publish, which released 3.2.0 without anyone deciding
+# to - the build and the announcement are not the same thing and no longer
+# share a trigger.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Create a public GitHub Release from this build'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,10 +51,22 @@ jobs:
       - name: Assemble the application tree
         run: python packaging/build_portable_windows.py --out build --no-zip
 
-      - name: Install WiX
+      # Pinned, and matching what the .wxs is written against. Unpinned,
+      # `dotnet tool install wix` takes the newest major - v7 - which requires
+      # accepting the paid Open Source Maintenance Fee EULA and fails here.
+      # The tools directory also has to be put on PATH explicitly: the
+      # installer adds it for later sessions, not this one.
+      - name: Install WiX 5.0.2
+        shell: pwsh
         run: |
-          dotnet tool install --global wix
-          wix extension add --global WixToolset.UI.wixext
+          dotnet tool install --global wix --version 5.0.2
+          $tools = Join-Path $env:USERPROFILE '.dotnet' 'tools'
+          echo $tools | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$tools;$env:PATH"
+          wix --version
+          wix extension add --global WixToolset.UI.wixext/5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          wix extension list --global
 
       - name: Build the MSI
         run: python packaging/build_msi_windows.py --portable build/MeshWorkbench --out build
@@ -132,7 +157,8 @@ jobs:
   publish:
     needs: [windows, unix]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Only on a hand-run with the box ticked. Never on a tag.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
     steps:
       - uses: actions/download-artifact@v4
         with:
