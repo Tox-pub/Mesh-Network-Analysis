@@ -51,22 +51,32 @@ PY_SERIES = '3.12'
 # Each target names three things: the CPython triple published by
 # python-build-standalone, the pip platform tag its wheels are built for, and
 # what a human calls it.
+# wheel_tags are handed to pip ALL AT ONCE, not tried in turn - see
+# fetch_wheels. Each project picks its own minimum OS version, so a real
+# dependency set spans several tags and no single one describes it.
 TARGETS = {
     'linux': dict(
         triple='x86_64-unknown-linux-gnu',
-        wheel_tags=['manylinux_2_17_x86_64', 'manylinux2014_x86_64'],
+        wheel_tags=['manylinux_2_17_x86_64', 'manylinux2014_x86_64',
+                    'manylinux_2_28_x86_64', 'manylinux_2_5_x86_64',
+                    'manylinux1_x86_64'],
         label='linux-x86_64', pretty='Linux (Intel/AMD 64-bit)'),
     'linux-arm': dict(
         triple='aarch64-unknown-linux-gnu',
-        wheel_tags=['manylinux_2_17_aarch64', 'manylinux2014_aarch64'],
+        wheel_tags=['manylinux_2_17_aarch64', 'manylinux2014_aarch64',
+                    'manylinux_2_28_aarch64'],
         label='linux-arm64', pretty='Linux (ARM 64-bit)'),
     'macos-arm': dict(
         triple='aarch64-apple-darwin',
-        wheel_tags=['macosx_12_0_arm64', 'macosx_11_0_arm64'],
+        wheel_tags=['macosx_11_0_arm64', 'macosx_12_0_arm64',
+                    'macosx_13_0_arm64', 'macosx_14_0_arm64',
+                    'macosx_10_9_universal2', 'macosx_10_13_universal2'],
         label='macos-arm64', pretty='macOS (Apple silicon)'),
     'macos-intel': dict(
         triple='x86_64-apple-darwin',
-        wheel_tags=['macosx_12_0_x86_64', 'macosx_10_13_x86_64'],
+        wheel_tags=['macosx_10_13_x86_64', 'macosx_11_0_x86_64',
+                    'macosx_12_0_x86_64', 'macosx_13_0_x86_64',
+                    'macosx_10_9_universal2', 'macosx_10_13_universal2'],
         label='macos-x86_64', pretty='macOS (Intel)'),
 }
 
@@ -168,19 +178,23 @@ def fetch_wheels(tags, dest):
     base = [sys.executable, '-m', 'pip', 'download', '--quiet',
             '--only-binary=:all:', '--python-version', PY_SERIES, '--dest', dest]
 
-    # Several platform tags per target: a project that has dropped an older
-    # macOS deployment target still resolves under the newer one, and vice
-    # versa for a project that has not moved yet.
-    last = None
-    for tag in tags:
-        cmd = base + ['--platform', tag] + wheeled
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode == 0:
-            print(f'  wheels: {len(os.listdir(dest))} for {tag}')
-            break
-        last = proc.stderr.strip().splitlines()[-1:] or ['(no output)']
-    else:
-        sys.exit('could not resolve wheels for any of %s:\n  %s' % (tags, last[0]))
+    # Every tag in ONE call. pip accepts --platform repeatedly and takes a
+    # wheel matching any of them, which is the only way to satisfy a set whose
+    # members target different minimum OS versions - and they do: the macOS
+    # wheels here span macosx_10_13_universal2, macosx_11_0_arm64 and
+    # macosx_12_0_arm64 at once. Trying the tags in turn asks each one to
+    # satisfy every package alone, which no single tag can, and it failed on
+    # the runner while passing on the developer's older, laxer pip.
+    cmd = base + [arg for tag in tags for arg in ('--platform', tag)] + wheeled
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Say what pip said. Exiting with only a summary is what made this
+        # fail invisibly in CI, with nothing in the log to act on.
+        tail = lambda text: '\n'.join('    ' + line
+                                      for line in text.strip().splitlines()[-15:])
+        sys.exit('could not resolve wheels for: %s\n\n  pip said:\n%s\n%s'
+                 % (', '.join(tags), tail(proc.stdout), tail(proc.stderr)))
+    print(f'  wheels: {len(os.listdir(dest))} across {len(tags)} platform tags')
 
     # The pure-Python stragglers, which have no platform to speak of.
     if pure:
