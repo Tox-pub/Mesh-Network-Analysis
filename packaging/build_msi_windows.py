@@ -50,6 +50,38 @@ def find_wix(explicit=None):
         '(.NET SDK is required: https://dotnet.microsoft.com/download)')
 
 
+WIX_SERIES = '5'          # windows_msi.wxs is written against the v4 schema,
+                          # which WiX 5 speaks. See check_wix_version.
+
+
+def check_wix_version(wix, env):
+    """Refuse a WiX that will not build this .wxs, and say which one is needed.
+
+    `dotnet tool install --global wix` with no version takes the newest major.
+    That is 7, which requires accepting the paid Open Source Maintenance Fee
+    EULA - so on a clean machine the install itself fails, and the error talks
+    about a licence rather than about a version. It cost a CI run to work out.
+
+    Pinning is done at the install site; this checks the pin held, because a
+    build that silently used the wrong toolset would fail later and further
+    from the cause.
+    """
+    proc = subprocess.run([wix, '--version'], capture_output=True, text=True, env=env)
+    version = (proc.stdout or proc.stderr).strip().split('+')[0]
+    if proc.returncode != 0 or not version:
+        return None
+    if not version.startswith(WIX_SERIES + '.'):
+        sys.exit(
+            f'\n  [!] WiX {version} is installed; this project needs {WIX_SERIES}.x.\n'
+            f'      windows_msi.wxs uses the v4 schema, which WiX {WIX_SERIES} speaks.\n'
+            f'      WiX 6 and 7 also require accepting a paid licence agreement.\n\n'
+            f'      Install the right one:\n'
+            f'          dotnet tool install --global wix --version 5.0.2\n'
+            f'          wix extension add --global WixToolset.UI.wixext/5.0.2\n'
+            f'          wix extension add --global WixToolset.Util.wixext/5.0.2\n')
+    return version
+
+
 def dotnet_env():
     """An environment in which wix.exe can find the .NET runtime.
 
@@ -205,6 +237,10 @@ def main():
     msi = os.path.join(out_dir, 'MeSH-Workbench-3.2.0-win64.msi')
 
     print(f'Building MSI\n  portable : {portable}\n  compiler : {wix}')
+    env = dotnet_env()
+    ver = check_wix_version(wix, env)
+    if ver:
+        print(f'  wix      : {ver}')
     # -b puts packaging/ on the bind path so license.rtf resolves regardless of
     # the working directory the build was started from.
     cmd = [wix, 'build', WXS,
@@ -214,7 +250,7 @@ def main():
            '-arch', 'x64',
            '-b', HERE,
            '-o', msi]
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=dotnet_env())
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if proc.returncode != 0:
         sys.stdout.write(proc.stdout[-4000:])
         sys.stderr.write(proc.stderr[-2000:])
