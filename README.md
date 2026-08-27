@@ -21,7 +21,11 @@ A desktop application for Windows, and a command-line pipeline for any platform.
 
 **Each one carries its own Python.** Nothing needs installing first - no system
 Python, no `python3-tk`, no administrator rights, nothing written outside your
-own profile. Delete the folder to uninstall.
+own profile. To remove it, use the uninstaller — Tools → Uninstall in the
+window, `Uninstall.bat` on Windows, `./mesh-uninstall` on Linux and macOS.
+Deleting the folder leaves the databases and settings behind, which is
+deliberate: they are written outside it so that upgrading does not cost you a
+52 GB download.
 
 On Windows the only program that ever executes is `python.exe`, signed by the
 Python Software Foundation, and the installer is run by `msiexec.exe`, which is

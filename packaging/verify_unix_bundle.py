@@ -140,6 +140,15 @@ def verify(path):
                   'setuptools is bundled, so the source-only dependency can build',
                   'without it the first run fails offline')
 
+        # ------------------------------------------------ nothing personal
+        print('\n-- nothing of the developer in the download')
+        leaked = [n for n in names
+                  if posixpath.basename(n).startswith(('mesh_config.json', '.env'))]
+        check(not leaked, 'no settings file is shipped',
+              'found: ' + ', '.join(leaked[:3]))
+        check(get('app/LICENSE') is not None or get('LICENSE') is not None,
+              'the licence travels with the program')
+
         # ------------------------------------------------- reference corpus
         print('\n-- bundled reference data')
         check(get('reference_processed/DAC_Mesh_final_network_with_relevance.json') is not None,

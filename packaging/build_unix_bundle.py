@@ -439,10 +439,20 @@ def build(target, out_dir, stripped=True):
     # The application source, installed at first run from this directory.
     app = os.path.join(staging, 'app')
     os.makedirs(app, exist_ok=True)
-    skip = shutil.ignore_patterns('__pycache__', '*.pyc', '.ipynb_checkpoints')
+    # mesh_config.json is a developer's own settings file - it is gitignored
+    # for that reason, and one was being copied into the bundle carrying this
+    # project's search term. Empty this time; a configured tree would have
+    # shipped its NCBI e-mail and API key to everyone who downloaded it.
+    skip = shutil.ignore_patterns('__pycache__', '*.pyc', '.ipynb_checkpoints',
+                                  'mesh_config.json', 'mesh_config.json.bak*',
+                                  '.env', '*.pyo')
     shutil.copytree(os.path.join(REPO, 'src'), os.path.join(app, 'src'),
                     dirs_exist_ok=True, ignore=skip)
-    for f in ('pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
+
+    # Our own licence travels with the program. Redistributing CPython, Tcl/Tk
+    # and forty compiled wheels without stating what any of it is licensed
+    # under is not a defensible thing to publish.
+    for f in ('LICENSE', 'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
         src = os.path.join(REPO, f)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(app, f))

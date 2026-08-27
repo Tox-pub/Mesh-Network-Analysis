@@ -252,7 +252,7 @@ def copy_app(repo, dst):
     # They go one level above app/, beside the launchers, where a user browsing
     # the folder will also find them.
     docs_dst = os.path.dirname(dst)
-    for name in ('HELP.md', 'INSTALL.md', 'README.md'):
+    for name in ('LICENSE', 'HELP.md', 'INSTALL.md', 'README.md'):
         src_doc = os.path.join(repo, name)
         if os.path.exists(src_doc):
             shutil.copy2(src_doc, os.path.join(docs_dst, name))
@@ -422,6 +422,26 @@ def main():
 
     total = tree_size(out)
     print(f'\n  folder: {out}\n  size  : {total:,.0f} MB')
+
+    # A tree that has been launched writes mesh_config.json into itself - it is
+    # a portable copy, so that is where its settings live. Zipping the tree
+    # afterwards puts that file in the download. It was empty this time; a tree
+    # the developer had configured would have carried their NCBI e-mail and API
+    # key to every person who extracted it. The installers already purge this;
+    # the zip did not.
+    strays = 0
+    for name in ('mesh_config.json', '.installed', 'mesh_config.json.bak'):
+        p = os.path.join(out, name)
+        if os.path.isfile(long(p)):
+            os.remove(long(p))
+            strays += 1
+    for name in ('data', 'results'):
+        p = os.path.join(out, name)
+        if os.path.isdir(long(p)):
+            shutil.rmtree(long(p), ignore_errors=True)
+            strays += 1
+    if strays:
+        print(f'  purged {strays} file(s) a previous run left in the tree')
 
     if not a.no_zip:
         zpath = os.path.join(a.out, f'{NAME}-{VERSION}-win64-portable.zip')
