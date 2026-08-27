@@ -92,7 +92,17 @@ def version():
 
 
 def dependencies():
-    """The runtime dependencies, from pyproject, without their version pins.
+    """The runtime dependencies from pyproject, WITH their version pins.
+
+    The pins were being stripped, so pip took whatever was newest on PyPI on
+    the day of the build. That is how a build that worked on Monday failed on
+    Tuesday with no change to this file: some project published a release, and
+    whether it carried a wheel for this platform was nobody's decision.
+
+    pyproject already states the tested ranges. Honouring them makes the bundle
+    contain the versions the results were produced with, and makes two builds a
+    week apart agree - which is the same guarantee the Windows build gets by
+    copying out of a working virtual environment.
 
     python-louvain is separated out: it publishes no wheel, only an sdist, and
     pip refuses to mix --platform with a source download. It is pure Python, so
@@ -107,10 +117,16 @@ def dependencies():
             if inside:
                 if line.strip().startswith(']'):
                     break
-                name = line.strip().strip('",').split('>')[0].split('<')[0].split('=')[0]
-                if name:
-                    deps.append(name)
-    pure = [d for d in deps if d.lower() in ('python-louvain',)]
+                spec = line.strip().rstrip(',').strip('"').strip("'").strip()
+                if spec and not spec.startswith('#'):
+                    deps.append(spec)
+
+    def name_of(spec):
+        for sep in ('>', '<', '=', '!', '~', '['):
+            spec = spec.split(sep)[0]
+        return spec.strip().lower()
+
+    pure = [d for d in deps if name_of(d) == 'python-louvain']
     return [d for d in deps if d not in pure], pure
 
 

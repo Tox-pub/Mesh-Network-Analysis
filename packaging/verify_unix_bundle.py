@@ -124,10 +124,16 @@ def verify(path):
         print('\n-- offline install')
         reqs = tf.extractfile(get('requirements.txt')).read().decode().split()
         norm = lambda s: re.sub(r'[-_.]+', '-', s).lower()
+        # requirements.txt carries version specifiers now - "numpy>=1.26,<2.6" -
+        # so the project name has to be separated from them before it can be
+        # matched against a wheel filename.
+        bare = lambda spec: norm(re.split(r'[<>=!~\[;]', spec, 1)[0].strip())
         have = {norm(w.split('-')[0]) for w in wheels} | {norm(s.rsplit('-', 1)[0]) for s in sdists}
-        missing = [r for r in reqs if norm(r) not in have]
+        missing = [r for r in reqs if bare(r) not in have]
         check(not missing, f'all {len(reqs)} requirements are in wheels/',
               'missing: ' + ', '.join(missing))
+        check(any(re.search(r'[<>=]', r) for r in reqs),
+              'the requirements are pinned, not "whatever is newest today"')
 
         if sdists:
             check(any(norm(w.split('-')[0]) == 'setuptools' for w in wheels),
