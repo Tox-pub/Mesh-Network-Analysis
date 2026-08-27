@@ -1010,6 +1010,20 @@ class Workbench(tk.Tk):
         grid.pack(fill='x', padx=10, pady=10)
         grid.columnconfigure(1, weight=1)
         for r, f in enumerate(fields):
+            # A heading is a divider, not a setting: no variable, nothing saved,
+            # nothing read. It exists so the two folders that matter are not
+            # presented as equals with three overrides nobody should touch.
+            if f.kind == 'heading':
+                tk.Frame(grid, bg='#808080', height=1).grid(
+                    row=r, column=0, columnspan=3, sticky='we', pady=(12, 4))
+                tk.Label(grid, text=f.label, bg=FACE, font=self.f_bold, anchor='w'
+                         ).grid(row=r, column=0, columnspan=3, sticky='w', pady=(14, 0))
+                if f.what:
+                    tk.Label(grid, text=f.what, bg=FACE, fg=DIM, anchor='w',
+                             justify='left', wraplength=700
+                             ).grid(row=r, column=0, columnspan=3, sticky='w',
+                                    pady=(30, 2))
+                continue
             cur = schema.get(self.cfg, f.key, f.default)
             # An empty folder field means "work it out from the defaults", which
             # is correct behaviour and useless to look at: the user cannot see

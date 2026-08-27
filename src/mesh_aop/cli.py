@@ -840,6 +840,21 @@ def main():
 
             bench_params = config.params.get('benchmark', {})
 
+            # The naive-query baseline needs one MeSH heading. It used to be
+            # defaulted to this project's outcome, which meant every other
+            # corpus was quietly benchmarked against a heading it might not
+            # even contain. Empty is now the default, so: reference mode
+            # supplies the reference heading, and an own-data run without one
+            # says so and goes on without the baseline rather than inventing it.
+            primary_node = (bench_params.get('primary_node') or '').strip()
+            if not primary_node and config.get('control_flags', 'use_reference_data'):
+                primary_node = 'Dermatitis, Allergic Contact'
+            if not primary_node:
+                print("\n  [!] No primary node set, so the naive-query baseline is")
+                print("      skipped. Everything else in the benchmark still runs.")
+                print("      Set Benchmark -> Primary node to the MeSH heading that")
+                print("      names your outcome to enable it.")
+
             # The bundled ground truth describes the reference corpus, so scoring
             # against it only means something when that corpus is in play. Default
             # the analysis on with reference data and off without it; an explicit
@@ -938,8 +953,7 @@ def main():
                             ground_truth_file=gt_path,
                             output_dir=str(bench_dir / 'validation'),
                             project_prefix=f"{config.prefix}_",
-                            primary_query_term=bench_params.get(
-                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            primary_query_term=primary_node,
                             n_boot=bench_params.get('validation_report_n_boot', 2000),
                             random_seed=config.get('analysis_parameters', 'random_seed') or 42,
                             start_date=config.get('analysis_parameters', 'context_start_date'),
@@ -964,8 +978,7 @@ def main():
                             ground_truth_file=gt_path,
                             output_dir=str(bench_dir / 'validation'),
                             project_prefix=f"{config.prefix}_",
-                            primary_query_term=bench_params.get(
-                                'primary_node', 'Dermatitis, Allergic Contact'),
+                            primary_query_term=primary_node,
                             n_boot=bench_params.get(
                                 'projection_comparison_n_boot',
                                 bench_params.get('validation_report_n_boot', 2000)),
@@ -985,7 +998,7 @@ def main():
                     relevance_db_path=str(config.files['relevance_db']),
                     output_dir=str(bench_dir),
                     file_prefix=f"{config.prefix}_benchmark",
-                    primary_node=bench_params.get('primary_node', 'Dermatitis, Allergic Contact'),
+                    primary_node=primary_node,
                     negative_control_csv=nc_path,
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42,
                     n_boot=bench_params.get('n_boot', 25),

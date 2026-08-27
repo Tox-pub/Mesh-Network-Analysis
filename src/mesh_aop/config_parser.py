@@ -133,7 +133,10 @@ class MeshConfig:
                 # so a user's own file is never silently shadowed.
                 "ground_truth_csv": "",
                 "negative_control_csv": "",
-                "primary_node": "Dermatitis, Allergic Contact",
+                # Empty: this is the user's outcome heading, not this
+                # project's. Shipping one silently benchmarked every
+                # corpus against a heading it may not even contain.
+                "primary_node": "",
                 "n_boot": 25,
                 "n_perm": 25,
                 "run_network_validation": True,

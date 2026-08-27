@@ -43,8 +43,11 @@ TABS = [
           '[Mesh] to search the indexed heading rather than free text.',
           'The bundled reference corpus was built with '
           '"Dermatitis, Allergic Contact [Mesh]" over 1950/01/01 to 2025/01/01. '
-          'Enter that to reproduce it. Changing this later invalidates every '
-          'downstream result.'),
+          'Enter that to reproduce it. This field, the dates and the generation '
+          'count together define one corpus: change any of them and the run '
+          'produces a different, self-consistent set of results rather than a '
+          'wrong one. Give it its own project prefix and both sets survive '
+          'side by side.'),
         F('search_parameters.start_date', 'Start date', 'text', '1950/01/01',
           'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
           'Default: 1950/01/01. Leave it empty to search every date PubMed has.',
@@ -60,10 +63,14 @@ TABS = [
           'field.'),
         F('search_parameters.generations_n', 'Citation generations', 'int', 1,
           'How many citation hops to expand from the query result set.',
-          'Default: 1. 0 = query only; 1 = adds cited and citing articles; '
-          '2 = adds a second hop.',
-          'Each generation multiplies retrieval time and disk use. Generation 2 '
-          'took this project from 146k to 7.9M articles.'),
+          'Default: 1. 0 = the query result only; 1 = adds the articles it '
+          'cites and those citing it; 2 = adds a second hop outward.',
+          'Each hop multiplies retrieval time and disk use, and the growth is '
+          'steep - as an example, moving from generation 1 to generation 2 took '
+          'one project from about 146,000 articles to 7.9 million. Choose this '
+          'deliberately: for most projects generation 0 or 1 is the appropriate '
+          'choice, and 2 is worth it only when the question genuinely needs the '
+          'wider literature.'),
         F('search_parameters.update_mesh_support_files', 'Force-refresh MeSH support files',
           'bool', False,
           'Rebuild the MeSH descriptor and stop-word support files instead of '
@@ -76,43 +83,65 @@ TABS = [
           'Default: DAC_Mesh.'),
     ]),
     ('Folders', [
-        F('directories.results_dir', 'Results folder', 'text', '',
-          'Where your outputs go - figures, workbooks, reports.',
-          'Default: empty, meaning Documents\\MeSH Workbench for an installed '
-          'copy, or the program folder for a portable one.',
-          'Kept separate from the databases on purpose: two people sharing one '
-          'installed copy each get their own results instead of overwriting one '
-          'another.'),
+        # Two settings decide everything. The three after them are overrides
+        # that predate the two - they are in the original upload, while
+        # data_dir arrived later - and are normally left blank. Presenting all
+        # five as equals made it look as though results lived inside output.
         F('directories.data_dir', 'Data folder', 'text', '',
-          'Where downloaded archives and the databases built from them are kept. '
-          'This is the setting that decides which drive holds roughly 52 GB.',
-          'Default: empty, meaning a private folder under your user profile for '
-          'an installed copy, or the program folder for a portable one.',
-          'Choose this before downloading anything. Moving ~52 GB afterwards is '
-          'far slower than picking the right drive now.'),
-        F('directories.output_dir', 'Output folder', 'text', '',
-          'Where every result is written - workbooks, figures, reports, logs.',
-          'Default: empty, meaning the project\'s own results folder.',
-          'Point this somewhere else before a trial run. A step re-run with the '
-          'default writes over the existing results, and the outputs a manuscript '
-          'was written from are not recoverable from the pipeline alone.'),
-        F('directories.input_dir', 'Input folder', 'text', '',
-          'Where source data is read from - and written to. This is the setting '
-          'that decides which drive holds the PubMed baseline archive (about '
-          '44 GB) and the master annotation database built from it (about 8 GB).',
-          'Default: empty, meaning the project\'s own data folder, beside the '
-          'program.',
-          'Set this before downloading, not after: it is the largest storage '
-          'decision here, and moving ~52 GB afterwards is slower than choosing '
-          'correctly first. Changing it once the databases exist, without moving '
-          'them too, makes the run fail at the first step that needs them.'),
-        F('directories.etl_workspace_dir', 'Database build workspace', 'text', '',
-          'Scratch space used while the master database is being compiled.',
+          'Everything downloaded and everything built from it. Two subfolders '
+          'are created inside: raw (the PubMed archives and the master '
+          'annotation database) and processed (networks and score databases).',
+          'Default: empty, meaning a private folder under your user profile. '
+          'ABOUT 52 GB ENDS UP HERE - roughly 44 GB of downloaded archive and '
+          'an 8 GB database built from it.',
+          'Choose this before downloading anything, and choose a drive with '
+          '60 GB free. The archive can be deleted afterwards from the Data '
+          'setup screen, which gets most of it back, but moving ~52 GB later '
+          'is far slower than picking the right drive now.'),
+        F('directories.results_dir', 'Results folder', 'text', '',
+          'Your own outputs: figures, workbooks, the run ledger and the PRISMA '
+          'report. A figures subfolder is created inside it.',
+          'Default: empty, meaning Documents\\MeSH Workbench for an installed '
+          'copy, or the program folder for a portable one. Small - megabytes, '
+          'not gigabytes.',
+          'Deliberately not inside the data folder: results are your work and '
+          'the data folder is a cache that can be deleted and rebuilt. Two '
+          'people sharing one installed copy also get their own results here '
+          'instead of overwriting each other.'),
+
+        F('_heading.advanced', 'Advanced - normally left blank', 'heading', '',
+          'The three settings below override parts of the two above. Leave them '
+          'empty unless you have a specific reason, such as splitting the '
+          'downloads and the working files across two drives.', '', ''),
+
+        F('directories.input_dir', 'Override: raw data folder', 'text', '',
+          'Replaces the raw subfolder of the Data folder - where the PubMed '
+          'archive and the master annotation database are kept.',
+          'Default: empty, meaning <Data folder>\\raw. Leave it that way unless '
+          'the archive has to live on a different drive from everything else.',
+          'This is an override, not an extra folder: setting it PINS the raw '
+          'location, so later changing the Data folder will not move it. If the '
+          'databases already exist, moving them by hand is your job - the run '
+          'fails at the first step that needs them.'),
+        F('directories.output_dir', 'Override: working files folder', 'text', '',
+          'Replaces the processed subfolder of the Data folder - the networks '
+          'and score databases the pipeline builds.',
+          'Default: empty, meaning <Data folder>\\processed.',
+          'A second, older behaviour to know about: if the Results folder above '
+          'is blank, results are written here too. That is why this setting can '
+          'look as though results live inside it. Set the Results folder '
+          'explicitly and the two stay separate.'),
+        F('directories.etl_workspace_dir', 'Override: database build workspace',
+          'text', '',
+          'Scratch space used while the master annotation database is compiled.',
           'Default: empty, meaning the system temp folder.',
-          'The workspace holds a full working copy of the master database - '
-          'several GB - and the system temp folder is on the system drive. If C: '
-          'is small, point this at a roomier disk or the build can run it out of '
-          'space partway through.'),
+          'The workspace holds a full working copy of the database - several GB '
+          '- and the system temp folder is on the system drive. If C: is short '
+          'of space, point this at a roomier disk or the build can run out '
+          'partway through, hours in.'),
+
+        F('_heading.behaviour', 'Run behaviour', 'heading', '', '', '', ''),
+
         F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', False,
           'Stop after the network is built so biological strata can be assigned '
           'by hand before the figures are drawn.', 'Default: off.',
@@ -269,10 +298,15 @@ TABS = [
           'AOP-40 set of 96 PMIDs for the allergic contact dermatitis query.',
           'Supply your own as .xlsx or .csv with a PMID column. Articles carrying '
           'no network term are unreachable by every method and cap achievable recall.'),
-        F('benchmark.primary_node', 'Primary node', 'text', 'Dermatitis, Allergic Contact',
-          'MeSH heading used for the naive-query baseline.',
-          'Default: the search term primary heading.',
-          'Must exist in the final network or the baseline is skipped.'),
+        F('benchmark.primary_node', 'Primary node', 'text', '',
+          'A single MeSH heading, used as the naive-query baseline the ranking '
+          'is measured against.',
+          'Default: empty. Enter the one heading that best names your outcome - '
+          'for example "Dermatitis, Allergic Contact", which is a self-contained '
+          'MeSH heading and the one the bundled reference corpus uses.',
+          'It must be a real MeSH heading, spelled as MeSH spells it, and it '
+          'must appear in your final network - otherwise the baseline is '
+          'skipped and the benchmark reports without it.'),
         F('benchmark.validation_report_n_boot', 'Bootstrap replicates', 'int', 2000,
           'Resamples used for confidence intervals.', 'Default: 2000.',
           'Sets the resolution of empirical p-values - B = 2000 cannot report '
@@ -337,6 +371,10 @@ TABS = [
 # the moment a tab is inserted before this one.
 WEIGHT_KEYS = [f.key for _, fields in TABS for f in fields
                if f.key.startswith('network_parameters.node_weight_factors')]
+
+# Real settings only. A heading carries no key into the config file, and code
+# that walks the schema to save, validate or audit must skip it.
+SETTINGS = [(tab, f) for tab, fields in TABS for f in fields if f.kind != 'heading']
 
 
 # Standing explanations pinned to the foot of a tab, for things that are true of
