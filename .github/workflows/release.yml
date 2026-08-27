@@ -100,8 +100,26 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Tee'd to a file so a failure can be republished into the job summary
+      # below. Actions logs need an authenticated token even on a public repo,
+      # which meant two rounds of guessing at a macOS failure nobody could read.
+      # The job summary is part of the run page and needs no credentials.
       - name: Build the bundle
-        run: python packaging/build_unix_bundle.py --target ${{ matrix.target }} --out build
+        run: |
+          set -o pipefail
+          python packaging/build_unix_bundle.py \
+              --target ${{ matrix.target }} --out build 2>&1 | tee build.log
+
+      - name: Publish the build log if it failed
+        if: failure()
+        run: |
+          {
+            echo "## ${{ matrix.label }} - build failed"
+            echo
+            echo '```'
+            tail -80 build.log 2>/dev/null || echo "(no build.log was produced)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Everything that can be established without running it: permissions,
       # wheel/interpreter match, offline completeness, line endings.

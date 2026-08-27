@@ -171,6 +171,40 @@ def fetch_python(triple, dest, stripped=True):
     return root
 
 
+def _run_pip(cmd, what):
+    """Run pip and, if it fails, print what it said before giving up.
+
+    check=True raises CalledProcessError, whose message is the exit code and
+    nothing else - and with --quiet the output was thrown away too. That
+    combination is why a macOS build failure arrived in CI as a bare
+    "Process completed with exit code 1", with nothing to act on.
+    """
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode == 0:
+        return proc
+    tail = lambda text: '\n'.join('    ' + line
+                                  for line in text.strip().splitlines()[-20:])
+    sys.exit('could not download %s\n\n  command:\n    %s\n\n  pip said:\n%s\n%s'
+             % (what, ' '.join(cmd), tail(proc.stdout), tail(proc.stderr)))
+
+
+def describe_host():
+    """What this build is running on.
+
+    First thing in the log, because the failure that cost two CI rounds
+    differed from a working build only by the pip version.
+    """
+    import platform
+    try:
+        pip_v = subprocess.run([sys.executable, '-m', 'pip', '--version'],
+                               capture_output=True, text=True).stdout.strip()
+    except Exception:
+        pip_v = '(pip not reachable)'
+    print(f'  host     : {platform.system()} {platform.machine()}')
+    print(f'  python   : {sys.version.split()[0]}')
+    print(f'  {pip_v}')
+
+
 def fetch_wheels(tags, dest):
     """Download every dependency as a wheel built for the target platform."""
     os.makedirs(dest, exist_ok=True)
@@ -198,17 +232,18 @@ def fetch_wheels(tags, dest):
 
     # The pure-Python stragglers, which have no platform to speak of.
     if pure:
-        subprocess.run([sys.executable, '-m', 'pip', 'download', '--quiet',
-                        '--no-deps', '--dest', dest] + pure, check=True)
+        _run_pip([sys.executable, '-m', 'pip', 'download', '--no-deps',
+                  '--dest', dest] + pure,
+                 'the source-only dependencies (%s)' % ', '.join(pure))
         print(f'  wheels: + {len(pure)} pure-Python source distribution(s)')
 
         # An sdist has to be BUILT, and the standalone interpreter ships pip
         # but not setuptools - Python 3.12 dropped it from the default install.
         # Without these the first run fails offline with "No module named
         # setuptools", or silently reaches for PyPI and defeats the point.
-        subprocess.run([sys.executable, '-m', 'pip', 'download', '--quiet',
-                        '--no-deps', '--dest', dest, 'setuptools', 'wheel'],
-                       check=True)
+        _run_pip([sys.executable, '-m', 'pip', 'download', '--no-deps',
+                  '--dest', dest, 'setuptools', 'wheel'],
+                 'setuptools and wheel')
         print('  wheels: + setuptools and wheel, to build that sdist offline')
     return dest
 
@@ -467,6 +502,7 @@ def main():
     a = ap.parse_args()
 
     os.makedirs(a.out, exist_ok=True)
+    describe_host()
     targets = sorted(TARGETS) if a.all else [a.target]
     if a.repack:
         made = [repack(t, a.out) for t in targets]
