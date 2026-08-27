@@ -49,6 +49,14 @@ HELP_H = 150
 
 
 class Workbench(tk.Tk):
+    # Folder fields worth showing a resolved path in rather than a blank. These
+    # are the two the first-run dialog asks about, and the two that decide where
+    # tens of gigabytes land - so leaving them empty hides the one fact the user
+    # most needs. input_dir, output_dir and the ETL workspace are deliberately
+    # NOT here: they are overrides, and filling one in pins it, so a later change
+    # to the data folder would silently fail to move anything.
+    _PREFILL_DIRS = {}
+
     def __init__(self, repo_dir, python_exe):
         super().__init__()
         self.repo_dir = repo_dir
@@ -58,6 +66,10 @@ class Workbench(tk.Tk):
         # shared and often read-only. paths.py decides, and the CLI asks it too.
         from mesh_aop import paths as _paths
         self.paths = _paths
+        self._PREFILL_DIRS = {
+            'directories.results_dir': _paths.default_user_results_dir,
+            'directories.data_dir': _paths.default_user_data_dir,
+        }
         self.cfg_path = str(_paths.config_path(repo_dir))
         self.cfg = self._load_cfg()
         self.vars = {}
@@ -182,6 +194,7 @@ class Workbench(tk.Tk):
             messagebox.showerror('Configuration', f'Could not write:\n\n{exc}')
             return False
         self.status.config(text='Saved to mesh_config.json')
+        self._refresh_effective_paths()
         return True
 
     def _field(self, key):
@@ -408,20 +421,45 @@ class Workbench(tk.Tk):
         act = tk.Frame(win, bg=FACE)
         act.pack(fill='x', padx=12, pady=(4, 12))
 
-        def accept():
-            for key, var in chosen.items():
-                value = var.get().strip()
-                if value:
-                    schema.put(self.cfg, key, value)
+        def apply(values):
+            """Record the choice everywhere it has to appear, and make it real.
+
+            Writing only to self.cfg was a silent data loss: the Folders tab is
+            bound to self.vars, and save_cfg writes every var back into the
+            config - so the empty field overwrote the chosen path with "" the
+            first time the user pressed Run. The answer has to land in the
+            form as well, or it does not survive.
+            """
+            for key, value in values.items():
+                value = str(value).strip()
+                if not value:
+                    continue
+                value = os.path.abspath(os.path.expanduser(value))
+                if not self._ensure_writable(value):
+                    return False
+                schema.put(self.cfg, key, value)
+                if key in self.vars:
+                    self.vars[key].set(value)
             # Writing now means the dialog does not reappear, and the rest of
             # the application can assume a settings file exists.
             self.save_cfg()
-            win.destroy()
+            self._refresh_effective_paths()
+            return True
+
+        def accept():
+            if apply({k: v.get() for k, v in chosen.items()}):
+                win.destroy()
+
+        def use_defaults():
+            # The resolved paths, not blanks: the point of showing them is that
+            # the user can see afterwards where their files went.
+            if apply({key: default for _, _, key, default in rows}):
+                win.destroy()
 
         tk.Button(act, text='Continue', width=14, font=self.f_bold, command=accept
                   ).pack(side='right')
         tk.Button(act, text='Use defaults', width=14,
-                  command=lambda: (self.save_cfg(), win.destroy())).pack(side='right', padx=6)
+                  command=use_defaults).pack(side='right', padx=6)
 
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
@@ -430,6 +468,65 @@ class Workbench(tk.Tk):
         win.grab_set()
         self.wait_window(win)
         self.scan_data()
+
+    def _ensure_writable(self, path):
+        """Create a folder the user named, and prove it can be written to.
+
+        The pipeline creates its folders anyway - mkdir(parents=True) - but not
+        until a run starts, so a path on a drive that is missing, full or
+        read-only was accepted here in silence and failed an hour later inside
+        a step that had nothing to do with it. Creating it now turns that into
+        a sentence, while the user is still looking at the field they typed.
+        """
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, '.mesh_write_test')
+            with open(probe, 'w', encoding='utf-8') as fh:
+                fh.write('')
+            os.remove(probe)
+            return True
+        except OSError as exc:
+            messagebox.showerror(
+                'That folder cannot be used',
+                f'{path}\n\n{exc}\n\n'
+                'The folder was created if it did not exist, but it could not '
+                'be written to. Check the drive is present and that you have '
+                'permission, or choose somewhere else.')
+            return False
+
+    def _effective_paths(self):
+        """Where things will actually be written, with every default resolved.
+
+        Read from MeshConfig rather than reconstructed, so this cannot drift
+        from what the pipeline does.
+        """
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            cfg = MeshConfig(config_path=self.cfg_path)
+            return [
+                ('Downloaded archives and databases', str(cfg.active_raw_dir)),
+                ('Working files (networks, scores)', str(cfg.active_source_dir)),
+                ('Results', str(cfg.results_dir)),
+                ('Figures', str(cfg.figures_dir)),
+                ('Logs', str(cfg.log_dir)),
+                ('Settings file', self.cfg_path),
+            ]
+        except Exception as exc:
+            return [('(could not be resolved)', str(exc))]
+
+    def _refresh_effective_paths(self):
+        """Update the read-only summary at the foot of the Folders tab."""
+        box = getattr(self, 'eff_text', None)
+        if box is None:
+            return
+        try:
+            box.config(state='normal')
+            box.delete('1.0', 'end')
+            for label, path in self._effective_paths():
+                box.insert('end', f'{label:<36}{path}\n')
+            box.config(state='disabled')
+        except Exception:
+            pass
 
     def _browse_dir(self, var):
         d = filedialog.askdirectory(initialdir=var.get() or os.path.expanduser('~'))
@@ -906,6 +1003,7 @@ class Workbench(tk.Tk):
         self.status.pack(side='left', fill='x', expand=True, padx=(8, 0), ipady=2)
         self._tab(schema.TABS[0][0])
         self._step_changed()
+        self._refresh_effective_paths()
 
     def _build_fields(self, pane, fields, tab_name=None):
         grid = tk.Frame(pane, bg=FACE)
@@ -913,6 +1011,17 @@ class Workbench(tk.Tk):
         grid.columnconfigure(1, weight=1)
         for r, f in enumerate(fields):
             cur = schema.get(self.cfg, f.key, f.default)
+            # An empty folder field means "work it out from the defaults", which
+            # is correct behaviour and useless to look at: the user cannot see
+            # where their files are going. Show the resolved path instead, for
+            # the two locations the first-run dialog asks about.
+            #
+            # Not for a portable copy: there the defaults are relative to the
+            # program folder, and writing an absolute path in would break the
+            # copy the moment it was moved to another machine or a USB stick.
+            if (f.key in self._PREFILL_DIRS and not str(cur or '').strip()
+                    and not self.paths.is_portable(self.repo_dir)):
+                cur = str(self._PREFILL_DIRS[f.key](self.repo_dir))
             if f.kind == 'bool':
                 var = tk.BooleanVar(value=bool(cur))
                 w = tk.Checkbutton(grid, text=f.label, variable=var, bg=FACE,
@@ -938,6 +1047,25 @@ class Workbench(tk.Tk):
         # A standing note for the tab, if it has one. The description pane below
         # only ever shows the field you are on, so anything you need to know
         # before choosing a value has nowhere else to be said.
+        if tab_name == 'Folders':
+            # Where things actually land, with every default resolved. The
+            # fields above are inputs and several of them mean "decide for me";
+            # this is the answer, and it is what the user came to find out.
+            box = tk.Frame(pane, bg=FACE, relief='ridge', bd=2)
+            box.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+            tk.Label(box, text='Where your files will actually go', bg=FACE,
+                     font=self.f_bold, anchor='w').pack(fill='x', padx=8, pady=(6, 0))
+            tk.Label(box, bg=FACE, fg=DIM, anchor='w', justify='left', wraplength=760,
+                     text='Resolved from the settings above. A blank field means '
+                          'the default, which is shown here in full. Press Save '
+                          'to update this after a change.'
+                     ).pack(fill='x', padx=8, pady=(0, 4))
+            self.eff_text = tk.Text(box, bg=FACE, relief='flat', height=7,
+                                    font=self.f_mono, wrap='none', cursor='arrow',
+                                    highlightthickness=0, padx=8)
+            self.eff_text.pack(fill='both', expand=True, pady=(0, 6))
+            self.eff_text.config(state='disabled')
+
         note = schema.TAB_NOTES.get(tab_name)
         if note:
             title, text = note
