@@ -47,6 +47,13 @@ CONSOLE_BG = '#000000'
 W, H = 880, 720
 HELP_H = 150
 
+# Yardstick for how much wider the actual UI font is than the one every pixel
+# measurement here was written against. _REF_WIDTH is what MS Sans Serif 8pt
+# measures _REF_STRING at on Windows; anything else comes out larger, and the
+# ratio scales the fixed geometry so a wider font does not clip its own labels.
+_REF_STRING = 'Master annotation database'
+_REF_WIDTH = 132.0
+
 
 class Workbench(tk.Tk):
     # Folder fields worth showing a resolved path in rather than a blank. These
@@ -80,6 +87,12 @@ class Workbench(tk.Tk):
         # intentional pause apart from an ordinary success - both exit zero.
         self._paused_annotation = None
         self._scan_rows = []
+        self.current_screen = None
+        self._run_step = ''
+        self._run_extra = []
+        self._watch_paths = []
+        self._watch_sig = None
+        self._watch_job = None
 
         self.title('MeSH Workbench')
         self.configure(bg=FACE)
@@ -88,10 +101,19 @@ class Workbench(tk.Tk):
         self.protocol('WM_DELETE_WINDOW', self._on_close)
         self._set_icon()
 
-        self.f_ui = tkfont.Font(family='MS Sans Serif', size=8)
-        self.f_bold = tkfont.Font(family='MS Sans Serif', size=8, weight='bold')
-        self.f_mono = tkfont.Font(family='Consolas', size=9)
+        ui_family, mono_family, base_size = self._pick_fonts()
+        self.f_ui = tkfont.Font(family=ui_family, size=base_size)
+        self.f_bold = tkfont.Font(family=ui_family, size=base_size, weight='bold')
+        self.f_mono = tkfont.Font(family=mono_family, size=base_size + 1)
         self.option_add('*Font', self.f_ui)
+
+        # Every pixel measurement in this file was written against MS Sans Serif
+        # at 8pt. Another family at another size is wider, and the fixed column
+        # widths then clip their own labels. Measure what we actually got and
+        # scale those - button and entry widths are in characters and follow the
+        # font on their own, so they are left alone.
+        self.ui_scale = max(1.0, min(1.6, self.f_ui.measure(_REF_STRING) / _REF_WIDTH))
+        self._geometry_for_font()
 
         self._menu()
         self.body = tk.Frame(self, bg=FACE)
@@ -214,6 +236,83 @@ class Workbench(tk.Tk):
         return tot
 
     # ------------------------------------------------------------------ chrome
+    # Preference order per platform. First name that Tk actually has wins; the
+    # last entry in each list is one every installation of that system carries,
+    # so the search cannot come up empty.
+    _UI_FONTS = {
+        # MS Sans Serif stays first on Windows deliberately. The whole window
+        # is drawn in that era's idiom - sunken borders, raised buttons, a grey
+        # face - and it is the font that idiom was designed around. It is also
+        # what the current layout was measured against and tested with.
+        'nt':     ('MS Sans Serif', 'Tahoma', 'Segoe UI', 'TkDefaultFont'),
+        'darwin': ('SF Pro Text', 'Helvetica Neue', 'Lucida Grande', 'TkDefaultFont'),
+        'posix':  ('DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'FreeSans',
+                   'Nimbus Sans', 'TkDefaultFont'),
+    }
+    _MONO_FONTS = {
+        'nt':     ('Consolas', 'Lucida Console', 'Courier New', 'TkFixedFont'),
+        'darwin': ('SF Mono', 'Menlo', 'Monaco', 'Courier New', 'TkFixedFont'),
+        'posix':  ('DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono',
+                   'FreeMono', 'Courier New', 'TkFixedFont'),
+    }
+
+    def _pick_fonts(self):
+        """Choose families that exist on THIS system, and a size that suits it.
+
+        The window asked for 'MS Sans Serif' and 'Consolas' by name. Neither
+        exists off Windows, and Tk does not fail when a family is missing - it
+        silently substitutes something, which on Linux produced the overlapping,
+        unevenly spaced text that made the application look broken. The
+        substitute is also a different width from the one every fixed column and
+        button width in this file was measured against, so the layout came apart
+        with it.
+
+        Size, too: 8pt is the Windows convention and reads a good deal smaller
+        under the higher default DPI of most Linux desktops, so the base is 9
+        elsewhere.
+        """
+        kind = 'nt' if os.name == 'nt' else ('darwin' if sys.platform == 'darwin' else 'posix')
+        try:
+            available = {f.lower() for f in tkfont.families(self)}
+        except tk.TclError:
+            available = set()
+
+        def first_present(names):
+            for name in names:
+                # The Tk* names are logical fonts, always defined, and never
+                # appear in families() - so they are the working fallback.
+                if name.startswith('Tk') or name.lower() in available:
+                    return name
+            return 'TkDefaultFont'
+
+        ui = first_present(self._UI_FONTS[kind])
+        mono = first_present(self._MONO_FONTS[kind])
+        size = 8 if kind == 'nt' else 9
+        return ui, mono, size
+
+    def _geometry_for_font(self):
+        """Size the window for the font it actually got.
+
+        880x720 fits the content in MS Sans Serif 8. In a font 20% wider the
+        same content needs 20% more room, and without this the settings tabs and
+        the data table were simply cut off at the right edge on Linux.
+        """
+        w = int(W * self.ui_scale)
+        h = int(H * self.ui_scale)
+        # Never larger than the screen: a window taller than the desktop puts
+        # its buttons under the taskbar, where they cannot be reached at all.
+        try:
+            w = min(w, max(W, self.winfo_screenwidth() - 80))
+            h = min(h, max(H, self.winfo_screenheight() - 120))
+        except tk.TclError:
+            pass
+        self.geometry(f'{w}x{h}')
+        self.minsize(w, h)
+
+    def px(self, n):
+        """A pixel measurement written for the reference font, in the real one."""
+        return int(round(n * self.ui_scale))
+
     def _menu(self):
         bar = tk.Menu(self)
         m = tk.Menu(bar, tearoff=0)
@@ -226,9 +325,15 @@ class Workbench(tk.Tk):
         for step, label, _ in schema.STEPS:
             r.add_command(label=label, command=lambda s=step: self.start_run(s))
         bar.add_cascade(label='Run', menu=r)
-        d = tk.Menu(bar, tearoff=0)
-        d.add_command(label='Data setup…', command=lambda: self.show('setup'))
-        bar.add_cascade(label='Database', menu=d)
+        # Settings, Database and Results are the three screens a user moves
+        # between constantly, so all three are one click from anywhere. Settings
+        # had no entry at all: once you left it, the only ways back were the
+        # Continue button on the setup screen and "Back to settings" on a
+        # finished run, so from the Results screen there was no way back.
+        # Database was a cascade holding a single item, which is a menu the user
+        # has to open to discover it contains nothing to choose between.
+        bar.add_command(label='Settings', command=self.open_settings)
+        bar.add_command(label='Database', command=self.open_setup)
         # The results screen was built and filled after every successful run but
         # nothing ever displayed it - there was no menu entry and no button.
         bar.add_command(label='Results', command=self.open_results)
@@ -389,7 +494,7 @@ class Workbench(tk.Tk):
 
         tk.Label(win, text='Where should your files go?', bg=FACE, font=self.f_bold,
                  anchor='w').pack(fill='x', padx=12, pady=(12, 2))
-        tk.Label(win, bg=FACE, anchor='w', justify='left', wraplength=520,
+        tk.Label(win, bg=FACE, anchor='w', justify='left', wraplength=self.px(520),
                  text='These can be changed later on the Folders tab. Settings and '
                       'logs are kept privately under your user profile and are not '
                       'asked about.').pack(fill='x', padx=12, pady=(0, 10))
@@ -408,7 +513,7 @@ class Workbench(tk.Tk):
             tk.Label(box, text=label, bg=FACE, font=self.f_bold, anchor='w'
                      ).pack(fill='x', padx=8, pady=(6, 0))
             tk.Label(box, text=blurb, bg=FACE, fg=DIM, anchor='w', justify='left',
-                     wraplength=500).pack(fill='x', padx=8)
+                     wraplength=self.px(500)).pack(fill='x', padx=8)
             line = tk.Frame(box, bg=FACE)
             line.pack(fill='x', padx=8, pady=(4, 8))
             var = tk.StringVar(value=str(default))
@@ -559,22 +664,40 @@ class Workbench(tk.Tk):
         for fr in self.screens.values():
             fr.pack_forget()
         self.screens[name].pack(fill='both', expand=True)
+        self.current_screen = name
+        # Re-read the disk whenever the database screen comes to the front. It
+        # used to be scanned once, when the window was built, and then only on
+        # the Refresh button - so returning here after building the master
+        # annotation database showed the table exactly as it had been before the
+        # build, still saying Missing. The file was there; the screen was stale.
+        if name == 'setup':
+            self.after_idle(self.scan_data)
+
+    def open_settings(self):
+        self.show('settings')
+
+    def open_setup(self):
+        """The Database screen. Named for the menu entry that reaches it."""
+        self.show('setup')
 
     def _sunken(self, parent, **kw):
         return tk.Frame(parent, bg=FACE, relief='sunken', bd=2, **kw)
 
-    @staticmethod
-    def _setup_cols(frame):
+    def _setup_cols(self, frame):
         """One column geometry for the data table, shared by header and rows.
 
         Column 3 is reserved on every row even though only the archive row puts a
         button there - without it that row's Status and Size shift left and the
         table looks ragged.
+
+        The widths are scaled: in a wider font the labels outgrew their columns
+        and ran into the next one, which is most of what "overlapping text"
+        looked like on Linux.
         """
-        frame.columnconfigure(0, minsize=330, weight=1)
-        frame.columnconfigure(1, minsize=80)
-        frame.columnconfigure(2, minsize=80)
-        frame.columnconfigure(3, minsize=130)
+        frame.columnconfigure(0, minsize=self.px(330), weight=1)
+        frame.columnconfigure(1, minsize=self.px(80))
+        frame.columnconfigure(2, minsize=self.px(80))
+        frame.columnconfigure(3, minsize=self.px(130))
 
     # ------------------------------------------------------------- screen: setup
     # ------------------------------------------------------------ screen: setup
@@ -651,6 +774,7 @@ class Workbench(tk.Tk):
         tk.Button(act, text='Refresh', width=11, command=self.scan_data
                   ).pack(side='right', padx=2)
         self.after(120, self.scan_data)
+        self._watch_job = self.after(3000, self._watch_disk)
 
     def scan_data(self):
         """Measure what is on disk, at the paths the pipeline actually uses."""
@@ -682,10 +806,15 @@ class Workbench(tk.Tk):
                  path=str(raw / 'pubmed_updates'),
                  note='Records published since the baseline snapshot.',
                  build='Download', rebuild='Re-download', delete=True, cost='minutes'),
+            # This was the one row on the screen with nothing to press. The
+            # note said "downloaded automatically", which is true of a full
+            # pipeline run and no help at all to someone who is on this screen
+            # precisely because they want the file now.
             dict(key='desc', label='MeSH descriptor file',
                  path=str(raw / 'desc2025.xml'),
-                 note='Defines the stop-word vocabulary. Downloaded automatically.',
-                 delete=True, cost='minutes'),
+                 note='Defines the stop-word vocabulary. Fetched from the NLM.',
+                 build='Generate', rebuild='Regenerate', delete=True,
+                 cost='minutes'),
             dict(key='pmids', label=f'Retrieved PMIDs  ({prefix})',
                  path=str(f['pmids_db']),
                  note='Everything the search and its citation hops returned.',
@@ -740,6 +869,43 @@ class Workbench(tk.Tk):
                  (f'   -   {reclaim:,.2f} GB of that is downloaded archive, '
                   f'removable once the database is built'
                   if reclaim else ''))
+
+        # What the watcher below compares against.
+        self._watch_paths = [it['path'] for it in items]
+        self._watch_sig = self._disk_signature()
+
+    def _disk_signature(self):
+        """A cheap fingerprint of the tracked files: present, and changed when.
+
+        Deliberately stat-only. _size_gb walks a directory tree to total it,
+        which on the 44 GB baseline archive is far too expensive to repeat on a
+        timer - this has to be affordable every few seconds.
+        """
+        sig = []
+        for path in getattr(self, '_watch_paths', ()):
+            try:
+                st = os.stat(path)
+                sig.append((path, True, int(st.st_mtime), st.st_size))
+            except OSError:
+                sig.append((path, False, 0, 0))
+        return tuple(sig)
+
+    def _watch_disk(self):
+        """Re-scan when a tracked file appears, vanishes or grows.
+
+        Without this the table only told the truth at the moment it was drawn.
+        A file written by a running step - or by anything else on the machine -
+        showed up when the user thought to press Refresh, and not before.
+        """
+        try:
+            if getattr(self, 'current_screen', None) == 'setup':
+                if self._disk_signature() != getattr(self, '_watch_sig', None):
+                    self.scan_data()
+        except Exception:
+            # A watchdog is never worth an error box. If it cannot read the
+            # disk this time it will try again in three seconds.
+            pass
+        self._watch_job = self.after(3000, self._watch_disk)
 
     # -- typed confirmation ------------------------------------------------
     #
@@ -805,12 +971,12 @@ class Workbench(tk.Tk):
         tk.Label(body, text=title, bg=FACE, font=self.f_bold, anchor='w'
                  ).pack(fill='x')
         tk.Label(body, text=message, bg=FACE, anchor='w', justify='left',
-                 wraplength=520).pack(fill='x', pady=(6, 6))
+                 wraplength=self.px(520)).pack(fill='x', pady=(6, 6))
         if detail:
             tk.Label(body, text=detail, bg=FACE, anchor='w', justify='left',
-                     fg=ERR, wraplength=520, font=self.f_bold).pack(fill='x',
+                     fg=ERR, wraplength=self.px(520), font=self.f_bold).pack(fill='x',
                                                                     pady=(0, 6))
-        tk.Label(body, bg=FACE, anchor='w', fg=DIM, justify='left', wraplength=520,
+        tk.Label(body, bg=FACE, anchor='w', fg=DIM, justify='left', wraplength=self.px(520),
                  text='Answer with one of the buttons below - the close box is '
                       'disabled here on purpose.').pack(fill='x', pady=(0, 8))
         tk.Label(body, text=f'Type {word} to confirm:', bg=FACE, anchor='w'
@@ -872,10 +1038,21 @@ class Workbench(tk.Tk):
     def _setup_build(self, item, present):
         """Build or download one item. Step 0 covers the first three."""
         if item['key'] == 'desc':
-            messagebox.showinfo(
-                'Downloaded automatically',
-                'The MeSH descriptor file is fetched from the NLM whenever the '
-                'support files are rebuilt. Run Step 1 to refresh it.')
+            # Step 1 is what fetches it. Running that step IS the button, rather
+            # than a dialog explaining which step the user should go and find.
+            # It is minutes, not hours, so it asks a plain yes/no rather than
+            # demanding a typed word - those are reserved for what is expensive
+            # or destructive, and this is neither.
+            if present and not messagebox.askyesno(
+                    'Fetch the descriptor file again?',
+                    'The MeSH descriptor file is already here.\n\n'
+                    'Fetching it again downloads the current release from the '
+                    'NLM and rebuilds the stop-word vocabulary from it. It '
+                    'takes a few minutes.\n\nContinue?',
+                    icon='question', default='no'):
+                return
+            self.start_run('process', ['--refresh-mesh-support'],
+                           title='fetching the MeSH descriptor file')
             return
         if item['key'] in ('pmids', 'cleaned', 'relevance'):
             messagebox.showinfo(
@@ -977,13 +1154,13 @@ class Workbench(tk.Tk):
         self.help_title = tk.Label(self.help, bg=FACE, font=self.f_bold, anchor='w')
         self.help_title.pack(fill='x', padx=8, pady=(5, 0))
         self.help_what = tk.Label(self.help, bg=FACE, anchor='w', justify='left',
-                                  wraplength=W - 60)
+                                  wraplength=self.px(W - 60))
         self.help_what.pack(fill='x', padx=8)
         self.help_def = tk.Label(self.help, bg=FACE, fg=DIM, anchor='w',
-                                 justify='left', wraplength=W - 60)
+                                 justify='left', wraplength=self.px(W - 60))
         self.help_def.pack(fill='x', padx=8)
         self.help_note = tk.Label(self.help, bg=FACE, fg=ERR, anchor='w',
-                                  justify='left', wraplength=W - 60)
+                                  justify='left', wraplength=self.px(W - 60))
         self.help_note.pack(fill='x', padx=8)
         self._help(None, 'Settings',
                    'Click any field to see what it controls, its default, and '
@@ -1020,7 +1197,7 @@ class Workbench(tk.Tk):
                          ).grid(row=r, column=0, columnspan=3, sticky='w', pady=(14, 0))
                 if f.what:
                     tk.Label(grid, text=f.what, bg=FACE, fg=DIM, anchor='w',
-                             justify='left', wraplength=700
+                             justify='left', wraplength=self.px(700)
                              ).grid(row=r, column=0, columnspan=3, sticky='w',
                                     pady=(30, 2))
                 continue
@@ -1069,7 +1246,7 @@ class Workbench(tk.Tk):
             box.pack(fill='both', expand=True, padx=10, pady=(0, 10))
             tk.Label(box, text='Where your files will actually go', bg=FACE,
                      font=self.f_bold, anchor='w').pack(fill='x', padx=8, pady=(6, 0))
-            tk.Label(box, bg=FACE, fg=DIM, anchor='w', justify='left', wraplength=760,
+            tk.Label(box, bg=FACE, fg=DIM, anchor='w', justify='left', wraplength=self.px(760),
                      text='Resolved from the settings above. A blank field means '
                           'the default, which is shown here in full. Press Save '
                           'to update this after a change.'
@@ -1205,6 +1382,10 @@ class Workbench(tk.Tk):
         title = title or step
         if not self._confirm_overwrite(step):
             return
+        # Remembered so the finished run can send the user where the thing it
+        # just produced actually is.
+        self._run_step = step
+        self._run_extra = list(extra or [])
         self.show('running')
         self.run_title.config(text=f'Running: {title}')
         self._log_clear()
@@ -1339,7 +1520,7 @@ class Workbench(tk.Tk):
         tk.Label(body, text='The network is built. It now needs you.',
                  bg=FACE, font=self.f_bold, anchor='w').pack(fill='x')
         tk.Label(
-            body, bg=FACE, justify='left', anchor='w', wraplength=560,
+            body, bg=FACE, justify='left', anchor='w', wraplength=self.px(560),
             text=('Nothing has gone wrong. Every MeSH term in the network has to '
                   'be placed on the adverse outcome pathway, and that is a '
                   'judgement the pipeline cannot make for you.\n\n'
@@ -1351,8 +1532,8 @@ class Workbench(tk.Tk):
         tk.Label(body, text='Allowed levels, in pathway order:', bg=FACE,
                  anchor='w', font=self.f_bold).pack(fill='x')
         tk.Label(body, text='    ' + levels, bg=FACE, anchor='w',
-                 wraplength=560, justify='left').pack(fill='x', pady=(0, 8))
-        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=560, fg=DIM,
+                 wraplength=self.px(560), justify='left').pack(fill='x', pady=(0, 8))
+        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=self.px(560), fg=DIM,
                  text=('Leave a term as "Uncategorized" if it genuinely is not on '
                        'the pathway. It stays in the network and in the '
                        'topological figures, and is left out of the AOP ones.')
@@ -1365,7 +1546,7 @@ class Workbench(tk.Tk):
         box.config(state='readonly')
         box.pack(fill='x', pady=(2, 10))
 
-        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=560,
+        tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=self.px(560),
                  text=('When you have saved it, come back and run Step 4 - '
                        'Figures. Nothing earlier is recomputed, so it is quick, '
                        'and you can edit and re-run as often as you like.')
@@ -1471,6 +1652,7 @@ class Workbench(tk.Tk):
             self.run_status.config(text='Completed successfully.', fg=OK)
             self.refresh_results()
             self.btn_results.config(state='normal')
+            self._offer_next_screen()
         elif rc == -1:
             self._log('--- aborted ---', 'warn')
             self.run_status.config(text='Aborted.', fg=WARN)
@@ -1484,6 +1666,43 @@ class Workbench(tk.Tk):
         else:
             self._log(f'--- failed, exit code {rc} ---', 'err')
             self.run_status.config(text=f'Failed (exit {rc}).', fg=ERR)
+
+    # Which screen shows what each step produces. A finished run used to leave
+    # the user on the console with one button reading "Back to settings", so
+    # every build - baseline archive, master annotation database, descriptor
+    # file - ended on the Settings page, which is the one screen that shows none
+    # of them. Steps that write databases and downloads land on the Database
+    # screen; steps that write figures, tables and the flow report land on
+    # Results.
+    _NEXT_SCREEN = {
+        'baseline':  'setup',
+        'process':   'setup',
+        'data_ops':  'setup',
+        'network':   'results',
+        'secondary': 'results',
+        'viz':       'results',
+        'benchmark': 'results',
+        'all':       'results',
+    }
+
+    def _offer_next_screen(self):
+        """Go where the output of the finished step is, after a moment.
+
+        The delay is so the completion line is read before the screen changes -
+        a jump the instant a long run ends reads as though something went wrong.
+        """
+        target = self._NEXT_SCREEN.get(getattr(self, '_run_step', ''), 'results')
+        self.btn_back.config(
+            text=('Back to the database' if target == 'setup' else 'View results'),
+            command=(self.open_setup if target == 'setup' else self.open_results))
+
+        def go():
+            # Only if the user has not already navigated somewhere themselves.
+            # Yanking them off a screen they deliberately opened is worse than
+            # not routing at all.
+            if getattr(self, 'current_screen', None) == 'running':
+                (self.open_setup if target == 'setup' else self.open_results)()
+        self.after(1200, go)
 
     def _log_clear(self):
         self.console.config(state='normal')
@@ -1643,7 +1862,7 @@ class Workbench(tk.Tk):
     def _build_integrity(self, root):
         tk.Label(root, text='Check and repair files', bg=FACE, font=self.f_bold,
                  anchor='w').pack(fill='x', padx=10, pady=(10, 2))
-        tk.Label(root, bg=FACE, anchor='w', justify='left', wraplength=760,
+        tk.Label(root, bg=FACE, anchor='w', justify='left', wraplength=self.px(760),
                  text='A run that was interrupted - a machine that slept, a disk '
                       'that filled, a sync client mid-write - can leave a file '
                       'that looks complete and is not. Everything the pipeline '
@@ -1733,7 +1952,7 @@ class Workbench(tk.Tk):
             if a.status != integrity.MISSING and a.cost == integrity.COST_HOURS \
                     and a.status != integrity.OK:
                 detail += '   [rebuilding this takes hours]'
-            tk.Label(row, text=detail, bg=FACE, anchor='w', wraplength=420,
+            tk.Label(row, text=detail, bg=FACE, anchor='w', wraplength=self.px(420),
                      justify='left', fg=colour.get(a.status, ERR)).pack(side='left')
 
         text = integrity.summarise(artifacts)
@@ -1930,11 +2149,12 @@ class Workbench(tk.Tk):
                                        icon='warning'):
                 return
             self.runner.cancel()
-        if self._tick_job:
-            try:
-                self.after_cancel(self._tick_job)
-            except Exception:
-                pass
+        for job in (self._tick_job, self._watch_job):
+            if job:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
         self.destroy()
 
 

@@ -386,6 +386,14 @@ def main():
     parser.add_argument('--interactive', action='store_true',
                         help="Launch the interactive command-line wizard to modify parameters before execution.")
 
+    # Forces Step 1 to fetch the descriptor XML and rebuild the stop-word
+    # vocabulary from it. For one run only, like the Step 0 switches: the
+    # equivalent config setting would refetch on every run afterwards, which is
+    # a download nobody asked for repeated indefinitely. This is what the
+    # Generate button on the Database screen sends.
+    parser.add_argument('--refresh-mesh-support', action='store_true',
+                        help="Re-download the MeSH descriptor file and rebuild the stop-word vocabulary from it.")
+
     # Step 0 switches. These stay on the command line rather than in the config
     # file because they describe one run: a rebuild that persisted would repeat
     # itself, at several hours a time, on every run afterwards. Without the
@@ -454,7 +462,15 @@ def main():
     # distribution figures too, and the PRISMA flow is drawn after every step.
     _vp = config.params.get('viz_parameters', {})
     _dpi, _fmts = configure_output(_vp.get('figure_dpi'), _vp.get('figure_formats'))
-    print(f"\nFigure output: {_dpi} dpi, formats {', '.join(_fmts)}")
+    # Announced only by the steps that actually draw something. It used to print
+    # at startup whatever the run was doing, so building a database or
+    # collecting data began by reporting figure settings neither would ever use
+    # - and when the settings were absent it reported the module defaults,
+    # 300 dpi and jpeg/tif, which is why the line looked hardcoded.
+    if args.step in ('all', 'network', 'viz', 'benchmark'):
+        _src = ('settings' if (_vp.get('figure_dpi') or _vp.get('figure_formats'))
+                else 'built-in defaults - nothing set on the Figures tab')
+        print(f"\nFigure output: {_dpi} dpi, formats {', '.join(_fmts)}  ({_src})")
 
     # The rebuild instructions live beside the database, refreshed each run so
     # they always name the current paths. Cheap, and it means the data folder is
@@ -509,8 +525,10 @@ def main():
             # is present - auto-downloading it from NLM if missing or superseded -
             # so users never have to fetch it by hand. Otherwise extraction is
             # skipped and the path is a harmless placeholder.
+            forced = bool(getattr(args, 'refresh_mesh_support', False))
             needs_support_build = (
-                config.get('search_parameters', 'update_mesh_support_files')
+                forced
+                or config.get('search_parameters', 'update_mesh_support_files')
                 or not os.path.exists(config.files['mesh_terms_csv'])
                 or not os.path.exists(config.files['mesh_stopwords_py'])
             )
@@ -523,7 +541,7 @@ def main():
                 xml_file=xml_file_path,
                 output_csv=config.files['mesh_terms_csv'],
                 output_py=config.files['mesh_stopwords_py'],
-                force_update=config.get('search_parameters', 'update_mesh_support_files')
+                force_update=forced or config.get('search_parameters', 'update_mesh_support_files')
             )
 
             # Pre-populate Master Annotations Library
