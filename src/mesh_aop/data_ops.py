@@ -55,6 +55,56 @@ def format_date_for_entrez(date_obj: date) -> str:
     """Formats a date object into YYYY/MM/DD for Entrez."""
     return date_obj.strftime("%Y/%m/%d")
 
+
+# NCBI's published E-utilities limits: 3 requests a second without an API key,
+# 10 with one. The delay was a flat 0.11 s - about 9 a second - whichever it
+# was, so an unregistered user, which is the default, ran at three times the
+# permitted rate. NCBI blocks the IP for that rather than throttling it.
+_DELAY_WITH_KEY = 0.11
+_DELAY_NO_KEY = 0.34
+
+
+def entrez_delay_for(api_key) -> float:
+    """The polite interval between requests, given whether a key is set."""
+    return _DELAY_WITH_KEY if str(api_key or "").strip() else _DELAY_NO_KEY
+
+
+def set_entrez_credentials(email, api_key):
+    """Hand the e-mail and key to Biopython, or None when they are blank.
+
+    This is the fix for a fatal HTTP 400 that stopped data collection for every
+    user who had not registered an API key - which is the default, and so was
+    everyone on a fresh install.
+
+    Assigning Entrez.api_key = "" is not the same as leaving it unset.
+    Biopython includes any non-None value in the query string, so a blank key
+    was sent as a real parameter with no value:
+
+        ...&email=someone%40example.org&api_key=
+
+    NCBI rejects that with "400 Bad Request" - not for the term, not for the
+    dates, but for the empty parameter. The failure surfaced during the search,
+    which is what made the query itself look like the culprit.
+
+    Returns the delay that suits whichever credentials were actually set.
+    """
+    email = str(email or "").strip()
+    api_key = str(api_key or "").strip()
+    Entrez.email = email or None
+    Entrez.api_key = api_key or None
+    return entrez_delay_for(api_key)
+
+
+def _announce_rate(api_key):
+    """Say which limit is in force, once, where the user will see it."""
+    if str(api_key or "").strip():
+        print("  NCBI API key found - requesting at up to 10/second.")
+    else:
+        print("  No NCBI API key set - requesting at up to 3/second, which is "
+              "the unregistered limit.\n"
+              "  A free key roughly triples retrieval speed: "
+              "https://account.ncbi.nlm.nih.gov/settings/")
+
 def _entrez_search_with_retry(db: str, term: str, retmax: int, **kwargs) -> dict:
     """Wraps Entrez.esearch with a retry mechanism for common server errors."""
     max_retries = 5
@@ -70,6 +120,17 @@ def _entrez_search_with_retry(db: str, term: str, retmax: int, **kwargs) -> dict
                 print(f"  - NCBI server returned error {e.code}. Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
             else:
+                # A 4xx is our fault, not the server's, and it used to arrive as
+                # a bare "HTTP Error 400: Bad Request" with no hint of what was
+                # sent - which left the query itself to be guessed at. Print the
+                # term and the URL before re-raising: between them they name the
+                # cause every time.
+                print(f"\n  [!] NCBI rejected the request with HTTP {e.code}.")
+                print(f"      query sent : {term!r}")
+                print(f"      url        : {getattr(e, 'url', '(not reported)')}")
+                if not str(term).strip():
+                    print("      The query is empty. Set a search term on the "
+                          "Search tab before running data collection.")
                 raise
         except Exception as e:
             wait_time = 2 ** attempt
@@ -124,7 +185,7 @@ def _fetch_ids_for_range(search_term: str, start_date_obj: date, end_date_obj: d
 
     return pmids
 
-def get_pmids_date_chunking(search_term: str, start_date_obj: date, end_date_obj: date, retmax_limit: int = 9999, entrez_delay: float = 0.11) -> list:
+def get_pmids_date_chunking(search_term: str, start_date_obj: date, end_date_obj: date, retmax_limit: int = 9999, entrez_delay: float = _DELAY_NO_KEY) -> list:
     """Fetches PMIDs by splitting large date ranges. Output is optimized for Colab rendering."""
     all_pmids = set()
     date_ranges_to_process = deque([(start_date_obj, end_date_obj)])
@@ -234,10 +295,12 @@ def _parse_medline_date(record: dict) -> str:
 
 def run_initial_data_collection(search_term_param: str, start_date_str: str, end_date_str: str,
                                 generations_n_param: int, db_path: str, entrez_email: str,
-                                entrez_api_key: str, batch_size: int = 100, entrez_delay: float = 0.11):
+                                entrez_api_key: str, batch_size: int = 100, entrez_delay: float = None):
     """Performs initial PMID search and generational expansion, storing results in SQLite."""
-    Entrez.email = entrez_email
-    Entrez.api_key = entrez_api_key
+    resolved_delay = set_entrez_credentials(entrez_email, entrez_api_key)
+    if entrez_delay is None:
+        entrez_delay = resolved_delay
+        _announce_rate(entrez_api_key)
 
     script_start_time = time.time()
     all_pmids_gen = {}
@@ -245,10 +308,37 @@ def run_initial_data_collection(search_term_param: str, start_date_str: str, end
     generations_to_process = max(1, int(generations_n_param))
 
     try:
+        # Checked here, before a single request goes out. An empty term is not
+        # an empty result: "() AND (1950/01/01[EDAT] : ...)" is a legal PubMed
+        # query that matches the entire database - forty million records, which
+        # the date-chunking loop will then set about retrieving nine thousand at
+        # a time. Failing in one line beats discovering that overnight.
+        if not str(search_term_param or "").strip():
+            raise ValueError(
+                "No search term is set, so there is nothing to search for. "
+                "Set one on the Search tab - for example "
+                "'Dermatitis, Allergic Contact [Mesh]' - and run this again.")
+
+        # A date word that never got resolved reaches PubMed as itself, and
+        # PubMed does not reject it: it returns zero results and a warning
+        # buried in the response, so the run ends with "No initial PMIDs found"
+        # and no indication that the date was the reason.
+        for label, value in (("Start date", start_date_str), ("End date", end_date_str)):
+            if isinstance(value, str) and value.strip().lower() in ("today", "now"):
+                raise ValueError(
+                    f"{label} arrived as '{value.strip()}' rather than a date. "
+                    "PubMed treats that as a search word, not a date, and "
+                    "returns nothing. Enter a date as YYYY/MM/DD, or leave the "
+                    "field empty to search every date PubMed has.")
+
         start_date_obj = parse_date_robust(start_date_str or "1900/01/01")
         end_date_obj = parse_date_robust(end_date_str or date.today().strftime("%Y/%m/%d"))
         if start_date_obj > end_date_obj:
             raise ValueError("Start date cannot be after end date.")
+
+        print(f"  Search window: {format_date_for_entrez(start_date_obj)} "
+              f"to {format_date_for_entrez(end_date_obj)} (EDAT - the date the "
+              f"record entered PubMed)")
 
         initial_pmids_str_list = get_pmids_date_chunking(search_term_param, start_date_obj, end_date_obj, entrez_delay=entrez_delay)
         if not initial_pmids_str_list:
@@ -343,6 +433,12 @@ def run_initial_data_collection(search_term_param: str, start_date_str: str, end
                     cursor.executemany("UPDATE pmids_table SET cited_by = ?, cites = ? WHERE pmid = ?", update_link_data)
                 conn.commit()
 
+    except ValueError:
+        # A settings problem the user can act on - an empty search term, a date
+        # that is not a date. "An unexpected error occurred" is exactly the
+        # wrong frame for those: it reads as a program fault and buries the one
+        # sentence that says what to change. Let it through as it was written.
+        raise
     except Exception as e:
         raise RuntimeError(f"An unexpected error occurred during data collection: {e}")
     finally:
@@ -403,10 +499,12 @@ def clean_database(original_db: str, cleaned_db: str, start_gen_to_remove_label:
 
 def populate_master_mesh_database(source_pmids_input, master_db_path: str, entrez_email: str,
                                   entrez_api_key: str, fetch_batch_size: int = 9999,
-                                  entrez_delay: float = 0.11, failed_log: str = None, empty_log: str = None):
+                                  entrez_delay: float = None, failed_log: str = None, empty_log: str = None):
     """Checks source PMIDs against master DB, fetches missing MeSH terms, and updates master DB."""
-    Entrez.email = entrez_email
-    Entrez.api_key = entrez_api_key
+    resolved_delay = set_entrez_credentials(entrez_email, entrez_api_key)
+    if entrez_delay is None:
+        entrez_delay = resolved_delay
+        _announce_rate(entrez_api_key)
 
     if isinstance(source_pmids_input, (str, os.PathLike)) and os.path.exists(source_pmids_input):
         try:

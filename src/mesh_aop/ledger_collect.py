@@ -126,12 +126,18 @@ def record_run(ledger, config, step, version=''):
         ledger.record('run', 'workbench_version', version)
     ledger.record('run', 'search_term', search.get('search_term', ''),
                   'The PubMed query that seeded generation P0')
+    # Dates come through config.get() rather than off params, so a window set
+    # to TODAY is recorded as the date actually queried. A PRISMA report is a
+    # record of what was searched; "TODAY" in that field describes nothing and
+    # cannot be reproduced from.
     ledger.record('run', 'search_start_date', search.get('start_date', ''))
-    ledger.record('run', 'search_end_date', search.get('end_date', ''))
+    ledger.record('run', 'search_end_date',
+                  config.get('search_parameters', 'end_date') or '')
     ledger.record('run', 'generations_requested', search.get('generations_n', ''),
                   'Citation hops expanded from the seed set')
     ledger.record('run', 'context_start_date', analysis.get('context_start_date', ''))
-    ledger.record('run', 'context_end_date', analysis.get('context_end_date', ''))
+    ledger.record('run', 'context_end_date',
+                  config.get('analysis_parameters', 'context_end_date') or '')
     ledger.record('run', 'random_seed', analysis.get('random_seed', ''))
     ledger.record('run', 'reference_data',
                   'on' if config.params.get('control_flags', {}).get('use_reference_data') else 'off')

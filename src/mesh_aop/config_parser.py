@@ -82,8 +82,12 @@ class MeshConfig:
                 # 2025/01/01, which the settings help repeats.
                 "search_term": "",
                 "start_date": "1950/01/01",
-                # TODAY is resolved at run time, like context_end_date.
-                "end_date": "TODAY",
+                # A fixed date, not TODAY. A moving end date makes the same
+                # search return a different corpus every time it is run, which
+                # is the one thing a reproducible pipeline must not do quietly.
+                # TODAY still works if it is typed in; it is just not the
+                # default, and the help says what it costs.
+                "end_date": "2025/01/01",
                 "generations_n": 1,
                 "update_mesh_support_files": False
             },
@@ -201,18 +205,32 @@ class MeshConfig:
         self._build_directories()
         self._map_files()
 
+    # Values the user may type that mean "the day the run starts". Matched
+    # case- and space-insensitively because a settings form is typed into by
+    # hand: "today" and " TODAY " meant the same thing to everyone except the
+    # code, which sent them to PubMed literally.
+    _TODAY_WORDS = {'today', 'now'}
+    _DYNAMIC_DATES = (('analysis_parameters', 'context_end_date'),
+                      ('search_parameters', 'end_date'))
+
     def _resolve_dynamic_values(self):
-        """Handles date interpretation and reference flags."""
+        """Handles date interpretation and reference flags.
+
+        Resolution is kept OUT of self.params, in a shadow dict that get() reads
+        through. It used to be written back over the stored value, which meant
+        the first save() after any load replaced "TODAY" with that day's date -
+        permanently. The setting could be chosen once and then silently became a
+        frozen date that never moved again, and nothing said so. self.params is
+        now exactly what the user typed, and save() persists exactly that.
+        """
         self.use_reference_data = self.params['control_flags']['use_reference_data']
         self.prefix = "DAC_Mesh" if self.use_reference_data else self.params['control_flags']['custom_file_prefix']
-        # TODAY is resolved here, before anything reads these. The search end
-        # date reaches Entrez as part of the query string, so an unresolved
-        # "TODAY" would be sent literally and the retrieval would fail.
         today = date.today().strftime("%Y/%m/%d")
-        for section, key in (('analysis_parameters', 'context_end_date'),
-                             ('search_parameters', 'end_date')):
-            if self.params.get(section, {}).get(key) == "TODAY":
-                self.params[section][key] = today
+        self._resolved = {}
+        for section, key in self._DYNAMIC_DATES:
+            raw = self.params.get(section, {}).get(key)
+            if isinstance(raw, str) and raw.strip().lower() in self._TODAY_WORDS:
+                self._resolved[(section, key)] = today
 
     def _annotations_path(self):
         """The AOP stratum dictionary, preferring the user's own copy.
@@ -329,7 +347,15 @@ class MeshConfig:
     }
 
     def get(self, section: str, key: str):
-        """Utility to safely retrieve a parameter."""
+        """Utility to safely retrieve a parameter.
+
+        Everything that consumes settings comes through here, which is why the
+        TODAY substitution lives here rather than in the stored value: callers
+        get a real date, the file keeps the word.
+        """
+        resolved = getattr(self, '_resolved', {})
+        if (section, key) in resolved:
+            return resolved[(section, key)]
         value = self.params.get(section, {}).get(key)
         if section == "credentials" and not value:
             return os.environ.get(self._CREDENTIAL_ENV.get(key, ""), "") or value

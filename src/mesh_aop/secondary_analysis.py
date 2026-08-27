@@ -135,8 +135,11 @@ def _fetch_metadata_and_filter(pmid_score_dicts: list, exclude_reviews: bool, li
     if not pmid_score_dicts:
         return pd.DataFrame()
 
-    Entrez.email = entrez_email
-    Entrez.api_key = entrez_api_key
+    # Blank credentials must reach Biopython as None, never as "" - an empty
+    # api_key is sent as a real parameter and NCBI answers 400. See
+    # data_ops.set_entrez_credentials.
+    from .data_ops import set_entrez_credentials
+    set_entrez_credentials(entrez_email, entrez_api_key)
 
     pmid_str_list = [str(d['pmid']) for d in pmid_score_dicts]
     hydrated_results = []

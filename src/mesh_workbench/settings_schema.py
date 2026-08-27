@@ -50,17 +50,19 @@ TABS = [
           'side by side.'),
         F('search_parameters.start_date', 'Start date', 'text', '1950/01/01',
           'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
-          'Default: 1950/01/01. Leave it empty to search every date PubMed has.',
+          'Default: 1950/01/01, which is earlier than PubMed goes - so it takes '
+          'everything. Leave it empty for the same effect.',
           'Keep this identical to the context window on the Analysis tab, or the '
           'query set and the scored corpus describe different periods.'),
-        F('search_parameters.end_date', 'End date', 'text', 'TODAY',
+        F('search_parameters.end_date', 'End date', 'text', '2025/01/01',
           'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
-          'Default: TODAY, resolved to the date the run starts. Leave it empty '
-          'to search every date PubMed has.',
-          'Keep this identical to the context window on the Analysis tab. A '
-          'fixed date makes the query reproducible; TODAY moves, so the same '
-          'search repeated later returns a different set, and so does an empty '
-          'field.'),
+          'Default: 2025/01/01. Leave it empty to search every date PubMed has, '
+          'or type TODAY for the date the run starts.',
+          'Both dates are EDAT - the date the record entered PubMed, not the '
+          'date the paper was published. Keep this identical to the context '
+          'window on the Analysis tab. A fixed date is what makes a search '
+          'repeatable: TODAY and an empty field both move, so the same query '
+          'run next month returns a different corpus.'),
         F('search_parameters.generations_n', 'Citation generations', 'int', 1,
           'How many citation hops to expand from the query result set.',
           'Default: 1. 0 = the query result only; 1 = adds the articles it '
