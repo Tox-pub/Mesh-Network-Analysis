@@ -1,0 +1,187 @@
+# Build one self-contained package per operating system, and prove each one
+# runs on the system it targets.
+#
+#   MeSH-Workbench-<version>-windows.msi          double-click
+#   MeSH-Workbench-<version>-linux-x86_64.tar.gz  extract, ./"MeSH Workbench"
+#   MeSH-Workbench-<version>-macos-arm64.tar.gz   extract, ./"MeSH Workbench"
+#
+# Every one carries its own Python. Nothing needs installing first - no system
+# Python, no python3-tk, no administrator rights.
+#
+# The Unix bundles can be ASSEMBLED anywhere, including on Windows, because
+# this application has nothing to compile: the dependencies are prebuilt wheels
+# and the interpreter is a prebuilt redistributable. What cannot be done off
+# the target is RUNNING them, which is the only reason these jobs are matrixed
+# onto real runners rather than all built in one place.
+#
+# Trigger: push a tag to BUILD AND TEST. Run it by hand with publish=true to
+# actually release.
+
+name: Release
+
+# A TAG DOES NOT PUBLISH. It builds all three packages and runs them on their
+# own systems, and leaves the results attached to the run for whoever wants to
+# download and try them. Creating a public Release is a separate, deliberate
+# act: run this workflow by hand from the Actions tab and set `publish` to
+# true. Tagging used to publish, which released 3.2.0 without anyone deciding
+# to - the build and the announcement are not the same thing and no longer
+# share a trigger.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Create a public GitHub Release from this build'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Assemble the application tree
+        run: python packaging/build_portable_windows.py --out build --no-zip
+
+      # Pinned, and matching what the .wxs is written against. Unpinned,
+      # `dotnet tool install wix` takes the newest major - v7 - which requires
+      # accepting the paid Open Source Maintenance Fee EULA and fails here.
+      # The tools directory also has to be put on PATH explicitly: the
+      # installer adds it for later sessions, not this one.
+      - name: Install WiX 5.0.2
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $tools = Join-Path $env:USERPROFILE '.dotnet' 'tools'
+          echo $tools | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$tools;$env:PATH"
+          wix --version
+          wix extension add --global WixToolset.UI.wixext/5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          wix extension list --global
+
+      - name: Build the MSI
+        run: python packaging/build_msi_windows.py --portable build/MeshWorkbench --out build
+
+      - name: Name it for the platform
+        shell: bash
+        run: |
+          ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          mv build/*.msi "MeSH-Workbench-${ver}-windows.msi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: 'MeSH-Workbench-*-windows.msi'
+
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            label: linux-x86_64
+          - os: macos-latest
+            target: macos-arm
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the bundle
+        run: python packaging/build_unix_bundle.py --target ${{ matrix.target }} --out build
+
+      # Everything that can be established without running it: permissions,
+      # wheel/interpreter match, offline completeness, line endings.
+      - name: Inspect the bundle
+        run: python packaging/verify_unix_bundle.py build/*.tar.gz
+
+      # And now the part no other machine can do.
+      - name: Extract and run it
+        run: |
+          set -eux
+          mkdir -p /tmp/run && tar -xzf build/*.tar.gz -C /tmp/run
+          cd /tmp/run/MeSH-Workbench-*
+
+          # The interpreter must work before anything else can.
+          ./python/bin/python3.12 -c "import sys; print(sys.version)"
+
+          # First run: unpacks the wheels offline. This is the step that would
+          # fail on a missing setuptools or a wheel for the wrong platform.
+          ./mesh-pipeline --version
+
+          # Every dependency the pipeline actually imports.
+          PYTHONPATH="$PWD/app/src" ./python/bin/python3.12 - <<'PY'
+          import importlib
+          for m in ('numpy', 'scipy', 'pandas', 'sklearn', 'matplotlib',
+                    'networkx', 'gensim', 'seaborn', 'statsmodels', 'plotly',
+                    'Bio', 'community', 'openpyxl', 'tqdm', 'requests',
+                    'sqlite3', 'tkinter'):
+              importlib.import_module(m)
+              print('  ok', m)
+          import mesh_aop, mesh_workbench
+          print('application imports fine')
+          PY
+
+      # The window itself, on a virtual display. tkinter importing is not the
+      # same as tkinter being able to open something.
+      - name: Open the window (Linux, headless)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          cd /tmp/run/MeSH-Workbench-*
+          PYTHONPATH="$PWD/app/src" xvfb-run -a ./python/bin/python3.12 - <<'PY'
+          import tkinter as tk
+          r = tk.Tk(); r.withdraw()
+          print('Tk', r.tk.call('info', 'patchlevel'), '- a window can be created')
+          r.destroy()
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: 'build/MeSH-Workbench-*.tar.gz'
+
+  publish:
+    needs: [windows, unix]
+    runs-on: ubuntu-latest
+    # Only on a hand-run with the box ticked. Never on a tag.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -la dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            Download the one file for your system. Each carries its own Python -
+            nothing needs installing first.
+
+            | System | File |
+            | :--- | :--- |
+            | Windows | `...-windows.msi` - double-click |
+            | Linux | `...-linux-x86_64.tar.gz` - extract, then `./"MeSH Workbench"` |
+            | macOS (Apple silicon) | `...-macos-arm64.tar.gz` - extract, then `./"MeSH Workbench"` |
+
+            **macOS users:** the download is unsigned, so macOS quarantines it.
+            The launcher clears that itself on first run - no password, no Apple
+            account, nothing to pay. Open Terminal, `cd` to the extracted folder
+            and run `./"MeSH Workbench"`. If you would rather do it by hand:
+
+                xattr -dr com.apple.quarantine "/path/to/the/folder"
