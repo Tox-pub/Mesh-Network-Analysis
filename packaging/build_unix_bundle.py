@@ -315,6 +315,40 @@ export PYTHONPATH
 exec "$PY" -m mesh_workbench "$@"
 """
 
+UNINSTALL_SH = """#!/bin/sh
+# Remove what this program put OUTSIDE this folder.
+#
+# The bundle is self-contained, but the things it produces are not: settings
+# and downloaded data go under ~/.local/share/MeSH Workbench, and results go to
+# ~/Documents/MeSH Workbench, so that a database survives replacing the program
+# and two people on one machine do not share a results folder.
+#
+# That means deleting this folder is NOT a complete uninstall - it can leave
+# tens of gigabytes behind. This lists what exists, asks, and removes it.
+# Afterwards, delete this folder and nothing of the program remains.
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PY="$HERE/python/bin/python3.12"
+
+if [ ! -f "$HERE/.installed" ]; then
+    echo "First run: unpacking the libraries (no network needed)..."
+    "$PY" -m pip install --quiet --no-index --find-links "$HERE/wheels" \\
+        --no-warn-script-location -r "$HERE/requirements.txt"
+    touch "$HERE/.installed"
+fi
+
+PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+"$PY" -m mesh_aop.uninstall_cli "$@"
+
+echo
+echo "That covered everything outside this folder."
+echo "To finish, delete the folder itself:"
+echo
+echo "    rm -rf \\"$HERE\\""
+echo
+"""
+
 PIPELINE_SH = """#!/bin/sh
 # The pipeline, without the window - for a machine with no desktop.
 set -e
@@ -378,7 +412,7 @@ def _unix_permissions(info):
     elif ('/python/bin/' in name
             or name.endswith(('.so', '.dylib'))
             or '.so.' in os.path.basename(name)
-            or os.path.basename(name) in ('MeSH Workbench', 'mesh-pipeline')):
+            or os.path.basename(name) in ('MeSH Workbench', 'mesh-pipeline', 'mesh-uninstall')):
         info.mode = 0o755
     else:
         info.mode = 0o644
@@ -431,7 +465,9 @@ def build(target, out_dir, stripped=True):
               encoding='utf-8', newline='\n') as fh:
         fh.write('\n'.join(wheeled + pure) + '\n')
 
-    for fname, body in (('MeSH Workbench', LAUNCH_SH), ('mesh-pipeline', PIPELINE_SH)):
+    for fname, body in (('MeSH Workbench', LAUNCH_SH),
+                        ('mesh-pipeline', PIPELINE_SH),
+                        ('mesh-uninstall', UNINSTALL_SH)):
         path = os.path.join(staging, fname)
         with open(path, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(body)
@@ -489,9 +525,32 @@ TO CHECK IT WORKS WITHOUT DOWNLOADING 44 GB
     run Step 4 - Figures. The reference corpus is in this folder, so that
     draws every figure and the PRISMA report from data already on disk.
 
-The folder can be moved or copied anywhere, including onto a USB stick.
-Delete it to uninstall; nothing is written outside it until you choose a data
-folder on first run.
+WHERE YOUR FILES GO
+
+    The program is self-contained, but what it produces is not - so that a
+    database survives replacing the program, and two people on one machine do
+    not share a results folder. On the first run you are asked where these
+    should live. Answer with anything you like; the defaults are:
+
+        ~/.local/share/MeSH Workbench/data      downloads and databases
+                                                THIS IS THE BIG ONE, ~52 GB
+        ~/Documents/MeSH Workbench              your results and figures
+        ~/.local/share/MeSH Workbench           settings and logs
+
+    The Folders tab shows the paths actually in use at any time.
+
+TO UNINSTALL
+
+    ./mesh-uninstall
+
+    That lists everything the program put outside this folder, tells you how
+    much space each takes, and asks before removing anything. Then delete this
+    folder and nothing remains.
+
+    Deleting the folder ALONE is not enough - it can leave tens of gigabytes
+    of downloaded data behind.
+
+The folder itself can be moved or copied anywhere, including onto a USB stick.
 ''')
 
     archive = os.path.join(out_dir, stem + '.tar.gz')

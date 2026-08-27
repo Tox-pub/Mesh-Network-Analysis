@@ -56,7 +56,7 @@ def verify(path):
                     'app/src/mesh_aop/cli.py',
                     'app/src/mesh_workbench/app.py',
                     'wheels', 'requirements.txt', 'README.txt',
-                    'MeSH Workbench', 'mesh-pipeline'):
+                    'MeSH Workbench', 'mesh-pipeline', 'mesh-uninstall'):
             check(get(rel) is not None, f'present: {rel}')
 
         # ------------------------------------------------------ permissions
@@ -76,7 +76,7 @@ def verify(path):
 
         # ------------------------------------------------------- launchers
         print('\n-- launchers')
-        for rel in ('MeSH Workbench', 'mesh-pipeline'):
+        for rel in ('MeSH Workbench', 'mesh-pipeline', 'mesh-uninstall'):
             m = get(rel)
             if not m:
                 continue
