@@ -55,8 +55,8 @@ from .viz import (
     configure_output,
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
-    plot_louvain_community_bars, plot_joint_plot, plot_tsne_louvain_overlap,
-    plot_sankey_alluvial, plot_dumbell_plot, plot_scatter_panels, plot_dendrogram
+    plot_louvain_community_bars, plot_tsne_louvain_overlap,
+    plot_sankey_alluvial, plot_dendrogram
 )
 
 try:
@@ -107,6 +107,38 @@ def open_readme():
             subprocess.call(["xdg-open", readme_path])
     except Exception as e:
         print(f"[!] Error opening file: {e}")
+
+# The figures the user can turn off, in the order they are drawn. Absent from
+# the config means on: an existing settings file predates these switches, and
+# silently drawing nothing would be the worst possible reading of that.
+FIGURE_SWITCHES = [
+    ('distribution', 'Fig 1 - Edge weight distribution'),
+    ('optimisation', 'Fig 2 - Optimisation comparison'),
+    ('communities',  'Fig 3 - Community composition'),
+    ('tsne',         'Fig 5 - t-SNE with communities'),
+    ('alluvial',     'Fig 6 - AOP alluvial flow'),
+    ('dendrogram',   'Node2Vec dendrogram'),
+]
+
+
+def _figure_on(config, name):
+    """Whether this figure is ticked on the Figures tab."""
+    value = config.params.get('viz_parameters', {}).get(f'fig_{name}')
+    return True if value is None else bool(value)
+
+
+def _report_skipped_figures(config):
+    """Say what was left out, rather than let it look like a failure.
+
+    A figure that simply does not appear is indistinguishable from one that
+    crashed quietly, and the run is long enough that nobody wants to guess.
+    """
+    off = [label for name, label in FIGURE_SWITCHES if not _figure_on(config, name)]
+    if off:
+        print(f"\n    {len(off)} figure(s) turned off on the Figures tab, not drawn:")
+        for label in off:
+            print(f"      - {label}")
+
 
 def _is_valid_db(db_path, table_name="pmids_table"):
     """Return True if the SQLite file exists, is non-empty, and contains the expected table."""
@@ -704,11 +736,11 @@ def main():
             _, edge_df, _ = load_and_prepare_data(config.files['final_network'], run_anno_path)
             raw_edge_df, raw_all_edges = load_full_raw_data(config.files['full_network'])
 
-            if raw_edge_df is not None:
+            if raw_edge_df is not None and _figure_on(config, 'distribution'):
                 analyze_dispersion(raw_edge_df, str(config.figures_dir), config.prefix)
                 plot_cooccurrance_distribution(raw_edge_df, edge_df, str(config.figures_dir), config.prefix)
 
-            if raw_all_edges and os.path.exists(opt_hist_path):
+            if raw_all_edges and os.path.exists(opt_hist_path) and _figure_on(config, 'optimisation'):
                 run_optimization_comparison(
                     history_json_path=opt_hist_path,
                     output_dir=str(config.figures_dir),
@@ -849,14 +881,17 @@ def main():
 
             node_df, edge_df, G = load_and_prepare_data(config.files['final_network'], run_anno_path)
 
-            plot_louvain_community_bars(node_df, str(config.figures_dir), config.prefix)
-            plot_joint_plot(node_df, str(config.figures_dir), config.prefix)
-            plot_tsne_louvain_overlap(node_df, G, str(config.figures_dir), config.prefix)
-            plot_sankey_alluvial(G, node_df, str(config.figures_dir), config.prefix)
-            plot_dumbell_plot(node_df, str(config.figures_dir), config.prefix)
-            plot_scatter_panels(node_df, str(config.figures_dir), config.prefix)
-            plot_dendrogram(G, node_df, str(config.figures_dir), config.prefix,
-                            random_seed=config.get('analysis_parameters', 'random_seed') or 42)
+            figs = str(config.figures_dir)
+            if _figure_on(config, 'communities'):
+                plot_louvain_community_bars(node_df, figs, config.prefix)
+            if _figure_on(config, 'tsne'):
+                plot_tsne_louvain_overlap(node_df, G, figs, config.prefix)
+            if _figure_on(config, 'alluvial'):
+                plot_sankey_alluvial(G, node_df, figs, config.prefix)
+            if _figure_on(config, 'dendrogram'):
+                plot_dendrogram(G, node_df, figs, config.prefix,
+                                random_seed=config.get('analysis_parameters', 'random_seed') or 42)
+            _report_skipped_figures(config)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
         gt_enabled = False

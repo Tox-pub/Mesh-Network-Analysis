@@ -444,7 +444,6 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figure 4:** MRS Centrality correlations (Betweenness vs PageRank).
 * **Figure 5:** t-SNE projection of the network colored by Louvain community.
 * **Figure 6:** AOP Alluvial/Sankey flows (The primary visualization connecting Stressors to Outcomes). *(Note: Provided as interactive `.html` files for deep pathway inspection).*
-* **Figure 7:** Dumbbell plots assessing shift in topological vs semantic relevance.
 
 
 

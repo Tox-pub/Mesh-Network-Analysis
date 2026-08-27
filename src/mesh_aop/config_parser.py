@@ -112,7 +112,16 @@ class MeshConfig:
             # roughly quadruples both time and file size.
             "viz_parameters": {
                 "figure_dpi": 300,
-                "figure_formats": "jpeg,tif"
+                "figure_formats": "jpeg,tif",
+                # One switch per figure, all on. Absent from a user's file means
+                # on as well - a settings file written before these existed must
+                # not be read as "draw nothing".
+                "fig_distribution": True,
+                "fig_optimisation": True,
+                "fig_communities": True,
+                "fig_tsne": True,
+                "fig_alluvial": True,
+                "fig_dendrogram": True
             },
             "network_parameters": {
                 "lambda_val": 1.0,

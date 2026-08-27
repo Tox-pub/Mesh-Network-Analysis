@@ -352,6 +352,51 @@ TABS = [
           'A name the network does not carry fails the validation step.'),
     ]),
     ('Figures', [
+        F('_heading.which_figures', 'Which figures to draw', 'heading', '',
+          'Untick anything you do not need. Each is drawn from the finished '
+          'network, so leaving one out costs nothing but that figure - and a '
+          'few of them are slow.', '', ''),
+        F('viz_parameters.fig_distribution', 'Fig 1 - Edge weight distribution',
+          'bool', True,
+          'Co-occurrence counts before and after consensus filtering, overlaid.',
+          'Default: on.',
+          'The evidence that filtering removed the long tail rather than the '
+          'signal. Drawn by the network step, not the figures step.'),
+        F('viz_parameters.fig_optimisation', 'Fig 2 - Optimisation comparison',
+          'bool', True,
+          'GLF against simulated annealing over the filtering search.',
+          'Default: on.',
+          'Only has anything to draw if the optimisation history was written, '
+          'which the network step does as it runs.'),
+        F('viz_parameters.fig_communities', 'Fig 3 - Community composition',
+          'bool', True,
+          'AOP-level make-up of each Louvain community, as stacked bars.',
+          'Default: on.',
+          'Needs AOP levels assigned. With everything left Unassigned it draws '
+          'one bar and says nothing.'),
+        F('viz_parameters.fig_tsne', 'Fig 5 - t-SNE with communities',
+          'bool', True,
+          't-SNE of the graph distance matrix, coloured by community.',
+          'Default: on.',
+          'The slowest of the static figures on a large network, and the '
+          'projection is stochastic - it is reproducible only because the '
+          'random seed on the Analysis tab fixes it.'),
+        F('viz_parameters.fig_alluvial', 'Fig 6 - AOP alluvial flow',
+          'bool', True,
+          'Interactive Sankey from stressors through to adverse outcomes.',
+          'Default: on.',
+          'Writes both a labelled and an unlabelled HTML version, plus the '
+          'connection table behind them. The one figure that shows the pathway '
+          'as a pathway.'),
+        F('viz_parameters.fig_dendrogram', 'Node2Vec dendrogram',
+          'bool', True,
+          'Ward clustering of Node2Vec embeddings, leaves coloured by AOP level.',
+          'Default: on.',
+          'Trains an embedding first, so it is the most expensive figure here. '
+          'Reproducible run to run: the walks are seeded and gensim is trained '
+          'single-threaded so the result does not depend on thread timing.'),
+        F('_heading.figure_output', 'Output format', 'heading', '',
+          'How every figure ticked above is written to disk.', '', ''),
         F('viz_parameters.figure_dpi', 'Resolution (dpi)', 'int', 300,
           'Dots per inch for every raster figure the run produces.',
           'Default: 300, the usual journal minimum for a raster figure.',

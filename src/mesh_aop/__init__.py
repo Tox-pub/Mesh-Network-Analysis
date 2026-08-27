@@ -76,11 +76,8 @@ _EXPORTS = {
     "plot_cooccurrance_distribution": "viz",
     "run_optimization_comparison": "viz",
     "plot_louvain_community_bars": "viz",
-    "plot_joint_plot": "viz",
     "plot_tsne_louvain_overlap": "viz",
     "plot_sankey_alluvial": "viz",
-    "plot_dumbell_plot": "viz",
-    "plot_scatter_panels": "viz",
     "plot_dendrogram": "viz",
     "generate_filtering_summary_sankeys": "viz",
 }

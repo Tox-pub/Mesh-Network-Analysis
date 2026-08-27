@@ -31,10 +31,7 @@ from sklearn.manifold import TSNE
 import statsmodels.api as sm
 from statsmodels.discrete.truncated_model import TruncatedLFNegativeBinomialP
 import plotly.graph_objects as go
-from adjustText import adjust_text
 from collections import defaultdict
-import io
-from contextlib import redirect_stdout
 
 # Relative imports from our package
 from .stats import calculate_graph_stats
@@ -415,52 +412,6 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
     finally:
         plt.close('all')
 
-def plot_joint_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 4: joint scatter + marginal histograms of betweenness vs PageRank MRS."""
-    print("\n<<< Generating Figure 4: MRS Correlation Joint Plot >>>")
-    try:
-        plot_df = node_df[(node_df['MRS_betweenness'] > 0) & (node_df['MRS_pagerank'] > 0)].copy()
-
-        if plot_df.empty:
-            print("[!] Error: No strictly positive MRS values available.")
-            return
-
-        fig = plt.figure(figsize=(12, 12))
-        gs = fig.add_gridspec(2, 2, width_ratios=(4, 1), height_ratios=(1, 4), left=0.1, right=0.9, bottom=0.1, top=0.9, wspace=0.05, hspace=0.05)
-        ax_scat = fig.add_subplot(gs[1, 0])
-        ax_histx = fig.add_subplot(gs[0, 0], sharex=ax_scat)
-        ax_histy = fig.add_subplot(gs[1, 1], sharey=ax_scat)
-
-        ax_scat.set_xscale('log')
-        ax_scat.set_yscale('log')
-
-        ax_histx.tick_params(axis="x", which="both", bottom=True, labelbottom=False)
-        ax_histy.tick_params(axis="y", which="both", left=True, labelleft=False)
-
-        sns.scatterplot(data=plot_df, x='MRS_betweenness', y='MRS_pagerank', hue='aop_level', style='aop_level', markers=MARKERS_LIST, palette='magma_r', hue_order=AOP_ORDER, s=60, alpha=0.7, ax=ax_scat)
-        
-        ax_scat.grid(True, which="both", ls="--", alpha=0.5)
-        ax_histx.grid(True, axis="x", which="both", ls="--", alpha=0.5)
-        ax_histy.grid(True, axis="y", which="both", ls="--", alpha=0.5)
-
-        ax_scat.legend(title=r"$\bf{AOP\ Level}$", bbox_to_anchor=(1.02, 1), loc='lower left')
-        ax_scat.set_xlabel('MRS (Betweenness)', fontsize=12)
-        ax_scat.set_ylabel('MRS (PageRank)', fontsize=12)
-
-        sns.histplot(data=plot_df, x='MRS_betweenness', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histx, log_scale=True, bins=15)
-        sns.histplot(data=plot_df, y='MRS_pagerank', hue='aop_level', multiple="stack", palette='magma_r', hue_order=AOP_ORDER, legend=False, ax=ax_histy, log_scale=True, bins=15)
-
-        top = pd.concat([plot_df.nlargest(5, 'MRS_betweenness'), plot_df.nlargest(5, 'MRS_pagerank')]).drop_duplicates()
-        texts = [ax_scat.text(row['MRS_betweenness'], row['MRS_pagerank'], idx, fontsize=9) for idx, row in top.iterrows()]
-
-        with redirect_stdout(io.StringIO()):
-            adjust_text(texts, ax=ax_scat, arrowprops=dict(arrowstyle="-", color='black', lw=0.5))
-
-        save_high_res("Joint_Plot_Final", output_dir, file_prefix)
-    except Exception as e:
-        print(f"[!] Error generating Figure 4: {e}")
-    finally:
-        plt.close('all')
 
 def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: str, file_prefix: str):
     """Figure 5: t-SNE projection of the graph distance matrix, coloured by Louvain community."""
@@ -587,105 +538,6 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
     except Exception as e:
         print(f"[!] Error generating Figure 6 (Alluvial Flow): {e}")
 
-def plot_dumbell_plot(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 7: dumbbell plot of the nodes with the largest shift between betweenness and PageRank MRS."""
-    print("\n<<< Figure 7: Dumbbell Plot >>>")
-    try:
-        df_plot = node_df.copy()
-        df_plot['diff'] = (df_plot['MRS_betweenness'] - df_plot['MRS_pagerank']).abs()
-        top_diff = df_plot.nlargest(20, 'diff').sort_values('MRS_betweenness')
-
-        plt.figure(figsize=(10, 8))
-        plt.hlines(y=top_diff.index, xmin=top_diff['MRS_betweenness'], xmax=top_diff['MRS_pagerank'], color='gray', alpha=0.5, linewidth=1.5, zorder=1)
-        colors = ["#2C3E50", "#B0B0B0"]
-        plt.scatter(top_diff['MRS_betweenness'], top_diff.index, color=colors[0], s=100, zorder=2, label='Betweenness')
-        plt.scatter(top_diff['MRS_pagerank'], top_diff.index, color=colors[1], s=100, zorder=2, label='PageRank')
-
-        ax = plt.gca()
-        for lbl in ax.get_yticklabels():
-            if lbl.get_text() in top_diff.index:
-                lvl = top_diff.loc[lbl.get_text(), 'aop_level']
-                if pd.notna(lvl) and lvl in AOP_COLOR_MAP:
-                    lbl.set_color(AOP_COLOR_MAP[lvl])
-                    lbl.set_fontweight('bold')
-
-        leg_h = ([mpatches.Patch(color='none', label=r"$\bf{AOP\ Level}$")] +
-                 [mpatches.Patch(color=c, label=l) for l, c in AOP_COLOR_MAP.items()] +
-                 [mpatches.Patch(color='none', label="")] +
-                 [mpatches.Patch(color='none', label=r"$\bf{Method}$")] +
-                 [mpatches.Patch(color=colors[0], label='Betweenness'), mpatches.Patch(color=colors[1], label='PageRank')])
-
-        plt.legend(handles=leg_h, loc='lower right', bbox_to_anchor=(1.0, 0.0))
-        plt.xlabel("Mean Relevancy Score (MRS)")
-        plt.tight_layout()
-        save_high_res("MRS_Dumbbell_Plot_Top20", output_dir, file_prefix)
-    except Exception as e:
-        print(f"[!] Error generating Figure 7 (Dumbbell Plot): {e}")
-    finally:
-        plt.close('all')
-
-def _overlay_loglog_fits(ax, plot_df: pd.DataFrame, x_col: str, y_col: str, min_points: int = 3):
-    """Draw per-stratum power-law trend lines on an axis that is already log-log.
-
-    Seaborn fits in LINEAR space, and its `logx` option fits only y ~ log(x), so
-    letting lmplot draw the line here produced a straight line in linear units
-    rendered on log axes: it looked like a power law, was dominated by the few
-    largest-x points, and its slope was not the exponent quoted in the caption.
-    Fitting log10(y) on log10(x) makes the drawn line and the reported exponent
-    the same object. Colours come from AOP_COLOR_MAP, which is built from the same
-    magma_r ramp lmplot uses for the points, so line and markers stay matched.
-    """
-    fits = []
-    for level in AOP_ORDER:
-        grp = plot_df[plot_df['aop_level'] == level]
-        if len(grp) < min_points:
-            if len(grp) > 0:
-                print(f"      {level:<18} n={len(grp):<4} (fewer than {min_points} points, not fitted)")
-            continue
-        lx = np.log10(grp[x_col].to_numpy(dtype=float))
-        ly = np.log10(grp[y_col].to_numpy(dtype=float))
-        slope, intercept = np.polyfit(lx, ly, 1)
-        ss_tot = float(((ly - ly.mean()) ** 2).sum())
-        r2 = 1.0 - float(((ly - (intercept + slope * lx)) ** 2).sum()) / ss_tot if ss_tot > 0 else float('nan')
-        xs = np.linspace(lx.min(), lx.max(), 50)
-        ax.plot(10 ** xs, 10 ** (intercept + slope * xs), color=AOP_COLOR_MAP.get(level),
-                lw=2.0, alpha=0.9, zorder=4)
-        fits.append((level, len(grp), slope, r2))
-        print(f"      {level:<18} n={len(grp):<4} slope {slope:+.3f}   R2 {r2:.3f}")
-    return fits
-
-
-def plot_scatter_panels(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 8: log-log scatter panels of each raw centrality against its mean relevancy score."""
-    print("\n<<< Figure 8: Centrality Scatter Plots (MRS vs Raw) >>>")
-    try:
-        print("  - Generating Panel C: Raw Betweenness vs MRS (Betweenness)...")
-        plot_df_b = node_df[(node_df['betweenness_centrality'] > 0) & (node_df['MRS_betweenness'] > 0)]
-        g_b = sns.lmplot(data=plot_df_b, x='betweenness_centrality', y='MRS_betweenness', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
-        ax_b = g_b.ax
-        ax_b.set_xscale('log'); ax_b.set_yscale('log')
-        _overlay_loglog_fits(ax_b, plot_df_b, 'betweenness_centrality', 'MRS_betweenness')
-        ax_b.set_xlabel('Raw Betweenness Centrality (Log Scale)', fontsize=12)
-        ax_b.set_ylabel('MRS (Betweenness) (Log Scale)', fontsize=12)
-        ax_b.grid(True, which="both", ls="--", alpha=0.5)
-        save_high_res("Panel_C_Scatter_Betweenness", output_dir, file_prefix)
-        plt.close()
-
-        print("  - Generating Panel D: Raw PageRank vs MRS (PageRank)...")
-        plot_df_p = node_df[(node_df['pagerank_centrality'] > 0) & (node_df['MRS_pagerank'] > 0)]
-        g_p = sns.lmplot(data=plot_df_p, x='pagerank_centrality', y='MRS_pagerank', hue='aop_level', palette='magma_r', hue_order=AOP_ORDER, height=8, aspect=1.1, fit_reg=False, legend=False, markers=MARKERS_LIST, scatter_kws={'s': 50, 'alpha': 0.7})
-        ax_p = g_p.ax
-        ax_p.set_xscale('log'); ax_p.set_yscale('log')
-        _overlay_loglog_fits(ax_p, plot_df_p, 'pagerank_centrality', 'MRS_pagerank')
-        ax_p.set_xlabel('Raw PageRank Centrality (Log Scale)', fontsize=12)
-        ax_p.set_ylabel('MRS (PageRank) (Log Scale)', fontsize=12)
-        ax_p.grid(True, which="both", ls="--", alpha=0.5)
-        save_high_res("Panel_D_Scatter_PageRank", output_dir, file_prefix)
-        plt.close()
-    except Exception as e:
-        print(f"[!] Error generating Figure 8 (Scatter Panels): {e}")
-    finally:
-        plt.close('all')
 
 def _reproducible_hash(value):
     """Deterministic word hash so Word2Vec initialization is reproducible regardless
