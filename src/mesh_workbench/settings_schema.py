@@ -330,7 +330,9 @@ TABS = [
           'Adds roughly 20 minutes to the benchmark step.'),
         F('benchmark.run_ground_truth_analysis', 'Run ground-truth analysis', 'bool', False,
           'Score the network against the curated positive set.',
-          'Default: on when "Use bundled reference data" is on, off otherwise.',
+          'Default: off. Turning on "Use bundled reference data" forces it on '
+          'regardless, because the published reference run cannot be '
+          'reproduced without it.',
           'This also decides whether subgraph PageRank is computed, and the '
           'network step reads it - so set it before building the network, not '
           'afterwards.'),

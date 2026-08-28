@@ -140,6 +140,23 @@ def _report_skipped_figures(config):
             print(f"      - {label}")
 
 
+def _gt_wanted(config):
+    """Is the ground-truth analysis in play for this run?
+
+    Reference mode implies it. The intent was always "absent from the config
+    means follow reference data", but the settings form writes every key it
+    knows about on save, so the key is never absent once the window has been
+    used once - and an explicit false then defeated reference mode silently.
+    That mattered beyond the benchmark itself: this same answer decides whether
+    the subgraph centralities are computed at the network stage, so a reference
+    run was quietly producing a network missing six node attributes that the
+    published one has.
+    """
+    if bool(config.get('control_flags', 'use_reference_data')):
+        return True
+    return bool(config.params.get('benchmark', {}).get('run_ground_truth_analysis'))
+
+
 def _is_valid_db(db_path, table_name="pmids_table"):
     """Return True if the SQLite file exists, is non-empty, and contains the expected table."""
     if not os.path.exists(db_path) or os.path.getsize(db_path) == 0:
@@ -673,10 +690,7 @@ def main():
             # rather than a toggle of its own. It has to be decided here, at the
             # network stage, because it changes which centralities get computed.
             _bench = config.params.get('benchmark', {})
-            include_subgraph_weightings = bool(_bench.get(
-                'run_ground_truth_analysis',
-                bool(config.get('control_flags', 'use_reference_data'))
-            ))
+            include_subgraph_weightings = _gt_wanted(config)
 
             run_step_6 = True
             if os.path.exists(config.files['consensus_lcc']):
@@ -735,7 +749,7 @@ def main():
                     calculate_full_centrality=config.get('analysis_parameters', 'calculate_full_centrality')
                 )
 
-            excel_path = os.path.join(config.results_dir, f"{config.prefix}_export.xlsx")
+            excel_path = os.path.join(config.secondary_dir, f"{config.prefix}_export.xlsx")
             convert_network_json_to_excel(config.files['final_network'], excel_path)
 
             # Generate Run-Specific Annotations Template
@@ -784,7 +798,7 @@ def main():
                 get_top_network_articles(
                     db_path=config.files['relevance_db'],
                     cleaned_db_path=config.files['cleaned_db'],
-                    results_dir=str(config.results_dir),
+                    results_dir=str(config.secondary_dir),
                     file_prefix=config.prefix, limit=export_limit, exclude_reviews=exclude_rev,
                     entrez_email=api_email, entrez_api_key=api_key,
                     sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
@@ -796,7 +810,7 @@ def main():
                         analyze_node_relevancy(
                             node_name=node_name, db_path=config.files['relevance_db'],
                             cleaned_db_path=config.files['cleaned_db'],
-                            results_dir=str(config.results_dir),
+                            results_dir=str(config.secondary_dir),
                             file_prefix=config.prefix, limit=export_limit, exclude_reviews=exclude_rev,
                             entrez_email=api_email, entrez_api_key=api_key,
                             sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
@@ -810,7 +824,7 @@ def main():
                             analyze_edge_relevancy(
                                 node1=parts[0], node2=parts[1], db_path=config.files['relevance_db'],
                                 cleaned_db_path=config.files['cleaned_db'],
-                                results_dir=str(config.results_dir),
+                                results_dir=str(config.secondary_dir),
                                 file_prefix=config.prefix, limit=export_limit, exclude_reviews=exclude_rev,
                                 entrez_email=api_email, entrez_api_key=api_key,
                                 sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
@@ -823,7 +837,7 @@ def main():
             run_network_overlay_comparison(
                 network_files=sec_params.get('comparison_networks', ''),
                 search_dir=str(config.active_source_dir),
-                results_dir=str(config.results_dir),
+                results_dir=str(config.secondary_dir),
                 file_prefix=config.prefix,
                 random_seed=config.get('analysis_parameters', 'random_seed') or 42
             )
@@ -931,11 +945,11 @@ def main():
             # the analysis on with reference data and off without it; an explicit
             # run_ground_truth_analysis in the config always wins.
             use_reference = bool(config.get('control_flags', 'use_reference_data'))
-            gt_enabled = bench_params.get('run_ground_truth_analysis', use_reference)
+            gt_enabled = _gt_wanted(config)
             if not gt_enabled:
-                print("  [i] Ground-truth analysis is disabled for this run "
-                      f"(follows 'Use Reference Data', currently {use_reference}).")
-                print("      Set benchmark.run_ground_truth_analysis to true to force it on.")
+                print("  [i] Ground-truth analysis is off for this run.")
+                print("      Tick 'Run ground-truth analysis' on the Benchmark tab, "
+                      "or turn on reference data.")
 
         if gt_enabled:
             # Own-data runs leave ground_truth_csv empty and auto-detect a file the
@@ -979,7 +993,7 @@ def main():
             # node/edge validation with its figures, and the validation/projection
             # report) are consolidated under results/benchmark/ so the outputs of this
             # step live in one place rather than scattered across results/.
-            bench_dir = config.results_dir / 'benchmark'
+            bench_dir = config.benchmark_dir
             os.makedirs(bench_dir, exist_ok=True)
             os.makedirs(bench_dir / 'validation', exist_ok=True)
 

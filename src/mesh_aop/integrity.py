@@ -253,6 +253,8 @@ def _orphans(directories):
     found = []
     patterns = ('.tmp', '.json.tmp', '.part', '.partial', '.crdownload', '.download')
     for d in directories:
+        if not d:
+            continue
         d = str(d)
         if not os.path.isdir(_paths.long_path(d)):
             continue
@@ -315,8 +317,16 @@ def scan(config, deep=False):
     add('relevance_db', f['relevance_db'], 'sqlite', 'network', COST_MINUTES,
         'Mean relevancy scores', 'article_relevance_scores')
 
+    # _orphans lists one directory at a time and does not recurse, so the
+    # networks and databases subfolders have to be named or a half-written file
+    # inside them would never be found.
     out.extend(_orphans([config.active_raw_dir, config.active_source_dir,
-                         config.results_dir]))
+                         getattr(config, 'networks_dir', None),
+                         getattr(config, 'databases_dir', None),
+                         config.results_dir,
+                         getattr(config, 'figures_dir', None),
+                         getattr(config, 'secondary_dir', None),
+                         getattr(config, 'benchmark_dir', None)]))
     return out
 
 

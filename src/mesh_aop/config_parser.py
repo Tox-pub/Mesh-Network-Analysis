@@ -309,16 +309,59 @@ class MeshConfig:
         else:
             self.results_dir = Path(_paths.default_user_results_dir(self.root))
 
+        # Working files were written flat into one folder, so the network JSONs
+        # a user might want to open sat among the SQLite databases the pipeline
+        # depends on - which is how someone deletes or edits a database meaning
+        # to touch a network. They are separated now.
+        self.networks_dir = self.active_source_dir / 'networks'
+        self.databases_dir = self.active_source_dir / 'databases'
+
         self.figures_dir = self.results_dir / 'figures'
+        # Results likewise: figures, secondary analysis and benchmarking each
+        # produce a handful of files, and mixed together in one folder none of
+        # them is findable.
+        self.secondary_dir = self.results_dir / 'secondary_analysis'
+        self.benchmark_dir = self.results_dir / 'benchmark'
         # Logs are machinery, not results. A portable copy keeps everything
         # together; an installed one keeps them in the user's private area.
         self.log_dir = (self.results_dir / 'logs'
                         if _paths.is_portable(self.root) else _paths.log_dir())
 
-        self.active_raw_dir.mkdir(parents=True, exist_ok=True)
-        self.active_source_dir.mkdir(parents=True, exist_ok=True)
-        self.figures_dir.mkdir(parents=True, exist_ok=True)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        wanted = [self.active_raw_dir, self.active_source_dir, self.figures_dir,
+                  self.secondary_dir, self.benchmark_dir, self.log_dir]
+        # Not in reference mode: that corpus is read-only, is never written to,
+        # and is copied into the installers - so creating empty subfolders there
+        # would only ship two empty directories to every user.
+        if not self.use_reference_data:
+            wanted[2:2] = [self.networks_dir, self.databases_dir]
+        for d in wanted:
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                # Reference mode reads a corpus inside the installed program
+                # folder, which may be read-only. Nothing is written there, so
+                # a directory that cannot be created is not an error - the
+                # lookup below falls back to the files that are already present.
+                pass
+
+    def _settled(self, preferred_dir, name):
+        """Where a working file lives: the new subfolder, or where it already is.
+
+        The networks and databases used to be written flat into the processed
+        folder. An existing project has hours of work sitting there - a cleaned
+        citation database, a relevance database - and moving files under someone
+        without asking is not something this should do on their behalf. So a
+        file already present in the old flat location is used from there; only
+        new ones are written to the subfolder. Nothing is orphaned and nothing
+        is silently relocated.
+
+        Reference mode benefits from the same rule: the bundled corpus is flat
+        and read-only, and is found without special-casing it.
+        """
+        legacy = self.active_source_dir / name
+        if not (preferred_dir / name).exists() and legacy.exists():
+            return legacy
+        return preferred_dir / name
 
     def _map_files(self):
         """Maps all explicit file paths required by the pipeline modules."""
@@ -327,14 +370,14 @@ class MeshConfig:
             "master_db": self.active_raw_dir / "master_mesh_database.db",
             "pmids_db": self.active_raw_dir / f"{self.prefix}_pmids.db",
 
-            "full_network": self.active_source_dir / f"{self.prefix}_full_network_data.json",
-            "glf_subgraph": self.active_source_dir / f"{self.prefix}_glf_optimal_subgraph.json",
-            "sa_subgraph": self.active_source_dir / f"{self.prefix}_sa_optimal_subgraph.json",
-            "consensus_lcc": self.active_source_dir / f"{self.prefix}_consensus_lcc_network.json",
-            "final_network": self.active_source_dir / f"{self.prefix}_final_network_with_relevance.json",
+            "full_network": self._settled(self.networks_dir, f"{self.prefix}_full_network_data.json"),
+            "glf_subgraph": self._settled(self.networks_dir, f"{self.prefix}_glf_optimal_subgraph.json"),
+            "sa_subgraph": self._settled(self.networks_dir, f"{self.prefix}_sa_optimal_subgraph.json"),
+            "consensus_lcc": self._settled(self.networks_dir, f"{self.prefix}_consensus_lcc_network.json"),
+            "final_network": self._settled(self.networks_dir, f"{self.prefix}_final_network_with_relevance.json"),
 
-            "cleaned_db": self.active_source_dir / f"{self.prefix}_cleaned_pmids.db",
-            "relevance_db": self.active_source_dir / f"{self.prefix}_mean_relevancy.db",
+            "cleaned_db": self._settled(self.databases_dir, f"{self.prefix}_cleaned_pmids.db"),
+            "relevance_db": self._settled(self.databases_dir, f"{self.prefix}_mean_relevancy.db"),
 
             "failed_mesh": self.log_dir / f"{self.prefix}_failed_mesh_fetches.tsv",
             "empty_mesh": self.log_dir / f"{self.prefix}_empty_mesh_pmids.tsv",

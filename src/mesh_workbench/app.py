@@ -611,9 +611,13 @@ class Workbench(tk.Tk):
             cfg = MeshConfig(config_path=self.cfg_path)
             return [
                 ('Downloaded archives and databases', str(cfg.active_raw_dir)),
-                ('Working files (networks, scores)', str(cfg.active_source_dir)),
+                ('Working files', str(cfg.active_source_dir)),
+                ('  ... networks', str(cfg.networks_dir)),
+                ('  ... project databases', str(cfg.databases_dir)),
                 ('Results', str(cfg.results_dir)),
-                ('Figures', str(cfg.figures_dir)),
+                ('  ... figures', str(cfg.figures_dir)),
+                ('  ... secondary analysis', str(cfg.secondary_dir)),
+                ('  ... benchmark', str(cfg.benchmark_dir)),
                 ('Logs', str(cfg.log_dir)),
                 ('Settings file', self.cfg_path),
             ]
@@ -1756,6 +1760,10 @@ class Workbench(tk.Tk):
         act.pack(fill='x', padx=10, pady=9)
         tk.Button(act, text='Open results folder', width=18, font=self.f_bold,
                   command=self._open_results).pack(side='left')
+        self.btn_res_networks = tk.Button(
+            act, text='Open network folder', width=18, state='disabled',
+            command=lambda: self._open_path(self._networks_dir()))
+        self.btn_res_networks.pack(side='left', padx=4)
         self.btn_res_report = tk.Button(
             act, text='Open the full report', width=18, state='disabled',
             command=lambda: self._open_path(self._prisma_report_path()))
@@ -1828,32 +1836,67 @@ class Workbench(tk.Tk):
         self.btn_res_figure.config(state='normal' if has_fig else 'disabled')
 
         # -- the file listing ---------------------------------------------
+        # Two sections. Results are what the run produced for the user to read.
+        # The networks are the graphs themselves, which live in the data folder
+        # rather than here, and which someone may well want to open in Cytoscape
+        # or load into their own code - they were not listed anywhere at all, so
+        # the only way to find them was to already know the path.
+        results_rows = self._listing(d)
+        networks_dir = self._networks_dir()
+        network_rows = self._listing(networks_dir)
+
+        self.res_title.config(text=f'Results  -  {len(results_rows)} files in {d}')
+        self.res_text.config(state='normal')
+        self.res_text.delete('1.0', 'end')
+        self._write_section('RESULTS', d, results_rows, first=True)
+        self._write_section('NETWORKS', networks_dir, network_rows)
+        self.res_text.config(state='disabled')
+        self.btn_res_networks.config(
+            state='normal' if os.path.isdir(networks_dir or '') else 'disabled')
+
+    def _listing(self, folder, limit=400):
+        """(mtime, name relative to folder, size) for a tree, newest first."""
         rows = []
-        for base, _, files in os.walk(d):
+        if not folder or not os.path.isdir(folder):
+            return rows
+        for base, _, files in os.walk(folder):
             for f in sorted(files):
                 path = os.path.join(base, f)
                 try:
                     rows.append((os.path.getmtime(path),
-                                 os.path.relpath(path, d).replace('\\', '/'),
+                                 os.path.relpath(path, folder).replace('\\', '/'),
                                  os.path.getsize(path)))
                 except OSError:
                     continue
         rows.sort(reverse=True)
-        self.res_title.config(text=f'Results  -  {len(rows)} files in {d}')
-        self.res_text.config(state='normal')
-        self.res_text.delete('1.0', 'end')
+        return rows
+
+    def _write_section(self, title, folder, rows, first=False, limit=400):
+        """One headed block of the file listing, with its folder named."""
+        import datetime
+        t = self.res_text
+        if not first:
+            t.insert('end', '\n')
+        t.insert('end', f'{title}    {folder or "(not resolved)"}\n')
+        t.insert('end', '=' * 92 + '\n')
         if not rows:
-            self.res_text.insert('end', '  Nothing here yet.\n')
-        else:
-            import datetime
-            self.res_text.insert('end', f'{"modified":<18}{"size":>12}  file\n')
-            self.res_text.insert('end', '-' * 92 + '\n')
-            for mt, rel, sz in rows[:400]:
-                ts = datetime.datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M')
-                self.res_text.insert('end', f'{ts:<18}{sz/1024:>10,.0f} KB  {rel}\n')
-            if len(rows) > 400:
-                self.res_text.insert('end', f'... and {len(rows)-400} more\n')
-        self.res_text.config(state='disabled')
+            t.insert('end', '  Nothing here yet.\n')
+            return
+        t.insert('end', f'{"modified":<18}{"size":>12}  file\n')
+        t.insert('end', '-' * 92 + '\n')
+        for mt, rel, sz in rows[:limit]:
+            ts = datetime.datetime.fromtimestamp(mt).strftime('%Y-%m-%d %H:%M')
+            t.insert('end', f'{ts:<18}{sz/1024:>10,.0f} KB  {rel}\n')
+        if len(rows) > limit:
+            t.insert('end', f'... and {len(rows)-limit} more\n')
+
+    def _networks_dir(self):
+        """Where the network JSONs are - asked of the config, never guessed."""
+        try:
+            from mesh_aop.config_parser import MeshConfig
+            return str(MeshConfig(config_path=self.cfg_path).networks_dir)
+        except Exception:
+            return ''
 
     def open_results(self):
         self.refresh_results()
