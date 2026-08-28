@@ -1464,6 +1464,20 @@ class Workbench(tk.Tk):
             return
         step = step or 'all'
         title = title or step
+        # Refused here rather than started and abandoned a second later. The
+        # pipeline refuses it too - this is so the user is told before a console
+        # opens, not after.
+        if step == 'data_ops' and self.vars['control_flags.use_reference_data'].get():
+            messagebox.showinfo(
+                'Nothing to retrieve',
+                '"Use bundled reference data" is ticked on the Search tab, so '
+                'the corpus is already built and shipped with the program - '
+                'there is nothing for a PubMed search to fetch.\n\n'
+                'To retrieve your own corpus, untick it. Your own search term '
+                'and dates come back as you left them.\n\n'
+                'To use the reference corpus, run the figures or the benchmark '
+                'instead: the network they need is already here.')
+            return
         if not self._confirm_overwrite(step):
             return
         # Remembered so the finished run can send the user where the thing it

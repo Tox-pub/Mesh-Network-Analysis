@@ -724,7 +724,29 @@ def main():
             _initialize_master_annotations(config.files['mesh_terms_csv'], config.files['annotations'])
 
         # <<< STEP 2: Entrez Data Collection >>>
-        if args.step in ['all', 'data_ops']:
+        # Retrieval against the bundled corpus is meaningless: that corpus is
+        # already built, and querying PubMed would produce a different one under
+        # the reference name. Asking for it outright is refused; a full run
+        # skips it and carries on, because the rest of the pipeline has real
+        # work to do against the shipped network.
+        _skip_retrieval = args.step in ['all', 'data_ops'] and config.use_reference_data
+        if _skip_retrieval and args.step == 'data_ops':
+            print("\n" + "<" * 30 + ">" * 30)
+            print("Retrieval does not run against the bundled reference corpus")
+            print("<" * 30 + ">" * 30)
+            print("  'Use bundled reference data' is ticked, which means the corpus")
+            print("  is already built and shipped with the program - there is nothing")
+            print("  for a PubMed search to fetch.")
+            print("\n  To retrieve your own corpus, untick it on the Search tab. Your")
+            print("  own search term and dates come back as you left them.")
+            print("\n  To use the reference corpus, skip to the figures or the")
+            print("  benchmark - the network it needs is already here.")
+            sys.exit(1)
+        if _skip_retrieval:
+            print("\n>>> SKIPPING: Step 2 - retrieval, because the bundled reference")
+            print("    corpus is in use and is already built. Nothing to fetch.")
+
+        if args.step in ['all', 'data_ops'] and not _skip_retrieval:
             runcontrol.checkpoint("before Step 2")
             print("\n>>> STARTING: Step 2 - Entrez Data Collection & Database Operations")
 

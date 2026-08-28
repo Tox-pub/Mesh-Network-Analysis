@@ -39,6 +39,38 @@ STEPS = [
 
 TABS = [
     ('Search', [
+        # First on the first tab, deliberately. It decides most of the fields
+        # below it, and putting it here means a user sees them grey out the
+        # moment it is ticked instead of finding them locked later with no
+        # visible cause.
+        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
+          'Analyse the reference corpus that shipped with the program instead '
+          'of building one from your own PubMed search.',
+          'Default: off - the normal case is analysing your own corpus.',
+          'TICK THIS AND THE PROGRAM ANALYSES A NETWORK THAT ALREADY EXISTS. '
+          'The allergic contact dermatitis network published with this software '
+          'is included in the download, already built and scored, so figures and '
+          'benchmarking take minutes instead of a fourteen-hour run.\n'
+          '\n'
+          'What it changes:\n'
+          '  - The network, the AOP stratum dictionary and the ground-truth set '
+          'are read from the program folder, not built here.\n'
+          '  - The settings that describe that corpus - the search term, both '
+          'date windows, the citation depth, the random seed and the benchmark '
+          'primary node - are set for you and shown greyed out. They are the '
+          'values the published run used; anything else would produce figures '
+          'labelled with a query that did not make them.\n'
+          '  - Retrieval will not run. There is nothing to retrieve: the corpus '
+          'is already here. Choosing the retrieval step is refused, and a full '
+          'run skips it.\n'
+          '\n'
+          'What stays yours: figure resolution and formats, which figures are '
+          'drawn, your folders, your NCBI credentials, and everything already '
+          'in your own project. Your saved settings are not altered - untick '
+          'this and they come straight back.\n'
+          '\n'
+          'Files it produces are named Reference_... so they can never be '
+          'confused with your own.'),
         F('search_parameters.search_term', 'Search term', 'text', '',
           'The PubMed query that defines the starting article set (P0).',
           'Default: empty. There is no sensible query for another research '
@@ -154,12 +186,6 @@ TABS = [
           'Uncategorized, which drains the biological figures of meaning. Turn '
           'it on to stop partway and assign the strata first - that is the '
           'intended workflow for a real analysis, and it needs you present.'),
-        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
-          'Run against the shipped reference corpus instead of your own retrieval.',
-          'Default: off - the normal case is analysing your own corpus.',
-          'Turn it on to reproduce the published reference run, or to draw '
-          'figures before you have retrieved anything. While it is on, the run '
-          'scores the shipped network rather than yours.'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
