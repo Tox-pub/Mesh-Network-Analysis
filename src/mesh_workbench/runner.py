@@ -79,9 +79,17 @@ def classify(line):
 class PipelineRunner:
     """Runs `python -m mesh_aop.cli --step X` and streams its output."""
 
-    def __init__(self, repo_dir, python_exe=None):
+    def __init__(self, repo_dir, python_exe=None, config_path=None):
         self.repo_dir = repo_dir
         self.python_exe = python_exe or sys.executable
+        # The settings file this Workbench writes. Handed to every run as
+        # --config so the pipeline reads the file the user just saved, rather
+        # than resolving a bare 'mesh_config.json' against whatever directory
+        # the process was started in - which on an installed copy is a
+        # different file, usually one that does not exist, so the run quietly
+        # used factory defaults and reported the search term as empty while it
+        # sat filled in on the form.
+        self.config_path = config_path
         self.q = queue.Queue()
         self.proc = None
         self._t = None
@@ -120,7 +128,9 @@ class PipelineRunner:
         env['PYTHONIOENCODING'] = 'utf-8'
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
         self.proc = subprocess.Popen(
-            [self.python_exe, '-u', '-m', 'mesh_aop.cli', '--step', step] + list(extra or []),
+            [self.python_exe, '-u', '-m', 'mesh_aop.cli', '--step', step]
+            + (['--config', str(self.config_path)] if self.config_path else [])
+            + list(extra or []),
             cwd=self.repo_dir, env=env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             bufsize=0, creationflags=flags)

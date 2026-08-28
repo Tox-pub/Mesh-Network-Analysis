@@ -80,7 +80,8 @@ class Workbench(tk.Tk):
         self.cfg_path = str(_paths.config_path(repo_dir))
         self.cfg = self._load_cfg()
         self.vars = {}
-        self.runner = PipelineRunner(repo_dir, python_exe)
+        self.runner = PipelineRunner(repo_dir, python_exe,
+                                     config_path=self.cfg_path)
         self._elapsed = 0
         self._tick_job = None
         # Set when a run stops for AOP annotation, so _finish can tell an

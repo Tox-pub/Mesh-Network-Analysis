@@ -412,8 +412,18 @@ def main():
                             "  benchmark  : Step 5 - Validate ground-truth citations and benchmark ranking performance."
                         ))
 
-    parser.add_argument('--config', default='mesh_config.json',
-                        help="Path to the configuration JSON file. Defaults to 'mesh_config.json'.")
+    # Default None, NOT 'mesh_config.json'. A bare relative name is resolved
+    # against the working directory, so the pipeline opened a different file
+    # from the one the Workbench had just written: the window saves to the
+    # per-user settings path (paths.config_path()), while this opened
+    # ./mesh_config.json wherever the process happened to be started. On any
+    # installed copy that file does not exist, so every run silently used
+    # factory defaults - an empty search term, no credentials, the default data
+    # folder - and reported the search term as unset while the user was looking
+    # at it in the form. Passing None lets MeshConfig resolve the same path the
+    # Workbench does. An explicit --config still overrides it.
+    parser.add_argument('--config', default=None,
+                        help="Path to the configuration JSON file. Defaults to this copy's settings file.")
 
     parser.add_argument('--interactive', action='store_true',
                         help="Launch the interactive command-line wizard to modify parameters before execution.")
