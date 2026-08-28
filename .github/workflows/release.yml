@@ -106,8 +106,16 @@ jobs:
           wix extension add --global WixToolset.Util.wixext/5.0.2
           wix extension list --global
 
+      # Absolute paths. The .wxs harvests the tree with a glob on $(PortableDir),
+      # and WiX resolves a relative one against the .wxs file's own directory
+      # rather than the working directory - so a relative --portable here
+      # produced a 1 MB installer containing the UI and none of the application,
+      # without failing. The builder now makes the path absolute itself; this is
+      # explicit as well, because the next person to copy this line should see
+      # that it matters.
       - name: Build the MSI
-        run: python packaging/build_msi_windows.py --portable build/MeshWorkbench --out build
+        run: python packaging/build_msi_windows.py --portable "$env:GITHUB_WORKSPACE\build\MeshWorkbench" --out "$env:GITHUB_WORKSPACE\build"
+        shell: pwsh
 
       - name: Name it for the platform, and check its size
         shell: bash

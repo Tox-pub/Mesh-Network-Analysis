@@ -221,7 +221,17 @@ def main():
                     help='where to write the .msi (default: beside the portable build)')
     a = ap.parse_args()
 
-    portable = os.path.normpath(a.portable or default_portable())
+    # ABSOLUTE, always. The .wxs harvests the tree with
+    #     <Files Include="$(PortableDir)\**">
+    # and WiX resolves a relative Include against the .wxs file's own directory,
+    # which is packaging/ - not the working directory the build was started
+    # from. Given --portable build/MeshWorkbench, as CI does, it looked for
+    # packaging/build/MeshWorkbench, found nothing, and produced a 1 MB
+    # installer with the UI and the icon and none of the application. It did not
+    # fail: a glob that matches nothing is not an error to WiX. This ran green
+    # for as long as it did only because every local build passed an absolute
+    # path by habit.
+    portable = os.path.abspath(a.portable or default_portable())
     check_not_stale(portable, a.force)
     if not os.path.isdir(portable):
         sys.exit(f'portable build not found: {portable}\n'
@@ -232,7 +242,7 @@ def main():
 
     purge_runtime_artifacts(portable)
     wix = find_wix(a.wix)
-    out_dir = a.out or os.path.dirname(portable)
+    out_dir = os.path.abspath(a.out or os.path.dirname(portable))
     os.makedirs(out_dir, exist_ok=True)
     msi = os.path.join(out_dir, 'MeSH-Workbench-3.2.0-win64.msi')
 
@@ -262,7 +272,27 @@ def main():
 
     if not os.path.exists(msi):
         sys.exit('wix reported success but produced no .msi')
-    print(f'\n  msi      : {msi}  ({os.path.getsize(msi) / 1e6:,.0f} MB)')
+
+    # An installer far smaller than the tree it packages has harvested nothing.
+    # WiX does not treat a glob that matched no files as an error, so this is
+    # the only place the mistake becomes visible - and it was invisible for
+    # several releases. A compressed MSI is comfortably under half the tree, so
+    # a fifth of it is a generous floor that still catches an empty one.
+    tree_bytes = sum(os.path.getsize(os.path.join(b, f))
+                     for b, _, fs in os.walk(portable) for f in fs)
+    msi_bytes = os.path.getsize(msi)
+    if tree_bytes and msi_bytes < tree_bytes * 0.20:
+        sys.exit(
+            f'\nThe installer is {msi_bytes / 1e6:,.1f} MB but the tree it '
+            f'packages is {tree_bytes / 1e6:,.0f} MB.\n'
+            f'It has harvested little or none of the application.\n'
+            f'  portable : {portable}\n'
+            f'Check that this path exists and holds the build - the .wxs globs '
+            f'it as $(PortableDir)\\**, and WiX does not complain when that '
+            f'matches nothing.')
+
+    print(f'\n  msi      : {msi}  ({msi_bytes / 1e6:,.0f} MB '
+          f'from a {tree_bytes / 1e6:,.0f} MB tree)')
     print('\n  Installs per user, so msiexec asks for no elevation. Silent install:\n'
           f'    msiexec /i "{os.path.basename(msi)}" /qn')
 
