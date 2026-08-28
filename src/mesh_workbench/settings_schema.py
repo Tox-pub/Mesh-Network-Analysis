@@ -400,6 +400,47 @@ TABS = [
           'Trains an embedding first, so it is the most expensive figure here. '
           'Reproducible run to run: the walks are seeded and gensim is trained '
           'single-threaded so the result does not depend on thread timing.'),
+        F('viz_parameters.fig_network', 'Figure 7 - Network graph',
+          'bool', True,
+          'The consensus network drawn, with every term labelled and the nodes '
+          'coloured by one metric.',
+          'Default: on.',
+          'An overview rather than a working view - enough to see where the '
+          'hubs are and how the communities sit against each other. Open the '
+          'network JSON in Cytoscape for anything closer. The layout is '
+          'seeded from the random seed on the Analysis tab, so the same '
+          'network draws the same way every time.'),
+        F('viz_parameters.network_color_metric', 'Figure 7 - colour by',
+          'choice', 'MRS_pagerank_centrality',
+          'Which per-node number decides the colour of each term in Figure 7.',
+          'Default: MRS_pagerank_centrality.',
+          'Colours are viridis, min-max scaled across the terms drawn, so the '
+          'full range of the scale is used however narrow the spread is - dark '
+          'purple is the lowest value present, yellow the highest. The colour '
+          'bar carries the real numbers. A metric this network does not have - '
+          'the subgraph centralities, when the ground-truth analysis was off - '
+          'falls back to the first one it does have, and says so.',
+          ['MRS_pagerank_centrality',
+           'MRS_betweenness_centrality',
+           'MRS_eigenvector_centrality',
+           'MRS_pagerank_subgraph_centrality',
+           'MRS_betweenness_subgraph_centrality',
+           'MRS_eigenvector_subgraph_centrality',
+           'pagerank_centrality',
+           'betweenness_centrality',
+           'eigenvector_centrality',
+           'pagerank_subgraph_centrality',
+           'betweenness_subgraph_centrality',
+           'eigenvector_subgraph_centrality',
+           'adjusted_node_weight',
+           'article_count',
+           'degree',
+           'clustering_coefficient',
+           'major_topic_proportion',
+           'article_count_rank_normalized',
+           'rank_norm_mean_cit',
+           'rank_norm_median_cit',
+           'rank_norm_total_cit']),
         F('_heading.figure_output', 'Output format', 'heading', '',
           'How every figure ticked above is written to disk.', '', ''),
         F('viz_parameters.figure_dpi', 'Resolution (dpi)', 'int', 300,

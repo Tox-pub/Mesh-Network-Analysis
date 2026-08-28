@@ -56,7 +56,7 @@ from .viz import (
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
     plot_louvain_community_bars, plot_tsne_louvain_overlap,
-    plot_sankey_alluvial, plot_dendrogram
+    plot_sankey_alluvial, plot_dendrogram, plot_network_graph
 )
 
 try:
@@ -118,6 +118,7 @@ FIGURE_SWITCHES = [
     ('tsne',         'Figure 4 - t-SNE projection'),
     ('alluvial',     'Figure 5 - AOP alluvial flow'),
     ('dendrogram',   'Figure 6 - Node2Vec dendrogram'),
+    ('network',      'Figure 7 - Network graph'),
 ]
 
 
@@ -608,7 +609,7 @@ def main():
             # is present - auto-downloading it from NLM if missing or superseded -
             # so users never have to fetch it by hand. Otherwise extraction is
             # skipped and the path is a harmless placeholder.
-            forced = bool(getattr(args, 'refresh_mesh_support', False))
+            forced = bool(args.refresh_mesh_support)
             needs_support_build = (
                 forced
                 or config.get('search_parameters', 'update_mesh_support_files')
@@ -948,6 +949,12 @@ def main():
             if _figure_on(config, 'dendrogram'):
                 plot_dendrogram(G, node_df, figs, config.prefix,
                                 random_seed=config.get('analysis_parameters', 'random_seed') or 42)
+            if _figure_on(config, 'network'):
+                plot_network_graph(
+                    G, node_df, figs, config.prefix,
+                    metric=(config.params.get('viz_parameters', {})
+                            .get('network_color_metric', '')),
+                    random_seed=config.get('analysis_parameters', 'random_seed') or 42)
             _report_skipped_figures(config, args.step)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>

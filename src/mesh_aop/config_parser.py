@@ -121,7 +121,9 @@ class MeshConfig:
                 "fig_communities": True,
                 "fig_tsne": True,
                 "fig_alluvial": True,
-                "fig_dendrogram": True
+                "fig_dendrogram": True,
+                "fig_network": True,
+                "network_color_metric": "MRS_pagerank_centrality"
             },
             "network_parameters": {
                 "lambda_val": 1.0,

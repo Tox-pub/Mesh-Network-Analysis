@@ -23,6 +23,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.ticker as ticker
+import matplotlib.patheffects as path_effects
 import seaborn as sns
 import scipy.stats as stats
 from scipy.spatial import ConvexHull
@@ -321,7 +322,7 @@ def analyze_dispersion(edge_df: pd.DataFrame, output_dir: str, file_prefix: str)
 
 def plot_cooccurrance_distribution(full_edge_df: pd.DataFrame, filtered_edge_df: pd.DataFrame, output_dir: str, file_prefix: str):
     """Figure 1: how often terms co-occur, before and after consensus filtering."""
-    print("\n<<< Figure 1 of 6: Edge weight distribution - what filtering removed >>>")
+    print("\n<<< Figure 1 of 7: Edge weight distribution - what filtering removed >>>")
     try:
         plt.figure(figsize=(12, 8))
         global_max = full_edge_df['cooccurrence_count'].max()
@@ -345,7 +346,7 @@ def plot_cooccurrance_distribution(full_edge_df: pd.DataFrame, filtered_edge_df:
 
 def run_optimization_comparison(history_json_path: str, output_dir: str, file_prefix: str):
     """Parses precomputed simulation history and generates comparative trajectory."""
-    print("\n<<< Figure 2 of 6: Optimisation trajectory - GLF against simulated annealing >>>")
+    print("\n<<< Figure 2 of 7: Optimisation trajectory - GLF against simulated annealing >>>")
     try:
         if not os.path.exists(history_json_path):
             print(f"    [!] History JSON not found: {os.path.basename(history_json_path)}. Optimization trajectory generation bypassed.")
@@ -383,7 +384,7 @@ def run_optimization_comparison(history_json_path: str, output_dir: str, file_pr
 
 def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
     """Figure 3: which AOP levels make up each Louvain community."""
-    print("\n<<< Figure 3 of 6: Community composition - AOP levels per community >>>")
+    print("\n<<< Figure 3 of 7: Community composition - AOP levels per community >>>")
     try:
         if 'filtered_louvain_community_id' not in node_df.columns:
             print("    [!] Missing 'filtered_louvain_community_id' column. Skipping Figure 3.")
@@ -415,7 +416,7 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
 
 def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: str, file_prefix: str):
     """Figure 4: t-SNE of the graph distance matrix, coloured by Louvain community."""
-    print("\n<<< Figure 4 of 6: t-SNE projection - do the communities separate? >>>")
+    print("\n<<< Figure 4 of 7: t-SNE projection - do the communities separate? >>>")
     try:
         if 'filtered_louvain_community_id' not in node_df.columns:
             print("    [!] Missing 'filtered_louvain_community_id'. Skipping Figure 4.")
@@ -487,7 +488,7 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
 
 def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str):
     """Figure 5: interactive AOP alluvial flow, stressors through to adverse outcomes."""
-    print("\n<<< Figure 5 of 6: AOP alluvial flow - stressor to adverse outcome >>>")
+    print("\n<<< Figure 5 of 7: AOP alluvial flow - stressor to adverse outcome >>>")
     try:
         levels = [l for l in AOP_ORDER if l != 'Uncategorized']
         lvl_map = {l: i for i, l in enumerate(levels)}
@@ -562,7 +563,7 @@ def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_pr
         else:
             print("      -> Ensure gensim, networkx and numpy are installed and importable.")
         return
-    print("\n<<< Figure 6 of 6: Node2Vec dendrogram - clustering by learned position >>>")
+    print("\n<<< Figure 6 of 7: Node2Vec dendrogram - clustering by learned position >>>")
     try:
         # workers=1 + seed + deterministic hashfxn make the embedding reproducible
         # (gensim training is non-deterministic across workers / hash seeds).
@@ -712,5 +713,248 @@ def plot_mrs_ubiquity_bias(node_df: pd.DataFrame, output_dir: str, file_prefix: 
         save_high_res("MRS_Ubiquity_Bias_Evaluation", output_dir, file_prefix)
     except Exception as e:
         print(f"[!] Error generating MRS Bias Evaluation: {e}")
+    finally:
+        plt.close('all')
+
+
+# =============================================================================
+# FIGURE 7 - THE NETWORK ITSELF
+# =============================================================================
+
+# Metrics offered for colouring, in the order they are preferred when the one
+# asked for is not in the network. Every one of these is a per-node float
+# written by the network or relevance step.
+NETWORK_COLOUR_METRICS = [
+    'MRS_pagerank_centrality',
+    'MRS_betweenness_centrality',
+    'MRS_eigenvector_centrality',
+    'MRS_pagerank_subgraph_centrality',
+    'MRS_betweenness_subgraph_centrality',
+    'MRS_eigenvector_subgraph_centrality',
+    'pagerank_centrality',
+    'betweenness_centrality',
+    'eigenvector_centrality',
+    'pagerank_subgraph_centrality',
+    'betweenness_subgraph_centrality',
+    'eigenvector_subgraph_centrality',
+    'adjusted_node_weight',
+    'article_count',
+    'degree',
+    'clustering_coefficient',
+    'major_topic_proportion',
+    'article_count_rank_normalized',
+    'rank_norm_mean_cit',
+    'rank_norm_median_cit',
+    'rank_norm_total_cit',
+]
+
+# load_and_prepare_data renames three columns on the way in. A user picking a
+# metric sees the name as it appears in the JSON, so both spellings resolve.
+_METRIC_ALIASES = {
+    'adjusted_node_weight': 'ARS',
+    'MRS_betweenness_centrality': 'MRS_betweenness',
+    'MRS_pagerank_centrality': 'MRS_pagerank',
+}
+
+
+def _network_scale(n_nodes):
+    """Canvas, node size, label size and edge width for a graph of this size.
+
+    Interpolated rather than stepped, so a 90-node network does not look like a
+    50-node one stretched. The canvas is capped: past a few hundred terms this
+    is a picture of the shape of the thing, and reading individual labels is a
+    job for Cytoscape - which is what the caption says.
+    """
+    n = max(n_nodes, 1)
+    side = float(np.clip(7.0 + 1.35 * np.sqrt(n), 9.0, 40.0))
+    # Markers big enough that the colour is legible at a glance - the colour is
+    # the whole point of the figure, and a 3-pixel dot carries none of it.
+    node_size = float(np.clip(52000.0 / n, 90.0, 2200.0))
+    font_size = float(np.clip(135.0 / np.sqrt(n), 3.0, 12.0))
+    edge_width = float(np.clip(20.0 / np.sqrt(n), 0.15, 1.4))
+    edge_alpha = float(np.clip(26.0 / np.sqrt(n), 0.10, 0.45))
+    # Spring constant: the bigger the graph, the more room each node needs
+    # relative to the unit square, or the middle collapses into a hairball.
+    k = float(np.clip(4.2 / np.sqrt(n), 0.06, 0.85))
+    iterations = int(np.clip(12000 / np.sqrt(n), 150, 900))
+    # How far under its node a label sits. Derived from the marker itself, not
+    # picked: matplotlib sizes markers by AREA in points squared, so the radius
+    # is sqrt(area/pi), and the canvas after _spread covers 2.0 data units
+    # across side*72 points. A constant drop looked right at one network size
+    # and printed the label through the marker at every other.
+    radius_pts = float(np.sqrt(node_size / np.pi))
+    label_drop = radius_pts / (side * 72.0) * 2.0 + 0.006
+    return dict(side=side, node_size=node_size, font_size=font_size,
+                edge_width=edge_width, edge_alpha=edge_alpha, k=k,
+                iterations=iterations, label_drop=label_drop)
+
+
+def _spread(pos):
+    """Push a layout out to fill its canvas in both directions.
+
+    spring_layout returns something roughly circular, so a square canvas is
+    left with empty corners while the middle is crowded. Rescaling each axis
+    to its own full range buys back real separation for nothing.
+    """
+    if not pos:
+        return pos
+    xs = np.array([p[0] for p in pos.values()], dtype=float)
+    ys = np.array([p[1] for p in pos.values()], dtype=float)
+    span_x = xs.max() - xs.min() or 1.0
+    span_y = ys.max() - ys.min() or 1.0
+    return {n: np.array([2.0 * (p[0] - xs.min()) / span_x - 1.0,
+                         2.0 * (p[1] - ys.min()) / span_y - 1.0])
+            for n, p in pos.items()}
+
+
+def resolve_colour_metric(node_df, requested=''):
+    """The metric actually used to colour, given what the network carries.
+
+    Returns (column in node_df, name to show). A metric that is absent - the
+    subgraph centralities when the ground-truth analysis was off, say - falls
+    back rather than failing the figure, and says which it used.
+    """
+    requested = (requested or '').strip()
+    candidates = ([requested] if requested else []) + NETWORK_COLOUR_METRICS
+    for name in candidates:
+        for column in (_METRIC_ALIASES.get(name, name), name):
+            if column in node_df.columns and pd.api.types.is_numeric_dtype(node_df[column]):
+                if node_df[column].notna().any():
+                    return column, name
+    return None, requested
+
+
+def plot_network_graph(G, node_df, output_dir: str, file_prefix: str,
+                       metric: str = '', random_seed: int = 42):
+    """Figure 7: the consensus network drawn, nodes coloured by one metric.
+
+    Deliberately a still image. It exists so a reader can see the shape of the
+    network - where the hubs are, how the communities sit against each other,
+    whether the metric they chose picks out anything structural - without
+    loading anything into another program. Anything closer than that is a job
+    for Cytoscape, and the caption says so.
+
+    Colour is viridis, min-max scaled across the nodes actually drawn, so the
+    full range of the colour map is always used however narrow the spread is.
+    """
+    print("\n<<< Figure 7 of 7: The network, coloured by a chosen metric >>>")
+    try:
+        if G is None or G.number_of_nodes() == 0:
+            print("    [!] The network has no nodes. Skipping Figure 7.")
+            return
+
+        column, shown = resolve_colour_metric(node_df, metric)
+        if column is None:
+            print(f"    [!] No numeric metric available to colour by "
+                  f"(asked for {metric!r}). Skipping Figure 7.")
+            return
+        if metric and shown != metric:
+            print(f"    [!] '{metric}' is not in this network - colouring by "
+                  f"'{shown}' instead.")
+
+        # Draw the largest connected component. The final network is already an
+        # LCC, but a filtered or hand-edited one may not be, and a scatter of
+        # detached singletons around the edge wastes most of the canvas.
+        if not nx.is_connected(G):
+            largest = max(nx.connected_components(G), key=len)
+            dropped = G.number_of_nodes() - len(largest)
+            G = G.subgraph(largest).copy()
+            print(f"    Drawing the largest connected component "
+                  f"({G.number_of_nodes():,} of {G.number_of_nodes() + dropped:,} terms).")
+
+        nodes = list(G.nodes())
+        values = pd.to_numeric(node_df.reindex(nodes)[column], errors='coerce')
+        if values.notna().sum() == 0:
+            print(f"    [!] '{shown}' is empty for every node. Skipping Figure 7.")
+            return
+        values = values.fillna(values.min())
+
+        lo, hi = float(values.min()), float(values.max())
+        if hi <= lo:
+            # Every node identical: a min-max scale is undefined, so colour them
+            # all mid-viridis rather than divide by zero.
+            print(f"    [!] Every node has the same '{shown}' ({lo:g}); "
+                  f"colouring uniformly.")
+            scaled = np.full(len(nodes), 0.5)
+        else:
+            scaled = (values.to_numpy(dtype=float) - lo) / (hi - lo)
+
+        s = _network_scale(len(nodes))
+        print(f"    {len(nodes):,} terms, {G.number_of_edges():,} relations; "
+              f"colouring by {shown}")
+
+        # Kamada-Kawai separates a few hundred nodes far better than a spring
+        # layout does, because it works from graph distances rather than
+        # repulsion alone. It is O(n^2) though, so past a few hundred terms the
+        # spring layout is the only affordable choice.
+        layout_used = 'Kamada-Kawai'
+        pos = None
+        if len(nodes) <= 400:
+            try:
+                pos = nx.kamada_kawai_layout(G, weight=None)
+            except Exception:
+                pos = None
+        if pos is None:
+            layout_used = 'spring'
+            pos = nx.spring_layout(G, k=s['k'], iterations=s['iterations'],
+                                   seed=random_seed, weight=None)
+        else:
+            # Relax it briefly with the spring model to open out any pairs the
+            # distance solution left sitting on top of each other.
+            pos = nx.spring_layout(G, pos=pos, k=s['k'], iterations=60,
+                                   seed=random_seed, weight=None)
+        pos = _spread(pos)
+        print(f"    layout: {layout_used}")
+
+        fig, ax = plt.subplots(figsize=(s['side'], s['side']))
+        cmap = plt.get_cmap('viridis')
+
+        nx.draw_networkx_edges(G, pos, ax=ax, width=s['edge_width'],
+                               edge_color='#9aa0a6', alpha=s['edge_alpha'])
+        drawn = nx.draw_networkx_nodes(
+            G, pos, ax=ax, nodelist=nodes, node_size=s['node_size'],
+            node_color=scaled, cmap=cmap, vmin=0.0, vmax=1.0,
+            linewidths=0.5, edgecolors='#2b2e31')
+        drawn.set_zorder(2)
+
+        # Labels sit UNDER their node rather than on it. Printed over the
+        # markers they hid the very colour the figure exists to show.
+        label_pos = {n: (p[0], p[1] - s['label_drop']) for n, p in pos.items()}
+        texts = nx.draw_networkx_labels(
+            G, label_pos, ax=ax, font_size=s['font_size'], font_color='#16181a',
+            font_family='DejaVu Sans',
+            verticalalignment='top')
+        for t in texts.values():
+            t.set_zorder(3)
+            # A white halo, so a label crossing an edge or a neighbouring node
+            # stays readable without hiding what is underneath.
+            t.set_path_effects([
+                path_effects.Stroke(linewidth=max(1.4, s['font_size'] / 3.0),
+                                    foreground='white', alpha=0.85),
+                path_effects.Normal()])
+
+        # The colour bar carries the real values, not the 0-1 the colours were
+        # scaled to - the scaling is a drawing device, not the measurement.
+        mappable = plt.cm.ScalarMappable(cmap=cmap,
+                                         norm=plt.Normalize(vmin=lo, vmax=hi))
+        cbar = fig.colorbar(mappable, ax=ax, fraction=0.035, pad=0.02)
+        cbar.set_label(shown, fontsize=11)
+
+        ax.set_title(
+            f"Consensus network - {len(nodes):,} MeSH terms, "
+            f"{G.number_of_edges():,} co-occurrence relations\n"
+            f"colour: {shown} (min-max scaled, viridis)",
+            fontsize=13, fontweight='bold')
+        ax.text(0.5, -0.015,
+                "An overview, not a working view - open the network JSON in "
+                "Cytoscape to inspect it properly.",
+                transform=ax.transAxes, ha='center', va='top',
+                fontsize=9, color='#5f6368')
+        ax.set_axis_off()
+        fig.tight_layout()
+
+        save_high_res("Network_Graph", output_dir, file_prefix)
+    except Exception as e:
+        print(f"[!] Error generating Figure 7 (network graph): {e}")
     finally:
         plt.close('all')

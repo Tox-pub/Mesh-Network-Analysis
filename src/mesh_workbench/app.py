@@ -1223,6 +1223,24 @@ class Workbench(tk.Tk):
                 w = tk.Checkbutton(grid, text=f.label, variable=var, bg=FACE,
                                    activebackground=FACE, anchor='w')
                 w.grid(row=r, column=0, columnspan=2, sticky='we', pady=3)
+            elif f.kind == 'choice':
+                # A fixed set of valid values, so a dropdown rather than a text
+                # box: the names are long and exact, and a typo in one of them
+                # is only discovered when the step that reads it fails.
+                var = tk.StringVar(value='' if cur is None else str(cur))
+                if var.get() not in (f.choices or ()):
+                    var.set(f.default if f.default in (f.choices or ()) else
+                            (f.choices or [''])[0])
+                tk.Label(grid, text=f.label, bg=FACE, anchor='w'
+                         ).grid(row=r, column=0, sticky='w', padx=(0, 10), pady=3)
+                w = tk.OptionMenu(grid, var, *(f.choices or ['']))
+                w.config(bg=FIELD, activebackground=FIELD, relief='raised', bd=2,
+                         anchor='w', highlightthickness=0)
+                w.grid(row=r, column=1, sticky='we', pady=3)
+                # The menu is a separate widget from the button, so the help
+                # binding has to be put on both or hovering the open list
+                # clears the description.
+                w['menu'].config(bg=FIELD)
             else:
                 var = tk.StringVar(value='' if cur is None else str(cur))
                 tk.Label(grid, text=f.label, bg=FACE, anchor='w'
