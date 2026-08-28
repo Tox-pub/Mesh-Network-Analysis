@@ -251,3 +251,8 @@ results_SNAPSHOT_*.zip
 .claude/
 mesh_config.json
 mesh_config.json.bak*
+
+# Manuscript drafts and working prose. Untracked on purpose - these are not
+# part of the software and must not be published with it.
+DISCUSSION-draft.md
+*-draft.md
