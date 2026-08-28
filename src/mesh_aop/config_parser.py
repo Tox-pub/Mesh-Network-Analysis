@@ -216,6 +216,32 @@ class MeshConfig:
         self._build_directories()
         self._map_files()
 
+    # HOW THE PUBLISHED REFERENCE CORPUS WAS BUILT.
+    #
+    # Ticking "Use bundled reference data" analyses that corpus, so these are
+    # the settings that describe it. They are applied over whatever is in the
+    # form, because the alternative is a run that draws the dermatitis network
+    # while its ledger and PRISMA report describe the user's own query - a
+    # provenance document stating something false, which is the one thing a
+    # PRISMA report exists not to do.
+    #
+    # Only what defines the CORPUS is here. Figure resolution, file formats,
+    # which figures to draw, the folders, the credentials and the worker count
+    # are the user's: they describe presentation and environment, and changing
+    # them does not change what is being reproduced.
+    REFERENCE_RUN = {
+        ('search_parameters', 'search_term'): 'Dermatitis, Allergic Contact [Mesh]',
+        ('search_parameters', 'start_date'): '1950/01/01',
+        ('search_parameters', 'end_date'): '2025/01/01',
+        ('search_parameters', 'generations_n'): 1,
+        ('analysis_parameters', 'context_start_date'): '1950/01/01',
+        ('analysis_parameters', 'context_end_date'): '2025/01/01',
+        # Fixes t-SNE, the Node2Vec walks and the Figure 7 layout, so the
+        # published figures come out as published rather than merely equivalent.
+        ('analysis_parameters', 'random_seed'): 42,
+        ('benchmark', 'primary_node'): 'Dermatitis, Allergic Contact',
+    }
+
     # Values the user may type that mean "the day the run starts". Matched
     # case- and space-insensitively because a settings form is typed into by
     # hand: "today" and " TODAY " meant the same thing to everyone except the
@@ -250,7 +276,25 @@ class MeshConfig:
         self.db_prefix = f"Reference_{self.prefix}" if self.use_reference_data else self.prefix
         today = date.today().strftime("%Y/%m/%d")
         self._resolved = {}
+
+        # The reference corpus first, so a TODAY typed into a date field cannot
+        # then move a window that is supposed to be fixed at what was published.
+        #
+        # These go in the shadow dict, exactly like the TODAY substitution, and
+        # for the same reason: self.params stays what the user typed, so save()
+        # keeps it and unticking the box brings their own settings straight
+        # back. Nothing of theirs is overwritten on disk.
+        self.reference_overrides = []
+        if self.use_reference_data:
+            for (section, key), value in self.REFERENCE_RUN.items():
+                was = self.params.get(section, {}).get(key)
+                self._resolved[(section, key)] = value
+                if str(was if was is not None else '') != str(value):
+                    self.reference_overrides.append((f'{section}.{key}', was, value))
+
         for section, key in self._DYNAMIC_DATES:
+            if (section, key) in self._resolved:
+                continue                      # the reference window is fixed
             raw = self.params.get(section, {}).get(key)
             if isinstance(raw, str) and raw.strip().lower() in self._TODAY_WORDS:
                 self._resolved[(section, key)] = today

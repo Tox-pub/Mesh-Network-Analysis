@@ -116,31 +116,53 @@ def _community_count(path):
 # --------------------------------------------------------------------- stages
 
 def record_run(ledger, config, step, version=''):
-    """The search itself: what was asked for, and of what."""
-    search = config.params.get('search_parameters', {})
-    analysis = config.params.get('analysis_parameters', {})
+    """The search itself: what was asked for, and of what.
+
+    EVERY value here comes through config.get(), never off config.params. The
+    two differ whenever a setting was resolved rather than typed - a date window
+    set to TODAY, or any of the corpus settings when the reference corpus is in
+    use - and params holds what the user typed while get() holds what the run
+    actually used.
+
+    Recording the typed value produced a provenance document that was simply
+    untrue: a run drawing the bundled dermatitis network reported whatever query
+    happened to be sitting in the form, over whatever dates, at whatever
+    generation depth. A PRISMA report exists to say where a corpus came from.
+    """
+    ref = bool(config.get('control_flags', 'use_reference_data'))
     ledger.clear_stage('run')
     ledger.record('run', 'file_prefix', config.prefix)
     ledger.record('run', 'pipeline_step', step)
     if version:
         ledger.record('run', 'workbench_version', version)
-    ledger.record('run', 'search_term', search.get('search_term', ''),
+    ledger.record('run', 'search_term',
+                  config.get('search_parameters', 'search_term') or '',
                   'The PubMed query that seeded generation P0')
-    # Dates come through config.get() rather than off params, so a window set
-    # to TODAY is recorded as the date actually queried. A PRISMA report is a
-    # record of what was searched; "TODAY" in that field describes nothing and
-    # cannot be reproduced from.
-    ledger.record('run', 'search_start_date', search.get('start_date', ''))
+    ledger.record('run', 'search_start_date',
+                  config.get('search_parameters', 'start_date') or '')
     ledger.record('run', 'search_end_date',
                   config.get('search_parameters', 'end_date') or '')
-    ledger.record('run', 'generations_requested', search.get('generations_n', ''),
+    ledger.record('run', 'generations_requested',
+                  config.get('search_parameters', 'generations_n'),
                   'Citation hops expanded from the seed set')
-    ledger.record('run', 'context_start_date', analysis.get('context_start_date', ''))
+    ledger.record('run', 'context_start_date',
+                  config.get('analysis_parameters', 'context_start_date') or '')
     ledger.record('run', 'context_end_date',
                   config.get('analysis_parameters', 'context_end_date') or '')
-    ledger.record('run', 'random_seed', analysis.get('random_seed', ''))
-    ledger.record('run', 'reference_data',
-                  'on' if config.params.get('control_flags', {}).get('use_reference_data') else 'off')
+    ledger.record('run', 'random_seed', config.get('analysis_parameters', 'random_seed'))
+    ledger.record('run', 'reference_data', 'on' if ref else 'off')
+
+    # Named explicitly, so a reader can see that these describe the published
+    # corpus rather than anything the person running it chose.
+    overrides = getattr(config, 'reference_overrides', [])
+    if ref:
+        ledger.record('run', 'corpus_source',
+                      'the reference corpus shipped with the program',
+                      'Networks, AOP strata and ground truth are bundled, not built here')
+        if overrides:
+            ledger.record('run', 'settings_overridden', len(overrides),
+                          'Corpus settings replaced by the published run\'s; '
+                          'the saved settings were not changed')
 
 
 def record_identification(ledger, config):

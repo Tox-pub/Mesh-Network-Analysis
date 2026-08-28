@@ -80,6 +80,11 @@ class Workbench(tk.Tk):
         self.cfg_path = str(_paths.config_path(repo_dir))
         self.cfg = self._load_cfg()
         self.vars = {}
+        # key -> the widget showing it, so fields the reference corpus
+        # decides can be greyed out rather than silently disagreeing with
+        # what the run will actually use.
+        self.widgets = {}
+        self._own_values = {}
         self.runner = PipelineRunner(repo_dir, python_exe,
                                      config_path=self.cfg_path)
         self._elapsed = 0
@@ -127,6 +132,13 @@ class Workbench(tk.Tk):
             fr = tk.Frame(self.body, bg=FACE)
             self.screens[name] = fr
             build(fr)
+        # The reference checkbox decides several other fields, so the form has
+        # to follow it as it is clicked rather than be consulted at save time.
+        ref = self.vars.get('control_flags.use_reference_data')
+        if ref is not None:
+            ref.trace_add('write', self._sync_reference_fields)
+            self._sync_reference_fields()
+
         self.show('setup')
         # After the window exists, so the dialog has a parent to sit over.
         self.after(150, self.first_run_locations)
@@ -219,6 +231,52 @@ class Workbench(tk.Tk):
         self.status.config(text='Saved to mesh_config.json')
         self._refresh_effective_paths()
         return True
+
+    def _sync_reference_fields(self, *_):
+        """Show what the bundled corpus will use, and stop it being edited.
+
+        Ticking "Use bundled reference data" analyses the published corpus, so
+        the settings that describe that corpus are decided for you. Leaving the
+        form showing your own values while the run used different ones is what
+        made this confusing in the first place - and what let a run draw the
+        reference network while its PRISMA report described someone's own query.
+
+        The user's values are held in memory, not overwritten: unticking puts
+        them straight back, and nothing is written to disk either way.
+        """
+        from mesh_aop.config_parser import MeshConfig
+        on = bool(self.vars['control_flags.use_reference_data'].get())
+
+        for (section, key), value in MeshConfig.REFERENCE_RUN.items():
+            dotted = f'{section}.{key}'
+            var, widget = self.vars.get(dotted), self.widgets.get(dotted)
+            if var is None or widget is None:
+                continue
+            if on:
+                if dotted not in self._own_values:
+                    self._own_values[dotted] = var.get()
+                var.set(value)
+                try:
+                    widget.config(state='disabled', disabledbackground=FACE,
+                                  disabledforeground=DIM)
+                except tk.TclError:
+                    widget.config(state='disabled')
+            else:
+                if dotted in self._own_values:
+                    var.set(self._own_values.pop(dotted))
+                widget.config(state='normal')
+                try:
+                    widget.config(bg=FIELD)
+                except tk.TclError:
+                    pass
+
+        note = getattr(self, 'ref_note', None)
+        if note is not None:
+            note.config(
+                text=('  These are set by the bundled reference corpus and cannot be '
+                      'edited while it is in use.\n  Your own values are kept and come '
+                      'back when you untick it. Figures, folders and credentials stay '
+                      'yours.') if on else '')
 
     def _field(self, key):
         for _, fields in schema.TABS:
@@ -1252,6 +1310,9 @@ class Workbench(tk.Tk):
                               command=lambda v=var: self._browse(v)
                               ).grid(row=r, column=2, padx=(4, 0))
             self.vars[f.key] = var
+            # Held so the reference corpus can grey them out and show what it
+            # will use instead - see _sync_reference_fields.
+            self.widgets[f.key] = w
             for ev in ('<FocusIn>', '<Button-1>', '<Enter>'):
                 w.bind(ev, lambda _e, fl=f: self._help(fl))
             if f.kind in ('int', 'float') and not f.kind == 'bool':

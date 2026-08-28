@@ -597,6 +597,22 @@ def main():
         config.params['_run_baseline_updates'] = args.with_updates
         config.params['_delete_corrupt_db'] = args.rebuild_corrupt
 
+    # What the reference corpus replaced, said out loud. A silent override is
+    # the right behaviour and a silent override nobody is told about is not.
+    _overrides = getattr(config, 'reference_overrides', [])
+    if _overrides:
+        print("\n" + "<" * 30 + ">" * 30)
+        print("<<< Using the bundled reference corpus >>>")
+        print("<" * 30 + ">" * 30)
+        print("  These settings describe the published run and are used instead")
+        print("  of yours. Your saved settings are NOT changed - untick")
+        print("  'Use bundled reference data' and they come straight back.\n")
+        for key, was, now in _overrides:
+            shown = repr(was) if was not in (None, '') else '(empty)'
+            print(f"    {key:<40} {shown}  ->  {now!r}")
+        print("\n  Everything else is yours: figure resolution and formats, which")
+        print("  figures are drawn, the folders, and your NCBI credentials.")
+
     total_start = time.time()
 
     # Counts handed back by the stages that actually execute. A resumed run
@@ -1034,7 +1050,7 @@ def main():
             # even contain. Empty is now the default, so: reference mode
             # supplies the reference heading, and an own-data run without one
             # says so and goes on without the baseline rather than inventing it.
-            primary_node = (bench_params.get('primary_node') or '').strip()
+            primary_node = (config.get('benchmark', 'primary_node') or '').strip()
             if not primary_node and config.get('control_flags', 'use_reference_data'):
                 primary_node = 'Dermatitis, Allergic Contact'
             if not primary_node:
