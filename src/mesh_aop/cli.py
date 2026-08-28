@@ -112,12 +112,12 @@ def open_readme():
 # the config means on: an existing settings file predates these switches, and
 # silently drawing nothing would be the worst possible reading of that.
 FIGURE_SWITCHES = [
-    ('distribution', 'Fig 1 - Edge weight distribution'),
-    ('optimisation', 'Fig 2 - Optimisation comparison'),
-    ('communities',  'Fig 3 - Community composition'),
-    ('tsne',         'Fig 5 - t-SNE with communities'),
-    ('alluvial',     'Fig 6 - AOP alluvial flow'),
-    ('dendrogram',   'Node2Vec dendrogram'),
+    ('distribution', 'Figure 1 - Edge weight distribution'),
+    ('optimisation', 'Figure 2 - Optimisation trajectory'),
+    ('communities',  'Figure 3 - Community composition'),
+    ('tsne',         'Figure 4 - t-SNE projection'),
+    ('alluvial',     'Figure 5 - AOP alluvial flow'),
+    ('dendrogram',   'Figure 6 - Node2Vec dendrogram'),
 ]
 
 
@@ -127,7 +127,12 @@ def _figure_on(config, name):
     return True if value is None else bool(value)
 
 
-def _report_skipped_figures(config):
+# Figures 1 and 2 describe the filtering and the optimisation search, so they are
+# drawn while that is happening - by the network step, not the figures step.
+NETWORK_STEP_FIGURES = ('distribution', 'optimisation')
+
+
+def _report_skipped_figures(config, step=''):
     """Say what was left out, rather than let it look like a failure.
 
     A figure that simply does not appear is indistinguishable from one that
@@ -138,6 +143,17 @@ def _report_skipped_figures(config):
         print(f"\n    {len(off)} figure(s) turned off on the Figures tab, not drawn:")
         for label in off:
             print(f"      - {label}")
+
+    # Running the figures step alone draws four of the six. Without saying so,
+    # the two that are missing look like the two that went wrong.
+    if step == 'viz':
+        elsewhere = [label for name, label in FIGURE_SWITCHES
+                     if name in NETWORK_STEP_FIGURES and _figure_on(config, name)]
+        if elsewhere:
+            print("\n    Drawn by the network step rather than this one, because "
+                  "they describe\n    the filtering as it happens:")
+            for label in elsewhere:
+                print(f"      - {label}")
 
 
 def _gt_wanted(config):
@@ -604,12 +620,25 @@ def main():
             else:
                 xml_file_path = os.path.join(config.active_raw_dir, 'desc2025.xml')
 
-            process_raw_mesh_data(
-                xml_file=xml_file_path,
-                output_csv=config.files['mesh_terms_csv'],
-                output_py=config.files['mesh_stopwords_py'],
-                force_update=forced or config.get('search_parameters', 'update_mesh_support_files')
-            )
+            try:
+                process_raw_mesh_data(
+                    xml_file=xml_file_path,
+                    output_csv=config.files['mesh_terms_csv'],
+                    output_py=config.files['mesh_stopwords_py'],
+                    force_update=forced or config.get('search_parameters', 'update_mesh_support_files')
+                )
+            except (PermissionError, OSError) as exc:
+                # The stop-word list lives inside the package, and an installed
+                # copy under Program Files or /opt is read-only. That is not a
+                # reason to fail the run: the shipped list is present and in
+                # use, and it only goes stale when the MeSH release year moves.
+                if not os.path.exists(config.files['mesh_stopwords_py']):
+                    raise
+                print(f"\n  [!] The MeSH support files could not be rewritten: {exc}")
+                print( "      This copy is installed read-only, so the shipped "
+                       "stop-word list is used as it is.")
+                print( "      That is fine unless you are moving to a newer MeSH "
+                       "release; for that, use a portable copy.")
 
             # Pre-populate Master Annotations Library
             _initialize_master_annotations(config.files['mesh_terms_csv'], config.files['annotations'])
@@ -836,7 +865,11 @@ def main():
             # when reference data is in use); PNG/CSV outputs go to the results section.
             run_network_overlay_comparison(
                 network_files=sec_params.get('comparison_networks', ''),
-                search_dir=str(config.active_source_dir),
+                # Both, in that order: a project built since the networks got
+                # their own folder has them there, one built before it has them
+                # flat in the processed folder, and a user comparing across two
+                # projects may well have one of each.
+                search_dir=[str(config.networks_dir), str(config.active_source_dir)],
                 results_dir=str(config.secondary_dir),
                 file_prefix=config.prefix,
                 random_seed=config.get('analysis_parameters', 'random_seed') or 42
@@ -915,7 +948,7 @@ def main():
             if _figure_on(config, 'dendrogram'):
                 plot_dendrogram(G, node_df, figs, config.prefix,
                                 random_seed=config.get('analysis_parameters', 'random_seed') or 42)
-            _report_skipped_figures(config)
+            _report_skipped_figures(config, args.step)
 
         # <<< STEP 5: Ground-Truth Validation & Benchmarking >>>
         gt_enabled = False

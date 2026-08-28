@@ -470,8 +470,10 @@ def run_network_overlay_comparison(network_files, search_dir: str, results_dir: 
     """Compare the node membership of an arbitrary set of networks.
 
     `network_files` is a list of file names (or a raw comma-separated string). Bare
-    names are resolved against `search_dir` (data/processed, or data/reference_processed
-    when reference data is in use); names carrying their own path are used as given.
+    names are resolved against `search_dir`, which may be one folder or several -
+    the networks folder and the processed folder above it, since a project built
+    before the networks were given their own subfolder still has them flat.
+    Names carrying their own path are used as given.
     Networks may be the pipeline's Cytoscape JSON (default) or any networkx-readable
     format (.graphml/.gml/.gexf/...). Writes a membership matrix, a pairwise
     intersection/Jaccard table, and an overlay figure to `results_dir`. Non-JSON
@@ -485,10 +487,16 @@ def run_network_overlay_comparison(network_files, search_dir: str, results_dir: 
         return
 
     # Resolve each requested network and report the ones that cannot be found.
+    search_dirs = ([str(search_dir)] if isinstance(search_dir, (str, os.PathLike))
+                   else [str(d) for d in search_dir])
     resolved, missing = {}, []
     for name in names:
-        path = name if os.path.dirname(name) else os.path.join(search_dir, name)
-        if os.path.exists(path):
+        if os.path.dirname(name):
+            path = name if os.path.exists(name) else None
+        else:
+            path = next((os.path.join(d, name) for d in search_dirs
+                         if os.path.exists(os.path.join(d, name))), None)
+        if path:
             resolved[name] = path
         else:
             missing.append(name)
@@ -497,7 +505,9 @@ def run_network_overlay_comparison(network_files, search_dir: str, results_dir: 
         print(f"  [!] WARNING: {len(missing)} network file(s) could not be found:")
         for name in missing:
             print(f"        - {name}")
-        print(f"      The system looked in: {os.path.abspath(search_dir)}")
+        print("      The system looked in:")
+        for d in search_dirs:
+            print(f"        {os.path.abspath(d)}")
         print("      Check the spelling and location of the file names above (bare names are")
         print("      resolved against that folder; include a path to load from elsewhere).")
 

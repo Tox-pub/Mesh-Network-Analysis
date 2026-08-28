@@ -25,7 +25,10 @@ def F(key, label, kind, default, what, deflt, note=None, choices=None):
 
 
 STEPS = [
-    ('all',       'all - full pipeline',                    '14 h 20 min'),
+    # "all" is everything except the benchmark, which is another 69 minutes and
+    # is not wanted on most runs. Said here rather than left to be discovered by
+    # looking for results that were never produced.
+    ('all',       'all - full pipeline (not the benchmark)', '14 h 20 min'),
     ('process',   'process - MeSH ingest + stop words',     '40 min'),
     ('data_ops',  'data_ops - retrieval & citations',       '6 h'),
     ('network',   'network - co-occurrence + consensus',    '3 h 10 min'),
@@ -358,41 +361,41 @@ TABS = [
           'Untick anything you do not need. Each is drawn from the finished '
           'network, so leaving one out costs nothing but that figure - and a '
           'few of them are slow.', '', ''),
-        F('viz_parameters.fig_distribution', 'Fig 1 - Edge weight distribution',
+        F('viz_parameters.fig_distribution', 'Figure 1 - Edge weight distribution',
           'bool', True,
-          'Co-occurrence counts before and after consensus filtering, overlaid.',
+          'How often each pair of MeSH terms appears in the same article, plotted before and after consensus filtering.',
           'Default: on.',
           'The evidence that filtering removed the long tail rather than the '
           'signal. Drawn by the network step, not the figures step.'),
-        F('viz_parameters.fig_optimisation', 'Fig 2 - Optimisation comparison',
+        F('viz_parameters.fig_optimisation', 'Figure 2 - Optimisation trajectory',
           'bool', True,
-          'GLF against simulated annealing over the filtering search.',
+          'The two optimisers - generalised local filtering and simulated annealing - traced over the search for the consensus subgraph.',
           'Default: on.',
           'Only has anything to draw if the optimisation history was written, '
           'which the network step does as it runs.'),
-        F('viz_parameters.fig_communities', 'Fig 3 - Community composition',
+        F('viz_parameters.fig_communities', 'Figure 3 - Community composition',
           'bool', True,
-          'AOP-level make-up of each Louvain community, as stacked bars.',
+          'Stacked bars showing which AOP levels make up each Louvain community, so you can see whether the communities follow the pathway.',
           'Default: on.',
           'Needs AOP levels assigned. With everything left Unassigned it draws '
           'one bar and says nothing.'),
-        F('viz_parameters.fig_tsne', 'Fig 5 - t-SNE with communities',
+        F('viz_parameters.fig_tsne', 'Figure 4 - t-SNE projection',
           'bool', True,
-          't-SNE of the graph distance matrix, coloured by community.',
+          'A two-dimensional projection of the graph distance matrix, each node coloured by its Louvain community - do the communities separate?',
           'Default: on.',
           'The slowest of the static figures on a large network, and the '
           'projection is stochastic - it is reproducible only because the '
           'random seed on the Analysis tab fixes it.'),
-        F('viz_parameters.fig_alluvial', 'Fig 6 - AOP alluvial flow',
+        F('viz_parameters.fig_alluvial', 'Figure 5 - AOP alluvial flow',
           'bool', True,
-          'Interactive Sankey from stressors through to adverse outcomes.',
+          'An interactive Sankey tracing flow from stressors through molecular, cellular, tissue and organ levels to adverse outcomes.',
           'Default: on.',
           'Writes both a labelled and an unlabelled HTML version, plus the '
           'connection table behind them. The one figure that shows the pathway '
           'as a pathway.'),
-        F('viz_parameters.fig_dendrogram', 'Node2Vec dendrogram',
+        F('viz_parameters.fig_dendrogram', 'Figure 6 - Node2Vec dendrogram',
           'bool', True,
-          'Ward clustering of Node2Vec embeddings, leaves coloured by AOP level.',
+          'Ward clustering of Node2Vec embeddings, leaves coloured by AOP level - terms that sit near each other in the learned space cluster together.',
           'Default: on.',
           'Trains an embedding first, so it is the most expensive figure here. '
           'Reproducible run to run: the walks are seeded and gensim is trained '
@@ -451,6 +454,28 @@ TAB_NOTES = {
         'starts, anything that would be replaced is listed for you to confirm - '
         'and if the prefix has not been used for that step, there is nothing to '
         'warn about and you are not asked.'),
+
+    'Benchmark': (
+        'The benchmark is NOT part of a full run - start it yourself',
+        'Choosing "all - full pipeline" runs retrieval, the network, the '
+        'secondary analysis and the figures. It does NOT run the benchmark. '
+        'That is deliberate: the benchmark takes about another 69 minutes, and '
+        'most runs do not need it.\n'
+        '\n'
+        'To run it, pick "benchmark - ground truth & validation" from the step '
+        'list and press Run. Everything it needs is already on disk by then, so '
+        'it can be run at any point after a full run finishes - including days '
+        'later, as long as the project prefix is the same.\n'
+        '\n'
+        'Its results go to a benchmark folder inside your results folder, kept '
+        'apart from the figures and the secondary analysis.\n'
+        '\n'
+        'One setting here reaches backwards. "Run ground-truth analysis" also '
+        'decides whether the subgraph centralities are computed, and those are '
+        'written while the NETWORK is built - so it has to be set before the '
+        'network step, not before the benchmark. Turning on "Use bundled '
+        'reference data" forces it on, because the published reference run '
+        'cannot be reproduced without those six node attributes.'),
 }
 
 

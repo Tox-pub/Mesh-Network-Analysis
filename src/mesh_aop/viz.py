@@ -320,8 +320,8 @@ def analyze_dispersion(edge_df: pd.DataFrame, output_dir: str, file_prefix: str)
         plt.close('all')
 
 def plot_cooccurrance_distribution(full_edge_df: pd.DataFrame, filtered_edge_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 1: overlaid co-occurrence count distributions before vs after filtering."""
-    print("\n<<< Generating Figure 1: Edge Weight Distribution >>>")
+    """Figure 1: how often terms co-occur, before and after consensus filtering."""
+    print("\n<<< Figure 1 of 6: Edge weight distribution - what filtering removed >>>")
     try:
         plt.figure(figsize=(12, 8))
         global_max = full_edge_df['cooccurrence_count'].max()
@@ -345,7 +345,7 @@ def plot_cooccurrance_distribution(full_edge_df: pd.DataFrame, filtered_edge_df:
 
 def run_optimization_comparison(history_json_path: str, output_dir: str, file_prefix: str):
     """Parses precomputed simulation history and generates comparative trajectory."""
-    print("\n<<< Generating Optimization Trajectory Plot (GLF vs SA) >>>")
+    print("\n<<< Figure 2 of 6: Optimisation trajectory - GLF against simulated annealing >>>")
     try:
         if not os.path.exists(history_json_path):
             print(f"    [!] History JSON not found: {os.path.basename(history_json_path)}. Optimization trajectory generation bypassed.")
@@ -382,8 +382,8 @@ def run_optimization_comparison(history_json_path: str, output_dir: str, file_pr
         plt.close('all')
 
 def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 3: stacked bars of AOP-level composition within each Louvain community."""
-    print("\n<<< Generating Figure 3: Community Composition >>>")
+    """Figure 3: which AOP levels make up each Louvain community."""
+    print("\n<<< Figure 3 of 6: Community composition - AOP levels per community >>>")
     try:
         if 'filtered_louvain_community_id' not in node_df.columns:
             print("    [!] Missing 'filtered_louvain_community_id' column. Skipping Figure 3.")
@@ -414,18 +414,18 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
 
 
 def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: str, file_prefix: str):
-    """Figure 5: t-SNE projection of the graph distance matrix, coloured by Louvain community."""
-    print("\n<<< Generating Figure 5: t-SNE with Communities >>>")
+    """Figure 4: t-SNE of the graph distance matrix, coloured by Louvain community."""
+    print("\n<<< Figure 4 of 6: t-SNE projection - do the communities separate? >>>")
     try:
         if 'filtered_louvain_community_id' not in node_df.columns:
-            print("    [!] Missing 'filtered_louvain_community_id'. Skipping Figure 5.")
+            print("    [!] Missing 'filtered_louvain_community_id'. Skipping Figure 4.")
             return
 
         degree_dict = dict(G.degree(weight='cooccurrence_count')) if nx.is_weighted(G, weight='cooccurrence_count') else dict(G.degree())
         nodes = list(G.nodes())
         N = len(nodes)
         if N < 3:
-            print("    [!] Too few nodes for a t-SNE projection. Skipping Figure 5.")
+            print("    [!] Too few nodes for a t-SNE projection. Skipping Figure 4.")
             return
         node_idx = {n: i for i, n in enumerate(nodes)}
 
@@ -481,13 +481,13 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
 
         save_high_res("T-SNE_Final", output_dir, file_prefix)
     except Exception as e:
-        print(f"[!] Error generating Figure 5: {e}")
+        print(f"[!] Error generating Figure 4: {e}")
     finally:
         plt.close('all')
 
 def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 6: interactive AOP Sankey/alluvial flow from stressors to adverse outcomes (labeled and blank)."""
-    print("\n<<< Figure 6: AOP Alluvial Flow (Labeled & Unlabeled) >>>")
+    """Figure 5: interactive AOP alluvial flow, stressors through to adverse outcomes."""
+    print("\n<<< Figure 5 of 6: AOP alluvial flow - stressor to adverse outcome >>>")
     try:
         levels = [l for l in AOP_ORDER if l != 'Uncategorized']
         lvl_map = {l: i for i, l in enumerate(levels)}
@@ -514,7 +514,7 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
 
         # If empty, this will create an empty DataFrame and still output the CSV structurally intact
         csv_data = [{"Source": levels[s], "Target": levels[t], "Weight": w} for (s, t), w in flows.items()]
-        csv_path = os.path.join(output_dir, f"{file_prefix}_Alluvial_Connections_Table_F6.csv")
+        csv_path = os.path.join(output_dir, f"{file_prefix}_Alluvial_Connections_Table_F5.csv")
         pd.DataFrame(csv_data, columns=["Source", "Target", "Weight"]).sort_values(['Source', 'Target']).to_csv(_paths.long_path(csv_path), index=False)
         print(f"    Exported connection data to: {os.path.basename(csv_path)}")
 
@@ -536,7 +536,7 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
         export_plotly_figure(fig_clean, "Alluvial_Clean", output_dir, file_prefix)
 
     except Exception as e:
-        print(f"[!] Error generating Figure 6 (Alluvial Flow): {e}")
+        print(f"[!] Error generating Figure 5 (alluvial flow): {e}")
 
 
 def _reproducible_hash(value):
@@ -562,7 +562,7 @@ def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_pr
         else:
             print("      -> Ensure gensim, networkx and numpy are installed and importable.")
         return
-    print("\n<<< Generating Node2Vec Dendrogram >>>")
+    print("\n<<< Figure 6 of 6: Node2Vec dendrogram - clustering by learned position >>>")
     try:
         # workers=1 + seed + deterministic hashfxn make the embedding reproducible
         # (gensim training is non-deterministic across workers / hash seeds).

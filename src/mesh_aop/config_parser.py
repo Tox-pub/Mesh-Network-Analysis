@@ -387,7 +387,16 @@ class MeshConfig:
             "mesh_ascii": self.active_raw_dir / "d2025.bin",
             "mesh_terms_csv": self.active_source_dir / "mesh_terms.csv",
 
-            "mesh_stopwords_py": self.root / "src" / "mesh_aop" / "mesh_stop_words.py"
+            # The package's own module, resolved from this file - NOT
+            # root/src/mesh_aop/. root is the working directory, so that path
+            # pointed at wherever the process happened to be started: it never
+            # existed, which made Step 1 rebuild the support files on every
+            # single run, and it wrote the regenerated stop-word list to a stray
+            # src/mesh_aop/ tree under the launch directory where nothing would
+            # ever read it. The list actually in force is the one imported from
+            # this package, so that is the file the pipeline must be talking
+            # about.
+            "mesh_stopwords_py": Path(__file__).resolve().parent / "mesh_stop_words.py"
         }
 
     # Credentials are read from the environment when the config leaves them blank, so
