@@ -316,7 +316,22 @@ class MeshConfig:
         # depends on - which is how someone deletes or edits a database meaning
         # to touch a network. They are separated now.
         self.networks_dir = self.active_source_dir / 'networks'
-        self.databases_dir = self.active_source_dir / 'databases'
+
+        # THE DATABASES ARE ALWAYS THE USER'S, never the shipped corpus.
+        #
+        # "Use bundled reference data" switches the working folder to the corpus
+        # inside the program, and that used to drag the databases with it - so
+        # with the box ticked the pipeline looked for the master annotation
+        # database inside a read-only folder that has never contained one, while
+        # the 8 GB the user had actually built sat in their own data folder,
+        # invisible. That is why the benchmark could not run against the
+        # reference corpus: not a missing file, a wrong folder.
+        #
+        # Only the networks and the ground-truth files are bundled. Every
+        # database is built on this machine, is expensive, and is shared between
+        # projects, so all of them live together under the user's data folder
+        # whatever the checkbox says.
+        self.databases_dir = self._user_processed_dir() / 'databases'
 
         self.figures_dir = self.results_dir / 'figures'
         # Results likewise: figures, secondary analysis and benchmarking each
@@ -329,13 +344,15 @@ class MeshConfig:
         self.log_dir = (self.results_dir / 'logs'
                         if _paths.is_portable(self.root) else _paths.log_dir())
 
-        wanted = [self.active_raw_dir, self.active_source_dir, self.figures_dir,
-                  self.secondary_dir, self.benchmark_dir, self.log_dir]
-        # Not in reference mode: that corpus is read-only, is never written to,
-        # and is copied into the installers - so creating empty subfolders there
-        # would only ship two empty directories to every user.
+        # databases_dir is always the user's, so it is always created. The
+        # networks folder is not, when it would land inside the shipped corpus:
+        # that is read-only, never written to, and copied into the installers,
+        # so creating it there would only ship an empty directory to everyone.
+        wanted = [self.active_raw_dir, self.active_source_dir, self.databases_dir,
+                  self.figures_dir, self.secondary_dir, self.benchmark_dir,
+                  self.log_dir]
         if not self.use_reference_data:
-            wanted[2:2] = [self.networks_dir, self.databases_dir]
+            wanted.insert(2, self.networks_dir)
         for d in wanted:
             try:
                 d.mkdir(parents=True, exist_ok=True)
@@ -345,6 +362,41 @@ class MeshConfig:
                 # a directory that cannot be created is not an error - the
                 # lookup below falls back to the files that are already present.
                 pass
+
+    def _user_data_root(self):
+        """The user's data folder, whatever the reference checkbox says."""
+        from . import paths as _paths
+        return Path(self.params.get('directories', {}).get('data_dir', '').strip()
+                    or _paths.default_user_data_dir(self.root))
+
+    def _user_raw_dir(self):
+        """Where downloads and the master database went before this move."""
+        custom = self.params.get('directories', {}).get('input_dir', '').strip()
+        return Path(custom) if custom else self._user_data_root() / 'raw'
+
+    def _user_processed_dir(self):
+        """Where the project databases were written flat, before this move."""
+        custom = self.params.get('directories', {}).get('output_dir', '').strip()
+        return Path(custom) if custom else self._user_data_root() / 'processed'
+
+    def _settled_db(self, name, *legacy_dirs):
+        """Where a database lives: the databases folder, or where it already is.
+
+        Same rule as _settled, but the fallbacks are given explicitly because a
+        database can predate two different moves - the master annotation
+        database was written to raw/ for most of this project's life, and the
+        project databases were written flat into processed/. Neither is worth
+        making anyone rebuild: the master one is a 44 GB download and several
+        hours of compilation.
+        """
+        preferred = self.databases_dir / name
+        if preferred.exists():
+            return preferred
+        for old in legacy_dirs:
+            candidate = Path(old) / name
+            if candidate.exists():
+                return candidate
+        return preferred
 
     def _settled(self, preferred_dir, name):
         """Where a working file lives: the new subfolder, or where it already is.
@@ -369,8 +421,15 @@ class MeshConfig:
         """Maps all explicit file paths required by the pipeline modules."""
         self.files = {
             "annotations": self._annotations_path(),
-            "master_db": self.active_raw_dir / "master_mesh_database.db",
-            "pmids_db": self.active_raw_dir / f"{self.prefix}_pmids.db",
+            # All four databases together, under the user's data folder. The
+            # legacy locations are honoured where a file is already sitting in
+            # one, so nobody rebuilds anything for this.
+            "master_db": self._settled_db("master_mesh_database.db",
+                                          self.active_raw_dir,
+                                          self._user_raw_dir()),
+            "pmids_db": self._settled_db(f"{self.prefix}_pmids.db",
+                                         self.active_raw_dir,
+                                         self._user_raw_dir()),
 
             "full_network": self._settled(self.networks_dir, f"{self.prefix}_full_network_data.json"),
             "glf_subgraph": self._settled(self.networks_dir, f"{self.prefix}_glf_optimal_subgraph.json"),
@@ -378,8 +437,12 @@ class MeshConfig:
             "consensus_lcc": self._settled(self.networks_dir, f"{self.prefix}_consensus_lcc_network.json"),
             "final_network": self._settled(self.networks_dir, f"{self.prefix}_final_network_with_relevance.json"),
 
-            "cleaned_db": self._settled(self.databases_dir, f"{self.prefix}_cleaned_pmids.db"),
-            "relevance_db": self._settled(self.databases_dir, f"{self.prefix}_mean_relevancy.db"),
+            "cleaned_db": self._settled_db(f"{self.prefix}_cleaned_pmids.db",
+                                           self.active_source_dir,
+                                           self._user_processed_dir()),
+            "relevance_db": self._settled_db(f"{self.prefix}_mean_relevancy.db",
+                                             self.active_source_dir,
+                                             self._user_processed_dir()),
 
             "failed_mesh": self.log_dir / f"{self.prefix}_failed_mesh_fetches.tsv",
             "empty_mesh": self.log_dir / f"{self.prefix}_empty_mesh_pmids.tsv",

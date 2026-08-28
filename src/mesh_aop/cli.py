@@ -26,6 +26,7 @@ import argparse
 import json
 import subprocess
 import pandas as pd
+from pathlib import Path
 from importlib.metadata import version, PackageNotFoundError
 
 from .config_parser import MeshConfig
@@ -172,6 +173,68 @@ def _gt_wanted(config):
     if bool(config.get('control_flags', 'use_reference_data')):
         return True
     return bool(config.params.get('benchmark', {}).get('run_ground_truth_analysis'))
+
+
+def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
+    """Score the corpus into a relevance database when there isn't one yet.
+
+    The benchmark needs per-article relevance scores. Against the bundled
+    reference corpus there were none and there could not be: the database is two
+    gigabytes, far too large to ship, so the benchmark simply refused to run and
+    the shipped corpus could not be validated by anyone.
+
+    It does not need to be shipped. Everything required to build it is already
+    on the machine - the consensus network, which is bundled, and the master
+    annotation database, which the user built. So build it.
+
+    This is not free: it scans the whole master database, which is the same pass
+    the network step makes and takes a while. It is done once and kept.
+    """
+    target = config.files['relevance_db']
+    if os.path.exists(target) and os.path.getsize(target) > 0:
+        return
+
+    network = config.files['consensus_lcc']
+    master = config.files['master_db']
+    if not os.path.exists(network) or not os.path.exists(master):
+        return          # _ensure_prerequisites will say what is missing, and why
+
+    print("\n" + "<" * 30 + ">" * 30)
+    print("<<< No relevance database yet - building it >>>")
+    print("<" * 30 + ">" * 30)
+    print(f"  network : {network}")
+    print(f"  master  : {master}")
+    print(f"  writing : {target}")
+    print("  This scans the master annotation database once. It takes a while,")
+    print("  and it is kept - the next benchmark starts straight away.\n")
+
+    # The rescored network goes beside the databases rather than over the input.
+    # In reference mode the input IS the shipped corpus, which is read-only and
+    # must stay exactly as published.
+    scored = Path(config.databases_dir) / f"{config.prefix}_scored_for_benchmark.json"
+
+    weightings = [("betweenness_centrality", "MRS_betweenness_centrality"),
+                  ("pagerank_centrality", "MRS_pagerank_centrality"),
+                  ("eigenvector_centrality", "MRS_eigenvector_centrality")]
+    if include_subgraph_weightings:
+        weightings += [("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
+                       ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
+                       ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
+
+    run_mean_relevancy_scoring(
+        input_nodes_file=network,
+        output_nodes_file=str(scored),
+        master_db_path=master,
+        relevance_db_path=target,
+        id_key='id',
+        weightings=weightings,
+        start_date_param=config.get('analysis_parameters', 'context_start_date'),
+        end_date_param=config.get('analysis_parameters', 'context_end_date'),
+        entrez_email=config.get('credentials', 'entrez_email'),
+        entrez_api_key=config.get('credentials', 'entrez_api_key'),
+        calculate_full_centrality=config.get('analysis_parameters', 'calculate_full_centrality'))
+
+    print(f"\n  [+] Relevance database built: {target}")
 
 
 def _is_valid_db(db_path, table_name="pmids_table"):
@@ -996,8 +1059,16 @@ def main():
             # user dropped in data/raw/ (a recognized name from KNOWN_GT_FILENAMES).
             # The bundled OECD curated set is substituted ONLY when running against
             # the reference corpus, so a user's own file is never silently shadowed.
-            configured_gt = bench_params.get('ground_truth_csv', '') or (
-                'data/reference_processed/oecd_ground_truth_curated.xlsx' if use_reference else '')
+            # The bundled OECD set, named by where it actually is rather than by
+            # a path relative to the working directory. The old spelling -
+            # 'data/reference_processed/oecd_ground_truth_curated.xlsx' - was
+            # resolved against config.root, which is the directory the process
+            # was started in, so on an installed copy it found nothing and the
+            # run stopped saying no ground-truth file was configured.
+            configured_gt = bench_params.get('ground_truth_csv', '')
+            if not configured_gt and use_reference:
+                bundled = Path(config.active_source_dir) / 'oecd_ground_truth_curated.xlsx'
+                configured_gt = str(bundled) if bundled.exists() else ''
 
             # Resolve the ground-truth file. A configured name may be a bare filename
             # (looked up in the ACTIVE raw directory -- data/raw/ for own data,
@@ -1023,6 +1094,7 @@ def main():
             nc_filename = bench_params.get('negative_control_csv', '')
             nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename, root=config.root) if nc_filename else None
 
+            _build_relevance_db_if_missing(config, include_subgraph_weightings=_gt_wanted(config))
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db']
             }, "Step 5 (Benchmarking)")

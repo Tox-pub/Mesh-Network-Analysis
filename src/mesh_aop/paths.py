@@ -109,9 +109,27 @@ def bundled_reference_dir(program=None):
     """
     root = Path(program) if program else program_dir()
     here = Path(__file__).resolve().parent           # .../mesh_aop
-    for candidate in (root / 'app' / 'reference_processed',
-                      here.parent / 'reference_processed',
-                      root / 'data' / 'reference_processed'):
+
+    # Walk up from the package itself, because that is the one thing whose
+    # location is always known. The three layouts put the corpus in three
+    # different places relative to it, and the caller's `program` is often the
+    # working directory, which is not where anything is:
+    #
+    #   source checkout   <repo>/src/mesh_aop        -> <repo>/data/reference_processed
+    #   Windows portable  <prog>/app/mesh_aop        -> <prog>/app/reference_processed
+    #   Unix bundle       <prog>/app/src/mesh_aop    -> <prog>/reference_processed
+    #
+    # Only the middle one was found before, and only when the working directory
+    # happened to be the program folder. The Unix bundles ship the corpus and
+    # could never locate it, so "Use bundled reference data" had nothing to read.
+    candidates = [root / 'app' / 'reference_processed',
+                  root / 'reference_processed',
+                  root / 'data' / 'reference_processed']
+    for up in (here.parent, here.parent.parent, here.parent.parent.parent):
+        candidates.append(up / 'reference_processed')
+        candidates.append(up / 'data' / 'reference_processed')
+
+    for candidate in candidates:
         if candidate.is_dir():
             return candidate
     return root / 'data' / 'reference_processed'
