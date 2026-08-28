@@ -148,6 +148,10 @@ def verify(path):
               'found: ' + ', '.join(leaked[:3]))
         check(get('app/LICENSE') is not None or get('LICENSE') is not None,
               'the licence travels with the program')
+        check(get('app/THIRD-PARTY-NOTICES.md') is not None
+              or get('THIRD-PARTY-NOTICES.md') is not None,
+              'so do the third-party notices',
+              'the bundle redistributes ~47 libraries, four of them copyleft')
 
         # ------------------------------------------------- reference corpus
         print('\n-- bundled reference data')

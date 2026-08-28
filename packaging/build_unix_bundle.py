@@ -452,7 +452,8 @@ def build(target, out_dir, stripped=True):
     # Our own licence travels with the program. Redistributing CPython, Tcl/Tk
     # and forty compiled wheels without stating what any of it is licensed
     # under is not a defensible thing to publish.
-    for f in ('LICENSE', 'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
+    for f in ('LICENSE', 'THIRD-PARTY-NOTICES.md', 'CITATION.cff',
+                 'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
         src = os.path.join(REPO, f)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(app, f))

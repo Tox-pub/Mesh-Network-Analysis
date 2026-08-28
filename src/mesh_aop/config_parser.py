@@ -236,6 +236,18 @@ class MeshConfig:
         """
         self.use_reference_data = self.params['control_flags']['use_reference_data']
         self.prefix = "DAC_Mesh" if self.use_reference_data else self.params['control_flags']['custom_file_prefix']
+
+        # Databases derived from the shipped corpus are named apart from the
+        # user's own. Without this they collide outright: the factory default
+        # project prefix IS "DAC_Mesh", and the reference corpus forces that
+        # same prefix, so a user who had scored their own corpus and then ticked
+        # "Use bundled reference data" wrote both to
+        # DAC_Mesh_mean_relevancy.db - one overwriting the other, with no
+        # warning and no way to tell afterwards which corpus a score came from.
+        #
+        # The bundled NETWORKS keep their published names; they are read-only
+        # and are what the reference corpus is. Only what we derive is renamed.
+        self.db_prefix = f"Reference_{self.prefix}" if self.use_reference_data else self.prefix
         today = date.today().strftime("%Y/%m/%d")
         self._resolved = {}
         for section, key in self._DYNAMIC_DATES:
@@ -252,10 +264,20 @@ class MeshConfig:
         shipped beside the reference corpus is the fallback, so an install can
         reproduce the reference figures before retrieving anything.
         """
+        from . import paths as _paths
         own = self.active_raw_dir / "aop_annotations_master.csv"
+
+        # Reference mode reproduces a published run, so the published stratum
+        # dictionary wins over anything the user has annotated for their own
+        # corpus. Their file is not touched; it is simply not the one that
+        # describes the reference network.
+        if self.use_reference_data:
+            bundled = _paths.bundled_reference_dir(self.root) / "aop_annotations_master.csv"
+            if bundled.exists():
+                return bundled
+
         if own.exists():
             return own
-        from . import paths as _paths
         # The packaged build copies the dictionary in beside the reference
         # corpus; a source checkout keeps it in data/raw, which is not the
         # active raw folder while reference mode is on. Try both, so reference
@@ -290,7 +312,20 @@ class MeshConfig:
 
         default_in, default_out = self.get_default_directories(self.use_reference_data)
 
-        self.active_raw_dir = Path(custom_in) if custom_in else Path(default_in)
+        # THE RAW FOLDER IS ALWAYS THE USER'S, like the databases.
+        #
+        # It used to follow the reference checkbox to data/reference_raw, which
+        # is not shipped, does not exist on an installed copy, and is resolved
+        # against the working directory - so with the box ticked, Step 0 would
+        # have downloaded a second 44 GB copy of the PubMed baseline into
+        # whatever folder the program happened to be started in, and Step 1 a
+        # second copy of the MeSH descriptor XML beside it. Nothing in the
+        # benchmark path touches these, which is the only reason it went
+        # unnoticed.
+        #
+        # Downloads are downloads whichever corpus is being analysed. Only the
+        # networks and the ground-truth files come from the bundle.
+        self.active_raw_dir = Path(custom_in) if custom_in else self._user_raw_dir()
 
         from . import paths as _paths
         custom_results = self.params.get('directories', {}).get('results_dir', '').strip()
@@ -427,7 +462,7 @@ class MeshConfig:
             "master_db": self._settled_db("master_mesh_database.db",
                                           self.active_raw_dir,
                                           self._user_raw_dir()),
-            "pmids_db": self._settled_db(f"{self.prefix}_pmids.db",
+            "pmids_db": self._settled_db(f"{self.db_prefix}_pmids.db",
                                          self.active_raw_dir,
                                          self._user_raw_dir()),
 
@@ -437,10 +472,10 @@ class MeshConfig:
             "consensus_lcc": self._settled(self.networks_dir, f"{self.prefix}_consensus_lcc_network.json"),
             "final_network": self._settled(self.networks_dir, f"{self.prefix}_final_network_with_relevance.json"),
 
-            "cleaned_db": self._settled_db(f"{self.prefix}_cleaned_pmids.db",
+            "cleaned_db": self._settled_db(f"{self.db_prefix}_cleaned_pmids.db",
                                            self.active_source_dir,
                                            self._user_processed_dir()),
-            "relevance_db": self._settled_db(f"{self.prefix}_mean_relevancy.db",
+            "relevance_db": self._settled_db(f"{self.db_prefix}_mean_relevancy.db",
                                              self.active_source_dir,
                                              self._user_processed_dir()),
 

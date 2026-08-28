@@ -106,6 +106,14 @@ jobs:
           wix extension add --global WixToolset.Util.wixext/5.0.2
           wix extension list --global
 
+      # Structural checks that need no built data: path resolution, the notebook
+      # mirror against the modules. The suites that need a real network skip
+      # themselves rather than report a pass they did not earn.
+      - name: Check the repository is consistent
+        run: |
+          python tests/run_all.py
+          python packaging/sync_notebooks.py --check
+
       # Absolute paths. The .wxs harvests the tree with a glob on $(PortableDir),
       # and WiX resolves a relative one against the .wxs file's own directory
       # rather than the working directory - so a relative --portable here
@@ -124,6 +132,7 @@ jobs:
           ver=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
           msi="MeSH-Workbench-${ver}-windows.msi"
           mv build/*.msi "$msi"
+          echo "VER=$ver" >> "$GITHUB_ENV"
           mb=$(du -m "$msi" | cut -f1)
           echo "  $msi  ${mb} MB"
           # A complete installer is ~90 MB. One that slipped through at 0.3 MB
@@ -133,6 +142,15 @@ jobs:
             echo "::error::$msi is only ${mb} MB - it cannot contain the application."
             exit 1
           fi
+
+      # The Windows equivalent of verify_unix_bundle: no settings file, no
+      # data folder from a used tree, the licence and the notices present, and
+      # an installer that is not an empty shell.
+      - name: Inspect the Windows build
+        run: |
+          python packaging/verify_windows_bundle.py build/MeshWorkbench
+          python packaging/verify_windows_bundle.py "MeSH-Workbench-${{ env.VER }}-windows.msi"
+        continue-on-error: false
 
       - uses: actions/upload-artifact@v5
         with:

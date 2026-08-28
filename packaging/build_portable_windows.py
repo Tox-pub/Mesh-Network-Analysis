@@ -252,7 +252,8 @@ def copy_app(repo, dst):
     # They go one level above app/, beside the launchers, where a user browsing
     # the folder will also find them.
     docs_dst = os.path.dirname(dst)
-    for name in ('LICENSE', 'HELP.md', 'INSTALL.md', 'README.md'):
+    for name in ('LICENSE', 'THIRD-PARTY-NOTICES.md', 'CITATION.cff',
+                 'HELP.md', 'INSTALL.md', 'README.md'):
         src_doc = os.path.join(repo, name)
         if os.path.exists(src_doc):
             shutil.copy2(src_doc, os.path.join(docs_dst, name))

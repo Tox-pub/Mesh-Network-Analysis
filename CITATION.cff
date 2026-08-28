@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+title: >-
+  MeSH Workbench: MeSH co-occurrence concept networks for
+  Adverse Outcome Pathways
+message: >-
+  If you use this software or the networks it produces in
+  published work, please cite it.
+type: software
+authors:
+  - family-names: Sax
+    given-names: Jakob
+    email: jakob.sax@ki.se
+    affiliation: Karolinska Institutet
+repository-code: 'https://github.com/Tox-pub/Mesh-Network-Analysis'
+abstract: >-
+  Builds and validates MeSH co-occurrence concept networks
+  from the PubMed literature, connecting chemical stressors
+  to adverse outcomes through biological intermediates in
+  the shape of an Adverse Outcome Pathway. Retrieval is
+  date-chunked over NCBI E-utilities and expanded across
+  citation generations; the co-occurrence graph is filtered
+  by a consensus of generalised local filtering and
+  simulated annealing; nodes are scored by a Mean Relevancy
+  Score over the whole indexed corpus. Ships as a desktop
+  application carrying its own Python for Windows, Linux and
+  macOS, and as a command-line pipeline. Includes a PRISMA
+  flow report, a run ledger, and benchmarking against a
+  curated ground-truth set.
+keywords:
+  - MeSH
+  - adverse outcome pathway
+  - text mining
+  - co-occurrence network
+  - PubMed
+  - toxicology
+  - skin sensitisation
+license: MIT
+version: 3.2.0

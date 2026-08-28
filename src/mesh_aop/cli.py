@@ -211,7 +211,7 @@ def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
     # The rescored network goes beside the databases rather than over the input.
     # In reference mode the input IS the shipped corpus, which is read-only and
     # must stay exactly as published.
-    scored = Path(config.databases_dir) / f"{config.prefix}_scored_for_benchmark.json"
+    scored = Path(config.databases_dir) / f"{config.db_prefix}_scored_for_benchmark.json"
 
     weightings = [("betweenness_centrality", "MRS_betweenness_centrality"),
                   ("pagerank_centrality", "MRS_pagerank_centrality"),
