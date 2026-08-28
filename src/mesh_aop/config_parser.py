@@ -485,7 +485,12 @@ class MeshConfig:
 
             "mesh_marc": self.active_raw_dir / "20250301_marc_full2025.bin",
             "mesh_ascii": self.active_raw_dir / "d2025.bin",
-            "mesh_terms_csv": self.active_source_dir / "mesh_terms.csv",
+            # The user's, like the databases. It is DERIVED - Step 1 writes it
+            # from desc2025.xml - so pointing it at the shipped corpus meant a
+            # reference run would try to write the MeSH vocabulary into a
+            # read-only folder. It is also the same vocabulary either way: it
+            # describes the MeSH release, not the corpus being analysed.
+            "mesh_terms_csv": self._settled(self._user_processed_dir(), "mesh_terms.csv"),
 
             # The package's own module, resolved from this file - NOT
             # root/src/mesh_aop/. root is the working directory, so that path
