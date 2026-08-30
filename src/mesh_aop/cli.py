@@ -190,31 +190,20 @@ def _network_term_index(network_path):
 
 
 def _warn_unknown_term(name, known, what):
-    """Say so when a typed term is not in the network, and offer near misses.
+    """Say plainly that a typed term is not in the network, and why that matters.
 
-    Nothing here fails on a name that does not match - the query returns an
-    empty set and the run carries on - so the only symptom is an analysis that
-    produced no output, with no indication why. A misspelling, a heading that is
-    not in this corpus and a term that was filtered out all look identical.
+    Nothing fails on a name that does not match - the query returns an empty set
+    and the run carries on - so the only symptom is an analysis that produced no
+    output, with no indication why. One clear sentence about the cause is worth
+    more than a guess at which of the several possible mistakes it was.
     """
     if not known or name in known:
         return
-    lowered = name.lower()
-    exact_case = [k for k in known if k.lower() == lowered]
-    contains = [k for k in known if lowered in k.lower()][:6]
-
-    print(f"\n  [!] {what} {name!r} is not in this network.")
-    if exact_case:
-        print(f"      The spelling differs only in case. Use: {exact_case[0]!r}")
-    elif contains:
-        print( "      Nearest terms that ARE in it:")
-        for k in contains:
-            print(f"        {k}")
-    else:
-        print( "      No term in the network contains that text. Check the "
-               "spelling against")
-        print( "      the network workbook, or the term may have been filtered out.")
-    print( "      The analysis will run and find nothing for it.")
+    print(f"\n  [!] {what}: no term named {name!r} in this network.")
+    print(f"      Terms must match a network term exactly, including capitals.")
+    print(f"      Nothing will be produced for it; the rest of the step runs.")
+    print(f"      The full term list is the Nodes tab of "
+          f"<prefix>_final_network_nodes_and_edges.xlsx.")
 
 
 def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
