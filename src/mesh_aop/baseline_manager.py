@@ -147,6 +147,38 @@ def _extract_pub_date(elem) -> str:
     # 3. Default fallback if absolutely no date is found
     return "1900-01-01"
 
+def _is_ram_backed(path):
+    """True when this path sits on a filesystem held in memory.
+
+    tmpfs and ramfs are RAM. Writing an eight gigabyte working database to one
+    consumes eight gigabytes of memory that no process appears to own - it is
+    reported as "shared" - and it is not returned until the file is deleted or
+    the machine restarts.
+
+    Linux only, read from /proc/mounts. Everywhere else this returns False:
+    Windows and macOS do not put the temp directory in RAM.
+    """
+    if not sys.platform.startswith('linux'):
+        return False
+    try:
+        target = os.path.realpath(str(path))
+        best, fstype = '', ''
+        with open('/proc/mounts', encoding='utf-8') as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                point = parts[1]
+                # The longest mount point that is a parent of the path is the
+                # filesystem the path is actually on.
+                if (target == point or target.startswith(point.rstrip('/') + '/')) \
+                        and len(point) > len(best):
+                    best, fstype = point, parts[2]
+        return fstype in ('tmpfs', 'ramfs')
+    except OSError:
+        return False
+
+
 def build_local_shard(job):
     """Executes on parallel CPU cores to parse XML chunks into local SQLite shards.
 
@@ -237,12 +269,32 @@ class PubMedBaselineManager:
         # High-Speed Local Workspace (OS-Agnostic). The named subfolder is always
         # appended, so a configured location is never itself treated as ours -
         # the uninstaller removes this folder whole.
-        _ws_base = Path(workspace_dir) if workspace_dir else Path(tempfile.gettempdir())
+        #
+        # NOT the system temp directory by default any more. On most current
+        # Linux distributions /tmp is a tmpfs, which is RAM. The workspace holds
+        # a full working copy of the master annotation database - eight
+        # gigabytes - so putting it there spends eight gigabytes of memory on a
+        # file, and because nothing here deleted the workspace afterwards, that
+        # memory stayed spent until the machine was rebooted. It shows up in
+        # `free` as "shared" rather than as any process's memory, which is
+        # exactly why it looked like a leak nobody could find a process for.
+        _ws_base = Path(workspace_dir) if workspace_dir else self._default_workspace_base()
+        if not workspace_dir and _is_ram_backed(_ws_base):
+            # A configured location is the user's decision and is honoured even
+            # if it is in RAM. This only overrides the default.
+            fallback = self.raw_data_dir.parent / 'etl_workspace'
+            print(f"  [i] {_ws_base} is RAM-backed (tmpfs). The build needs about "
+                  f"8 GB of\n      scratch space, so it will use {fallback} instead.")
+            print( "      Set a workspace folder in Settings to choose somewhere else.")
+            _ws_base = fallback
         self.local_workspace = _ws_base / "mesh_etl_workspace"
-        self.local_workspace.mkdir(exist_ok=True)
+        # parents=True: a workspace folder the user typed in Settings may not
+        # exist yet, and crashing at construction with a bare WinError 3 is a
+        # poor way to tell them so.
+        self.local_workspace.mkdir(parents=True, exist_ok=True)
         self.local_db_path = self.local_workspace / "local_active_master.db"
         self.local_xml_dir = self.local_workspace / "xml_buffer"
-        self.local_xml_dir.mkdir(exist_ok=True)
+        self.local_xml_dir.mkdir(parents=True, exist_ok=True)
 
         self.ftp_host = "ftp.ncbi.nlm.nih.gov"
         self.baseline_ftp_path = "/pubmed/baseline/"
@@ -258,6 +310,45 @@ class PubMedBaselineManager:
         # progress independently of the database file, so a later quarantine of a
         # corrupt DB never erases the record of how far the build got.
         self.progress_path = Path(str(self.master_db_path) + ".progress.json")
+
+    def _default_workspace_base(self):
+        """Where scratch work goes when the user has not chosen a folder.
+
+        The system temp directory, unless that is in RAM - see _is_ram_backed.
+        """
+        return Path(tempfile.gettempdir())
+
+    def release_workspace(self, reason='the build finished'):
+        """Delete the scratch workspace. It is up to eight gigabytes.
+
+        Nothing did this before, so a working copy of the master database was
+        left behind after every build - and when the workspace was in /tmp, as
+        it was by default, that meant eight gigabytes of RAM held by a file
+        belonging to no running process.
+
+        Only ever our own named subfolder, never the folder it sits in: a user
+        who points the workspace at a scratch drive must not lose that folder.
+        """
+        target = self.local_workspace
+        if target.name != 'mesh_etl_workspace' or not target.is_dir():
+            return 0
+        freed = 0
+        for base, _dirs, files in os.walk(target):
+            for f in files:
+                try:
+                    freed += os.path.getsize(os.path.join(base, f))
+                except OSError:
+                    pass
+        try:
+            shutil.rmtree(target, ignore_errors=False)
+        except OSError as exc:
+            print(f"  [!] Could not remove the scratch workspace ({exc}).")
+            print(f"      It is safe to delete by hand: {target}")
+            return 0
+        if freed:
+            print(f"  [+] Scratch workspace released: {freed / 1e9:,.1f} GB "
+                  f"({reason}).")
+        return freed
 
     def _get_ftp_file_list(self, ftp_path: str) -> list:
         """Return the list of .xml.gz filenames available at the given NCBI FTP path."""
@@ -749,6 +840,11 @@ class PubMedBaselineManager:
         # before declaring success; raises if the build is unusable/incomplete.
         record_count = self._verify_built_database(len(all_files))
         self._save_progress_manifest(final_parsed, len(all_files), complete=True, record_count=record_count)
+
+        # Only once the finished database has been verified where it will be
+        # read from. Releasing the scratch copy before that would throw away the
+        # one thing a failed transfer could be recovered from.
+        self.release_workspace('the database is built and verified')
 
         print("\n" + "<"*30 + ">"*30)
         print("MASTER DATABASE COMPILATION COMPLETE")

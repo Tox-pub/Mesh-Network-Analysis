@@ -142,6 +142,23 @@ def _workspace_base(root):
     return Path(value) if value else None
 
 
+def _data_root(root):
+    """The user's data folder, if one was configured or can be resolved.
+
+    Read from the file rather than through MeshConfig, for the reason given
+    below: constructing one creates every directory it resolves, and an
+    uninstaller must not create the folders it is about to remove.
+    """
+    value = (_config_dirs(root).get('data_dir') or '').strip()
+    if value:
+        return Path(value)
+    try:
+        from . import paths as _paths
+        return Path(_paths.default_user_data_dir(root))
+    except Exception:
+        return None
+
+
 def _redirected(root):
     """Folders the user pointed outside the project, read straight from the file.
 
@@ -229,8 +246,13 @@ def inventory(project_dir, config=None):
     # configured one are checked: a build that ran with the workspace pointed
     # elsewhere would otherwise leave the largest single leftover untouched.
     tmp = Path(tempfile.gettempdir())
+    # The data folder is checked too: when the temp directory is RAM-backed -
+    # which /tmp is on most current Linux - the build puts its workspace beside
+    # the data instead, and a leftover there is the same eight gigabytes.
+    beside_data = _data_root(root)
     bases, seen = [], set()
-    for base in (_workspace_base(root), tmp):
+    for base in (_workspace_base(root), tmp,
+                 (beside_data / 'etl_workspace') if beside_data else None):
         if base and str(base).lower() not in seen:
             seen.add(str(base).lower())
             bases.append(base)
