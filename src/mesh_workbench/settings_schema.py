@@ -110,9 +110,16 @@ TABS = [
           'Default: off - they are built once and kept.',
           'Turn this on after moving to a new MeSH release year. It adds time to '
           'the process step and changes the vocabulary every later step sees.'),
-        F('control_flags.custom_file_prefix', 'Project prefix', 'text', 'DAC_Mesh',
-          'Prefix applied to every output file, so runs do not overwrite each other.',
-          'Default: DAC_Mesh.'),
+        F('control_flags.custom_file_prefix', 'Project prefix', 'text', '',
+          'Prefix applied to every file this project produces, so two projects '
+          'never overwrite each other.',
+          'Ships empty - name it for your own question. Ticking "Use bundled '
+          'reference data" sets it to DAC_Mesh and locks it, because that is '
+          'the name the published corpus was built under.',
+          'This is what separates one analysis from another. Keep it the same '
+          'to resume a run: each step checks for its own output first and skips '
+          'work already done. Change it to start clean while leaving an earlier '
+          'analysis intact - two prefixes never touch the same files.'),
     ]),
     ('Folders', [
         # Two settings decide everything. The three after them are overrides

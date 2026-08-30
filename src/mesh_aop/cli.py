@@ -175,6 +175,46 @@ def _gt_wanted(config):
     return bool(config.params.get('benchmark', {}).get('run_ground_truth_analysis'))
 
 
+# What the bundled reference corpus cannot do, and why. Each of these needs the
+# cleaned citation database, which only retrieval produces - and retrieval does
+# not run against a corpus that is already built. Skipping them is not a
+# limitation of the mode; it IS the mode. The corpus ships with the work already
+# done, which is why figures and benchmarking take minutes rather than a night.
+REFERENCE_SKIPS = {
+    'data_ops': ('Retrieval', 'that corpus is already built - there is nothing to fetch'),
+    'network': ('Network construction',
+                'that corpus ships with its network already built, filtered and scored'),
+    'secondary': ('Secondary analysis',
+                  'it reads the cleaned citation database, which only retrieval produces'),
+}
+
+
+def _reference_skip(config, step, requested):
+    """Should this step be skipped because the reference corpus is in use?
+
+    Asking for one of them directly is refused outright - the user asked for a
+    specific thing that cannot happen. Inside a full run it is skipped and the
+    run continues, because the steps that CAN work against the shipped network
+    still have real work to do, and killing the whole run over a step that was
+    never needed would be worse.
+    """
+    if not config.use_reference_data or step not in REFERENCE_SKIPS:
+        return False
+    label, why = REFERENCE_SKIPS[step]
+    if requested == step:
+        print("\n" + "<" * 30 + ">" * 30)
+        print(f"{label} does not run against the bundled reference corpus")
+        print("<" * 30 + ">" * 30)
+        print(f"  'Use bundled reference data' is ticked, and {why}.")
+        print("\n  To do this with your own corpus, untick it on the Search tab.")
+        print("  Your own search term, dates and prefix come back as you left them.")
+        print("\n  With the reference corpus, run the figures or the benchmark:")
+        print("  everything they need is already here.")
+        sys.exit(1)
+    print(f"\n>>> SKIPPING: {label} - {why}.")
+    return True
+
+
 def _network_term_index(network_path):
     """Every term in the finished network, for checking a typed name against.
 
@@ -628,6 +668,23 @@ def main():
         config.params['_run_baseline_updates'] = args.with_updates
         config.params['_delete_corrupt_db'] = args.rebuild_corrupt
 
+    # A project needs a name before it writes anything. The prefix ships empty
+    # so a fresh install does not inherit this project's name, which means it
+    # has to be checked - without one, every file would be called _pmids.db,
+    # _final_network_with_relevance.json and so on, and two projects would
+    # collide on the first run.
+    if not str(config.prefix or '').strip():
+        print("\n" + "<" * 30 + ">" * 30)
+        print("[CRITICAL ERROR] No project prefix is set")
+        print("<" * 30 + ">" * 30)
+        print("  Every file a run produces is named with it, so it is what keeps")
+        print("  one analysis apart from another.")
+        print("\n  Set 'Project prefix' on the Search tab - a short name for the")
+        print("  question you are asking, such as SkinSens or ACD_2026. Letters,")
+        print("  digits and underscores.")
+        print("\n  Or tick 'Use bundled reference data', which supplies its own.")
+        sys.exit(1)
+
     # What the reference corpus replaced, said out loud. A silent override is
     # the right behaviour and a silent override nobody is told about is not.
     _overrides = getattr(config, 'reference_overrides', [])
@@ -755,28 +812,8 @@ def main():
             _initialize_master_annotations(config.files['mesh_terms_csv'], config.files['annotations'])
 
         # <<< STEP 2: Entrez Data Collection >>>
-        # Retrieval against the bundled corpus is meaningless: that corpus is
-        # already built, and querying PubMed would produce a different one under
-        # the reference name. Asking for it outright is refused; a full run
-        # skips it and carries on, because the rest of the pipeline has real
-        # work to do against the shipped network.
-        _skip_retrieval = args.step in ['all', 'data_ops'] and config.use_reference_data
-        if _skip_retrieval and args.step == 'data_ops':
-            print("\n" + "<" * 30 + ">" * 30)
-            print("Retrieval does not run against the bundled reference corpus")
-            print("<" * 30 + ">" * 30)
-            print("  'Use bundled reference data' is ticked, which means the corpus")
-            print("  is already built and shipped with the program - there is nothing")
-            print("  for a PubMed search to fetch.")
-            print("\n  To retrieve your own corpus, untick it on the Search tab. Your")
-            print("  own search term and dates come back as you left them.")
-            print("\n  To use the reference corpus, skip to the figures or the")
-            print("  benchmark - the network it needs is already here.")
-            sys.exit(1)
-        if _skip_retrieval:
-            print("\n>>> SKIPPING: Step 2 - retrieval, because the bundled reference")
-            print("    corpus is in use and is already built. Nothing to fetch.")
-
+        _skip_retrieval = (args.step in ['all', 'data_ops']
+                          and _reference_skip(config, 'data_ops', args.step))
         if args.step in ['all', 'data_ops'] and not _skip_retrieval:
             runcontrol.checkpoint("before Step 2")
             print("\n>>> STARTING: Step 2 - Entrez Data Collection & Database Operations")
@@ -813,7 +850,9 @@ def main():
             )
 
         # <<< STEP 3: Network Construction & Analysis >>>
-        if args.step in ['all', 'network']:
+        _skip_network = (args.step in ['all', 'network']
+                        and _reference_skip(config, 'network', args.step))
+        if args.step in ['all', 'network'] and not _skip_network:
             runcontrol.checkpoint("before Step 3")
             print("\n>>> STARTING: Step 3 - Network Construction & Statistical Filtering")
 
@@ -943,7 +982,10 @@ def main():
         # Safely determine if we should run secondary analysis based on the execution mode
         should_run_sec = True if args.step == 'secondary' else sec_params.get('export_top_articles', True)
 
-        if args.step in ['all', 'secondary'] and should_run_sec:
+        _skip_secondary = (args.step in ['all', 'secondary']
+                           and _reference_skip(config, 'secondary', args.step))
+
+        if args.step in ['all', 'secondary'] and should_run_sec and not _skip_secondary:
             runcontrol.checkpoint("before Secondary Analysis")
             print("\n>>> STARTING: Secondary Analysis Operations")
             _ensure_prerequisites({
@@ -1010,7 +1052,8 @@ def main():
                             )
 
         # <<< STEP 3.5b: Optional network overlay comparison (default off) >>>
-        if args.step in ['all', 'secondary'] and sec_params.get('compare_networks', False):
+        if (args.step in ['all', 'secondary'] and not _skip_secondary
+                and sec_params.get('compare_networks', False)):
             # Look in the active processed folder (data/processed, or reference_processed
             # when reference data is in use); PNG/CSV outputs go to the results section.
             run_network_overlay_comparison(

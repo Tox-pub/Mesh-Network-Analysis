@@ -369,13 +369,27 @@ def _step_rewrites(config, step, key):
     """Will this step actually rewrite this output, or skip it because it exists?
 
     Most steps do rewrite: the network stage rebuilds whatever it is asked for.
-    The MeSH support files are the exception - they are built once and reused,
-    and only rebuilt when explicitly refreshed - so a warning that they are
-    about to be replaced is false unless a refresh was asked for.
+    Two exceptions, and warning about either is simply untrue.
+
+    The MeSH support files are built once and reused, and only rebuilt when
+    explicitly refreshed.
+
+    And with the bundled reference corpus in use, retrieval, network
+    construction and the secondary analysis do not run at all - the corpus ships
+    with that work already done. Their outputs are read-only files inside the
+    program folder. Warning that a run is about to replace them was alarming and
+    false in the same breath: nothing can, and nothing will.
     """
     if step == 'process' and key == 'mesh_terms_csv':
         return bool(config.get('search_parameters', 'update_mesh_support_files'))
+    if getattr(config, 'use_reference_data', False) and step in REFERENCE_SKIPPED_STEPS:
+        return False
     return True
+
+
+# Kept in step with cli.REFERENCE_SKIPS. Named here rather than imported to
+# avoid a cycle: integrity is imported by the CLI, not the other way round.
+REFERENCE_SKIPPED_STEPS = ('data_ops', 'network', 'secondary')
 
 
 def would_overwrite(config, step):

@@ -49,7 +49,11 @@ class MeshConfig:
                 # Off: the default is a user analysing their own corpus. Turn it
                 # on to reproduce the published reference run.
                 "use_reference_data": False,
-                "custom_file_prefix": "DAC_Mesh",
+                # Empty: this is a name for the user's own question. Shipping
+                # this project's name meant every fresh install produced files
+                # called DAC_Mesh_* whatever was being analysed - and then two
+                # different people's work collided the moment it was shared.
+                "custom_file_prefix": "",
                 # Off, matching the documented behaviour: the run completes
                 # unattended with every term left 'Unassigned'. Turn it on to
                 # stop after Step 3 and assign AOP levels by hand first.
@@ -240,6 +244,12 @@ class MeshConfig:
         # published figures come out as published rather than merely equivalent.
         ('analysis_parameters', 'random_seed'): 42,
         ('benchmark', 'primary_node'): 'Dermatitis, Allergic Contact',
+        # The name the published corpus was built under. It was already
+        # forced to this internally; listing it here means the form shows
+        # it and locks it, instead of accepting a prefix that is then
+        # quietly ignored - which is how a user comes to change the prefix,
+        # be warned that DAC_Mesh is in use, and have no idea why.
+        ('control_flags', 'custom_file_prefix'): 'DAC_Mesh',
     }
 
     # Values the user may type that mean "the day the run starts". Matched
