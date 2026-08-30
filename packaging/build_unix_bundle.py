@@ -41,6 +41,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -130,11 +131,69 @@ def dependencies():
     return [d for d in deps if d not in pure], pure
 
 
+def _api_headers():
+    """Headers for the GitHub API, authenticated when a token is available.
+
+    Unauthenticated GitHub API calls are limited to 60 an hour PER IP, and CI
+    runners share outbound addresses - macOS ones heavily. That limit is not
+    reached by this build; it is reached by everybody else's build on the same
+    address, and then this one gets 403 rate limit exceeded before it has done
+    anything. Which is exactly how a green pipeline starts failing on one
+    platform with no change to the code.
+    
+    A token raises the limit to 1000 an hour for the repository. Every GitHub
+    Actions workflow is issued one automatically; nothing has to be created.
+    Locally there is usually no token and none is needed - one developer does
+    not approach 60 an hour.
+    """
+    headers = {'User-Agent': 'mesh-workbench-build'}
+    token = (os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN') or '').strip()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    return headers
+
+
+def _api_json(url, attempts=4):
+    """GET some JSON, waiting out a rate limit rather than dying on it.
+
+    Even authenticated, a busy moment can return 403 or 429. The window is
+    short and the build is long, so waiting is strictly better than failing a
+    twenty-minute job at its first step.
+    """
+    last = None
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, headers=_api_headers())
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=60))
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in (403, 429):
+                raise
+            # GitHub says when the window resets; honour it when it is soon.
+            reset = exc.headers.get('X-RateLimit-Reset')
+            wait = 15 * (attempt + 1)
+            if reset:
+                try:
+                    wait = max(1, min(120, int(reset) - int(time.time()) + 2))
+                except ValueError:
+                    pass
+            remaining = exc.headers.get('X-RateLimit-Remaining', '?')
+            print(f'    GitHub API rate limit (403/{exc.code}, remaining={remaining}); '
+                  f'retrying in {wait}s  [{attempt + 1}/{attempts}]')
+            time.sleep(wait)
+    authed = 'Authorization' in _api_headers()
+    sys.exit(
+        f'\nGitHub API refused the request after {attempts} attempts: {last}\n'
+        f'  authenticated : {authed}\n'
+        + ('' if authed else
+           '  Set GITHUB_TOKEN. Unauthenticated calls are limited to 60 an hour\n'
+           '  per IP address, which CI runners share.\n'))
+
+
 def fetch_python(triple, dest, stripped=True):
     """Download and unpack a redistributable CPython for the target."""
     print(f'  interpreter: looking up python-build-standalone')
-    req = urllib.request.Request(PBS_API, headers={'User-Agent': 'mesh-workbench-build'})
-    release = json.load(urllib.request.urlopen(req))
+    release = _api_json(PBS_API)
     suffix = 'install_only_stripped' if stripped else 'install_only'
     wanted = None
     for asset in release['assets']:
@@ -156,9 +215,23 @@ def fetch_python(triple, dest, stripped=True):
         print('    (from cache)')
         blob = open(cached, 'rb').read()
     else:
-        req = urllib.request.Request(wanted['browser_download_url'],
-                                     headers={'User-Agent': 'mesh-workbench-build'})
-        blob = urllib.request.urlopen(req).read()
+        # The asset itself comes from a redirect to a CDN rather than from the
+        # API, so it is not rate limited the same way - but a transient failure
+        # here still costs the whole build, and this download is 30-45 MB.
+        blob = None
+        for attempt in range(4):
+            try:
+                req = urllib.request.Request(wanted['browser_download_url'],
+                                             headers=_api_headers())
+                blob = urllib.request.urlopen(req, timeout=180).read()
+                break
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                if attempt == 3:
+                    sys.exit(f'\ncould not download {wanted["name"]}: {exc}')
+                wait = 10 * (attempt + 1)
+                print(f'    download failed ({exc}); retrying in {wait}s '
+                      f'[{attempt + 2}/4]')
+                time.sleep(wait)
         with open(cached, 'wb') as fh:
             fh.write(blob)
     with tarfile.open(fileobj=io.BytesIO(blob), mode='r:gz') as tf:
