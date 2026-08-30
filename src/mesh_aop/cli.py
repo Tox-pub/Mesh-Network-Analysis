@@ -175,6 +175,48 @@ def _gt_wanted(config):
     return bool(config.params.get('benchmark', {}).get('run_ground_truth_analysis'))
 
 
+def _network_term_index(network_path):
+    """Every term in the finished network, for checking a typed name against.
+
+    Returns {} when the network cannot be read - the caller then says nothing,
+    because a check that cannot run must not produce a warning either way.
+    """
+    try:
+        with open(network_path, 'r', encoding='utf-8') as fh:
+            nodes = json.load(fh).get('elements', {}).get('nodes', [])
+        return {str(n.get('data', {}).get('id', '')): True for n in nodes if n.get('data')}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _warn_unknown_term(name, known, what):
+    """Say so when a typed term is not in the network, and offer near misses.
+
+    Nothing here fails on a name that does not match - the query returns an
+    empty set and the run carries on - so the only symptom is an analysis that
+    produced no output, with no indication why. A misspelling, a heading that is
+    not in this corpus and a term that was filtered out all look identical.
+    """
+    if not known or name in known:
+        return
+    lowered = name.lower()
+    exact_case = [k for k in known if k.lower() == lowered]
+    contains = [k for k in known if lowered in k.lower()][:6]
+
+    print(f"\n  [!] {what} {name!r} is not in this network.")
+    if exact_case:
+        print(f"      The spelling differs only in case. Use: {exact_case[0]!r}")
+    elif contains:
+        print( "      Nearest terms that ARE in it:")
+        for k in contains:
+            print(f"        {k}")
+    else:
+        print( "      No term in the network contains that text. Check the "
+               "spelling against")
+        print( "      the network workbook, or the term may have been filtered out.")
+    print( "      The analysis will run and find nothing for it.")
+
+
 def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
     """Score the corpus into a relevance database when there isn't one yet.
 
@@ -939,9 +981,16 @@ def main():
                     sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                 )
             if args.step == 'secondary':
+                # The names below have to match a term in the network exactly.
+                # A typo, or a heading that simply is not in this corpus, is not
+                # an error - the query just returns nothing - so it is checked
+                # here and said out loud with the nearest matches offered.
+                known = _network_term_index(config.files['final_network'])
+
                 t_nodes = config.get('secondary_analysis', 'target_nodes') or ''
                 if t_nodes:
                     for node_name in [n.strip() for n in t_nodes.split(';') if n.strip()]:
+                        _warn_unknown_term(node_name, known, 'Target node')
                         analyze_node_relevancy(
                             node_name=node_name, db_path=config.files['relevance_db'],
                             cleaned_db_path=config.files['cleaned_db'],
@@ -955,7 +1004,13 @@ def main():
                 if t_edges:
                     for edge_str in [e.strip() for e in t_edges.split(';') if e.strip()]:
                         parts = [p.strip() for p in edge_str.split(' - ')]
+                        if len(parts) != 2:
+                            print(f"\n  [!] Target edge {edge_str!r} is not two terms "
+                                  f"separated by ' - ' (a space, a hyphen, a space).")
+                            print( "      Nothing was analysed for it.")
                         if len(parts) == 2:
+                            for side in parts:
+                                _warn_unknown_term(side, known, 'Target edge term')
                             analyze_edge_relevancy(
                                 node1=parts[0], node2=parts[1], db_path=config.files['relevance_db'],
                                 cleaned_db_path=config.files['cleaned_db'],
@@ -1084,6 +1139,13 @@ def main():
                 print("      skipped. Everything else in the benchmark still runs.")
                 print("      Set Benchmark -> Primary node to the MeSH heading that")
                 print("      names your outcome to enable it.")
+            else:
+                # A heading that is not in the network gives an empty baseline
+                # and no error, which is indistinguishable from a baseline that
+                # genuinely found nothing.
+                _warn_unknown_term(primary_node,
+                                   _network_term_index(config.files['final_network']),
+                                   'Primary node')
 
             # The bundled ground truth describes the reference corpus, so scoring
             # against it only means something when that corpus is in play. Default
