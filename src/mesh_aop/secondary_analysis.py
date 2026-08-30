@@ -390,8 +390,14 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
 
 
 def convert_network_json_to_excel(input_json_path: str, output_excel_path: str):
-    """Converts a Cytoscape JSON network file into a structured Excel file."""
-    print(f"\n<<< Converting JSON to Excel >>>")
+    """The finished network as a spreadsheet: one tab of terms, one of relations.
+
+    The same content as the network JSON, for reading rather than for loading
+    into a graph tool. The Nodes tab carries every score the pipeline computed
+    for each MeSH term; the Edges tab carries the co-occurrence counts and the
+    weights derived from them.
+    """
+    print(f"\n<<< Exporting the network as a spreadsheet (nodes + edges) >>>")
 
     if not os.path.exists(input_json_path):
         raise FileNotFoundError(f"Input file does not exist: {input_json_path}")

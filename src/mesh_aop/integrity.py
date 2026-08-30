@@ -348,7 +348,7 @@ STEP_OUTPUTS = {
 
 # Results-folder outputs, matched by glob against the file prefix.
 STEP_RESULT_GLOBS = {
-    'network': [('{p}_export.xlsx', 'Network workbook'),
+    'network': [('{p}_final_network_nodes_and_edges.xlsx', 'Network workbook'),
                 ('{p}_run_annotations.csv', 'AOP annotation template')],
     'secondary': [('{p}_Top_Network_Articles.csv', 'Top articles export')],
     'viz': [('figures/{p}_*.jpeg', 'Figures (JPEG)'),

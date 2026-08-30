@@ -186,7 +186,7 @@ def render_text(ledger, flow=None):
     dates = ledger.stage_dates()
     width = 78
     out = ['=' * width,
-           'PRISMA-STYLE FLOW REPORT',
+           'WORKFLOW REPORT',
            'MeSH Workbench - MeSH co-occurrence network pipeline',
            '=' * width, '']
 
@@ -280,7 +280,7 @@ def render_figure(ledger, output_dir, file_prefix, flow=None):
     excl_face = '#f7ece9'
     excl_edge = '#a4442f'
 
-    ax.text(5.0, fig_h - 0.35, 'PRISMA-style flow of records through the pipeline',
+    ax.text(5.0, fig_h - 0.35, 'How records flowed through the pipeline',
             ha='center', va='center', fontsize=15, fontweight='bold', color=stage_colour)
     term = ledger.get('run', 'search_term', '')
     subtitle = f"Search: {term}" if term else 'Search term not recorded'
@@ -358,7 +358,7 @@ def render_figure(ledger, output_dir, file_prefix, flow=None):
                             facecolor='white', **_FORMAT_KWARGS.get(ext, {}))
             written.append(path)
         except Exception as e:
-            print(f"    [!] Error saving the PRISMA figure as .{ext}: {e}")
+            print(f"    [!] Error saving the workflow figure as .{ext}: {e}")
     plt.close(fig)
     return written
 
@@ -379,10 +379,10 @@ def write_prisma_report(ledger, config):
             fh.write(render_text(ledger, flow))
         paths.append(text_path)
     except OSError as e:
-        print(f"    [!] Could not write the PRISMA text report: {e}")
+        print(f"    [!] Could not write the workflow text report: {e}")
 
     try:
         paths += render_figure(ledger, str(config.figures_dir), config.prefix, flow)
     except Exception as e:
-        print(f"    [!] Could not draw the PRISMA figure: {e}")
+        print(f"    [!] Could not draw the workflow figure: {e}")
     return paths

@@ -880,7 +880,11 @@ def main():
                     calculate_full_centrality=config.get('analysis_parameters', 'calculate_full_centrality')
                 )
 
-            excel_path = os.path.join(config.secondary_dir, f"{config.prefix}_export.xlsx")
+            # Named for what is in it. "_export.xlsx" told a reader nothing:
+            # this is the finished network - every term with its scores, every
+            # relation with its weights - as two spreadsheet tabs.
+            excel_path = os.path.join(config.secondary_dir,
+                                      f"{config.prefix}_final_network_nodes_and_edges.xlsx")
             convert_network_json_to_excel(config.files['final_network'], excel_path)
 
             # Generate Run-Specific Annotations Template
@@ -935,7 +939,7 @@ def main():
                     sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                 )
             if args.step == 'secondary':
-                t_nodes = sec_params.get('target_nodes', '')
+                t_nodes = config.get('secondary_analysis', 'target_nodes') or ''
                 if t_nodes:
                     for node_name in [n.strip() for n in t_nodes.split(';') if n.strip()]:
                         analyze_node_relevancy(
@@ -947,7 +951,7 @@ def main():
                             sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                         )
 
-                t_edges = sec_params.get('target_edges', '')
+                t_edges = config.get('secondary_analysis', 'target_edges') or ''
                 if t_edges:
                     for edge_str in [e.strip() for e in t_edges.split(';') if e.strip()]:
                         parts = [p.strip() for p in edge_str.split(' - ')]
@@ -1288,10 +1292,10 @@ def main():
         if ledger.save():
             print(f"\n  [+] Run ledger written: {ledger.path}")
         for path in write_prisma_report(ledger, config):
-            print(f"  [+] PRISMA flow report written: {path}")
+            print(f"  [+] Workflow report written: {path}")
     except Exception as e:
         # A missing report must never turn a completed run into a failed one.
-        print(f"\n  [!] Could not write the run ledger / PRISMA report: {e}")
+        print(f"\n  [!] Could not write the run ledger / workflow report: {e}")
 
     print("\n" + "<"*30 + ">"*30)
     print(f"PIPELINE COMPLETED SUCCESSFULLY in {total_time/60:.2f} minutes.")

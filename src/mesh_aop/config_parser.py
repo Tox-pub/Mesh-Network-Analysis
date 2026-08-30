@@ -567,9 +567,48 @@ class MeshConfig:
         if (section, key) in resolved:
             return resolved[(section, key)]
         value = self.params.get(section, {}).get(key)
+        value = self._unquote(section, key, value)
         if section == "credentials" and not value:
             return os.environ.get(self._CREDENTIAL_ENV.get(key, ""), "") or value
         return value
+
+    # Fields whose value is matched against a NAME in the data - a MeSH heading,
+    # a node, an edge. Quotes typed around one become part of the string and the
+    # match then fails silently: the network holds a node called
+    #     Dermatitis, Allergic Contact
+    # and the lookup asks for
+    #     "Dermatitis, Allergic Contact"
+    # which is a different string. Nothing errors; the analysis simply comes
+    # back empty, and the reason is invisible. Quoting a value with a comma in
+    # it is a completely reasonable thing to try, so it is accepted and undone
+    # rather than rejected.
+    #
+    # NOT applied to the search term: PubMed queries use quotes meaningfully,
+    # and stripping them there would change what was searched for.
+    _UNQUOTE = {
+        ('benchmark', 'primary_node'),
+        ('secondary_analysis', 'target_nodes'),
+        ('secondary_analysis', 'target_edges'),
+    }
+
+    @staticmethod
+    def _strip_quotes(text):
+        """Remove one matched pair of surrounding quotes, if there is one."""
+        s = text.strip()
+        for q in ('"', "'"):
+            if len(s) >= 2 and s.startswith(q) and s.endswith(q):
+                return s[1:-1].strip()
+        return s
+
+    def _unquote(self, section, key, value):
+        """Undo quotes typed around a name that has to match the data exactly."""
+        if (section, key) not in self._UNQUOTE or not isinstance(value, str):
+            return value
+        # These two are semicolon-separated lists, so each entry is handled.
+        if key in ('target_nodes', 'target_edges'):
+            parts = [self._strip_quotes(p) for p in value.split(';')]
+            return ';'.join(p for p in parts if p)
+        return self._strip_quotes(value)
 
     def update(self, section: str, key: str, value):
         """Updates a parameter in memory."""

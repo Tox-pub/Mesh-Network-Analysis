@@ -131,7 +131,7 @@ TABS = [
           'setup screen, which gets most of it back, but moving ~52 GB later '
           'is far slower than picking the right drive now.'),
         F('directories.results_dir', 'Results folder', 'text', '',
-          'Your own outputs: figures, workbooks, the run ledger and the PRISMA '
+          'Your own outputs: figures, workbooks, the run ledger and the workflow '
           'report. A figures subfolder is created inside it.',
           'Default: empty, meaning Documents\\MeSH Workbench for an installed '
           'copy, or the program folder for a portable one. Small - megabytes, '

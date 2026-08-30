@@ -1490,10 +1490,20 @@ class Workbench(tk.Tk):
         self.lab_transient = tk.Label(strip, bg=FACE, relief='sunken', bd=2, anchor='w')
         self.lab_transient.pack(side='left', fill='x', expand=True, ipady=2)
 
-        self.console = tk.Text(root, bg=CONSOLE_BG, fg='#c0c0c0', font=self.f_mono,
+        # The console gets a scrollbar. A long run puts thousands of lines
+        # through it and the only way to read any of them was to catch them
+        # going past - and the log is exactly what someone wants when a run
+        # ended badly.
+        cbox = tk.Frame(root, bg=FACE)
+        cbox.pack(fill='both', expand=True, **pad)
+        self.console_sb = tk.Scrollbar(cbox)
+        self.console_sb.pack(side='right', fill='y')
+        self.console = tk.Text(cbox, bg=CONSOLE_BG, fg='#c0c0c0', font=self.f_mono,
                                relief='sunken', bd=2, wrap='word', height=14,
-                               insertbackground='#c0c0c0')
-        self.console.pack(fill='both', expand=True, **pad)
+                               insertbackground='#c0c0c0',
+                               yscrollcommand=self._console_scrolled)
+        self.console_sb.config(command=self.console.yview)
+        self.console.pack(side='left', fill='both', expand=True)
         for tag, col in (('ok', '#2ecc40'), ('warn', '#ffdc00'),
                          ('err', '#ff4136'), ('dim', '#7a7a7a')):
             self.console.tag_config(tag, foreground=col)
@@ -1870,10 +1880,41 @@ class Workbench(tk.Tk):
         self.console.delete('1.0', 'end')
         self.console.config(state='disabled')
 
+    def _console_scrolled(self, first, last):
+        """Drive the scrollbar. Position is read at insert time, not tracked."""
+        self.console_sb.set(first, last)
+
+    def _console_at_bottom(self):
+        """Is the view already showing the last line?
+
+        Asked of the widget rather than remembered from a scroll event: a flag
+        has to be initialised correctly and updated on every path that moves the
+        view, and getting either wrong means the log either never follows or
+        never stops.
+
+        Line numbers, not the yview fraction. see('end') leaves the fraction at
+        about 0.995 rather than 1.0, so any threshold tight enough to mean
+        "at the end" rejects the view that IS at the end - and any threshold
+        loose enough to accept it means hundreds of lines in a long log.
+        """
+        try:
+            last = int(str(self.console.index('end-1c')).split('.')[0])
+            height = max(self.console.winfo_height() - 1, 0)
+            visible = int(str(self.console.index(f'@0,{height}')).split('.')[0])
+            # Within one line of the end: the bottom line is often clipped.
+            return visible >= last - 1
+        except (tk.TclError, ValueError):
+            return True
+
     def _log(self, text, tag=''):
+        # Follow the newest line only when the view is already at the bottom.
+        # Being yanked back down by the next line, every time you scroll up to
+        # read something, is what makes a live log unreadable.
+        follow = self._console_at_bottom()
         self.console.config(state='normal')
         self.console.insert('end', text + '\n', tag or ())
-        self.console.see('end')
+        if follow:
+            self.console.see('end')
         self.console.config(state='disabled')
 
     # ----------------------------------------------------------- screen: results
@@ -1928,6 +1969,10 @@ class Workbench(tk.Tk):
             act, text='Open the diagram', width=15, state='disabled',
             command=self._open_prisma_figure)
         self.btn_res_figure.pack(side='left', padx=(0, 4))
+        # The run log was unreachable once a finished run routed here, and the
+        # log is exactly what someone wants when something looked wrong.
+        tk.Button(act, text='Run log', width=10,
+                  command=lambda: self.show('running')).pack(side='left', padx=4)
         tk.Button(act, text='Refresh', width=10,
                   command=self.refresh_results).pack(side='left', padx=4)
         tk.Button(act, text='Back to settings', width=16,
@@ -1997,11 +2042,15 @@ class Workbench(tk.Tk):
         # rather than here, and which someone may well want to open in Cytoscape
         # or load into their own code - they were not listed anywhere at all, so
         # the only way to find them was to already know the path.
-        results_rows = self._listing(d)
+        # THIS project only, matched on the file prefix. The folders hold every
+        # run ever made; what a person wants after a run is what that run
+        # produced.
+        results_rows = self._listing(d, prefix=prefix)
         networks_dir = self._networks_dir()
-        network_rows = self._listing(networks_dir)
+        network_rows = self._listing(networks_dir, prefix=prefix)
 
-        self.res_title.config(text=f'Results  -  {len(results_rows)} files in {d}')
+        self.res_title.config(
+            text=f'Results for {prefix}  -  {len(results_rows) + len(network_rows)} files')
         self.res_text.config(state='normal')
         self.res_text.delete('1.0', 'end')
         self._write_section('RESULTS', d, results_rows, first=True)
@@ -2010,13 +2059,22 @@ class Workbench(tk.Tk):
         self.btn_res_networks.config(
             state='normal' if os.path.isdir(networks_dir or '') else 'disabled')
 
-    def _listing(self, folder, limit=400):
-        """(mtime, name relative to folder, size) for a tree, newest first."""
+    def _listing(self, folder, limit=400, prefix=None):
+        """(mtime, name relative to folder, size) for a tree, newest first.
+
+        `prefix` restricts it to one project. Everything the pipeline writes is
+        named with the project prefix, so this project's output is exactly the
+        files carrying it - which is what someone wants after a run. Unfiltered,
+        the pane listed every file every run had ever produced, and after two or
+        three projects the ones you just made are lost in it.
+        """
         rows = []
         if not folder or not os.path.isdir(folder):
             return rows
         for base, _, files in os.walk(folder):
             for f in sorted(files):
+                if prefix and not self._belongs_to(f, prefix):
+                    continue
                 path = os.path.join(base, f)
                 try:
                     rows.append((os.path.getmtime(path),
@@ -2026,6 +2084,32 @@ class Workbench(tk.Tk):
                     continue
         rows.sort(reverse=True)
         return rows
+
+    @staticmethod
+    def _belongs_to(filename, prefix):
+        """Is this file this project's?
+
+        Exact to the underscore, because 'DAC_Mesh' is itself a prefix of
+        'DAC_Mesh_1'. A plain startswith would list the second project's files
+        inside the first one, which is exactly the confusion this is meant to
+        remove. So the remainder after 'prefix_' must be a known artefact name,
+        not the continuation of a longer prefix.
+        """
+        if not filename.startswith(prefix + '_'):
+            return False
+        rest = filename[len(prefix) + 1:]
+        # The first word after the prefix, with any extension taken off - a name
+        # like "DAC_Mesh_1_pmids.db" leaves "pmids.db", and splitting on '_'
+        # alone keeps the extension attached and matches nothing.
+        head = rest.split('_')[0].split('.')[0]
+        # Every artefact this pipeline writes starts with one of these once the
+        # prefix is gone. Anything else is a longer prefix's file.
+        return head[:1].isupper() or head in {
+            'pmids', 'cleaned', 'mean', 'full', 'consensus', 'final', 'glf',
+            'sa', 'optimization', 'run', 'prisma', 'export', 'benchmark',
+            'scored', 'gt', 'validation', 'projection', 'network', 'processing',
+            'failed', 'empty',
+        }
 
     def _write_section(self, title, folder, rows, first=False, limit=400):
         """One headed block of the file listing, with its folder named."""
