@@ -296,6 +296,10 @@ class PipelineRunner:
             if buf.strip():
                 self._emit(buf.rstrip(), permanent=True)
             rc = self.proc.wait() if self.proc else -1
+            # Reaped AND released. wait() ends the process; dropping the handle
+            # releases the pipe buffers with it, so nothing of a finished run is
+            # still held while the window stays open.
+            self.proc = None
             self._cleanup_control()
             self.q.put((DONE, -1 if self._cancelled else rc, self.elapsed()))
 

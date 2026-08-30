@@ -24,17 +24,19 @@ def F(key, label, kind, default, what, deflt, note=None, choices=None):
     return Field(key, label, kind, default, what, deflt, note, choices)
 
 
+# No time estimates. They were measured on one machine and are dominated by
+# how much memory it has and how fast its disk is - the figure shown was
+# several times the real runtime on hardware with enough RAM, which is worse
+# than saying nothing. "all" excludes the benchmark; that IS worth saying,
+# because otherwise it is discovered by looking for results never produced.
 STEPS = [
-    # "all" is everything except the benchmark, which is another 69 minutes and
-    # is not wanted on most runs. Said here rather than left to be discovered by
-    # looking for results that were never produced.
-    ('all',       'all - full pipeline (not the benchmark)', '14 h 20 min'),
-    ('process',   'process - MeSH ingest + stop words',     '40 min'),
-    ('data_ops',  'data_ops - retrieval & citations',       '6 h'),
-    ('network',   'network - co-occurrence + consensus',    '3 h 10 min'),
-    ('secondary', 'secondary - top articles & export',      '1 min'),
-    ('viz',       'viz - figures',                          '4 min'),
-    ('benchmark', 'benchmark - ground truth & validation',  '69 min'),
+    ('all',       'all - full pipeline (not the benchmark)'),
+    ('process',   'process - MeSH ingest + stop words'),
+    ('data_ops',  'data_ops - retrieval & citations'),
+    ('network',   'network - co-occurrence + consensus'),
+    ('secondary', 'secondary - top articles & export'),
+    ('viz',       'viz - figures'),
+    ('benchmark', 'benchmark - ground truth & validation'),
 ]
 
 TABS = [
@@ -47,30 +49,23 @@ TABS = [
           'Analyse the reference corpus that shipped with the program instead '
           'of building one from your own PubMed search.',
           'Default: off - the normal case is analysing your own corpus.',
-          'TICK THIS AND THE PROGRAM ANALYSES A NETWORK THAT ALREADY EXISTS. '
-          'The allergic contact dermatitis network published with this software '
-          'is included in the download, already built and scored, so figures and '
-          'benchmarking take minutes instead of a fourteen-hour run.\n'
+          'TICK THIS AND THE PROGRAM ANALYSES A NETWORK THAT ALREADY EXISTS - '
+          'the allergic contact dermatitis network published with this '
+          'software, included in the download, already built and scored. '
+          'Figures and benchmarking take minutes instead of a full run.\n'
           '\n'
-          'What it changes:\n'
-          '  - The network, the AOP stratum dictionary and the ground-truth set '
-          'are read from the program folder, not built here.\n'
-          '  - The settings that describe that corpus - the search term, both '
-          'date windows, the citation depth, the random seed and the benchmark '
-          'primary node - are set for you and shown greyed out. They are the '
-          'values the published run used; anything else would produce figures '
-          'labelled with a query that did not make them.\n'
-          '  - Retrieval will not run. There is nothing to retrieve: the corpus '
-          'is already here. Choosing the retrieval step is refused, and a full '
-          'run skips it.\n'
+          'The network, the AOP strata and the ground-truth set are read from '
+          'the program folder. The settings describing that corpus - search '
+          'term, both date windows, citation depth, random seed, benchmark '
+          'primary node - are set for you and shown greyed out, because '
+          'anything else would label the figures with a query that did not '
+          'make them. Retrieval will not run: there is nothing to fetch.\n'
           '\n'
-          'What stays yours: figure resolution and formats, which figures are '
-          'drawn, your folders, your NCBI credentials, and everything already '
-          'in your own project. Your saved settings are not altered - untick '
-          'this and they come straight back.\n'
-          '\n'
-          'Files it produces are named Reference_... so they can never be '
-          'confused with your own.'),
+          'Yours either way: figure resolution and formats, which figures are '
+          'drawn, your folders, your credentials, and your own project. Your '
+          'saved settings are not altered - untick and they return. Files it '
+          'produces are named Reference_ so they cannot be confused with '
+          'yours.'),
         F('search_parameters.search_term', 'Search term', 'text', '',
           'The PubMed query that defines the starting article set (P0).',
           'Default: empty. There is no sensible query for another research '
@@ -258,24 +253,42 @@ TABS = [
           'Default: 0.20.', 'The four weights must total 1.00.'),
     ]),
     ('Consensus', [
-        F('simulation_parameters.target_num_edges', 'Target edge count', 'int', 500,
-          'Edges each heuristic searches for before the consensus is taken.',
-          'Default: 500, applied to GLF and SA alike.',
-          'A property of the search, not the result. The consensus intersection is '
-          'smaller - 500 and 500 gave 328 edges on the reference run.'),
-        F('simulation_parameters.glf_iterations', 'GLF iterations', 'int', 5000000,
-          'Metropolis proposals for Graph Likelihood Filtering.',
+        F('simulation_parameters.target_num_edges', 'Target edge count (per optimiser)', 'int', 500,
+          'How many edges EACH optimiser searches for. Not how many you get.',
+          'Default: 500 - so 500 for graph likelihood filtering (GLF) and 500 '
+          'for simulated annealing (SA), independently.',
+          'The network is built by consensus. Two different optimisers each '
+          'pick the set of edges they think best explains the co-occurrence '
+          'counts, starting from different places and searching differently, '
+          'and only the edges BOTH chose are kept. An edge one optimiser liked '
+          'and the other did not is discarded, which is what makes the result a '
+          'consensus rather than one heuristic\'s opinion.\n'
+          '\n'
+          'So the number you get is always smaller than the number you ask for, '
+          'and how much smaller tells you how well the two agreed. On the '
+          'reference run 500 and 500 agreed on 328 edges. Raising this widens '
+          'both searches and usually widens the consensus too, but never to the '
+          'number set here.'),
+        F('simulation_parameters.glf_iterations',
+          'Graph likelihood filtering (GLF) iterations', 'int', 5000000,
+          'Metropolis proposals for graph likelihood filtering - GLF, the first '
+          'of the two optimisers whose consensus forms the network.',
           'Default: 5,000,000.',
           'Below about 1M the search may not converge, the two heuristics agree '
           'less, and the consensus shrinks. Above 5M gains little for a lot of time.'),
-        F('simulation_parameters.sa_iterations', 'SA iterations', 'int', 5000000,
-          'Metropolis proposals for simulated annealing.', 'Default: 5,000,000.',
+        F('simulation_parameters.sa_iterations',
+          'Simulated annealing (SA) iterations', 'int', 5000000,
+          'Metropolis proposals for simulated annealing - SA, the second of the '
+          'two optimisers whose consensus forms the network.',
+          'Default: 5,000,000.',
           'Below about 1M the search may not converge and the consensus shrinks.'),
-        F('simulation_parameters.sa_temp_start', 'SA start temperature', 'float', 5000.0,
+        F('simulation_parameters.sa_temp_start',
+          'Simulated annealing (SA) start temperature', 'float', 5000.0,
           'Initial temperature for simulated annealing.', 'Default: 5000.',
           'Too low and SA behaves greedily, converging on the same local optimum '
           'as GLF and defeating the point of taking a consensus.'),
-        F('simulation_parameters.sa_cooling_rate', 'SA cooling rate', 'float', 0.999995,
+        F('simulation_parameters.sa_cooling_rate',
+          'Simulated annealing (SA) cooling rate', 'float', 0.999995,
           'Geometric factor applied to the temperature each iteration.',
           'Default: 0.999995.',
           'Must be just under 1. Cooling faster freezes the search early; 0.99999 '
@@ -355,8 +368,20 @@ TABS = [
           'Test network overlap with the ground truth against permutation nulls.',
           'Default: on.'),
         F('benchmark.run_projection_comparison', 'Projection comparison', 'bool', True,
-          'Compare the eight article-scoring projections.', 'Default: on.',
-          'Adds roughly 20 minutes to the benchmark step.'),
+          'Rank the ground-truth articles eight different ways and compare how '
+          'well each recovers them.', 'Default: on.',
+          'The question it answers is which way of turning a network into an '
+          'article score actually finds the curated papers. Eight are compared, '
+          'as a 4x2 grid: four node weightings - raw centrality, MRS, article '
+          'count and the adjusted node weight - each applied two ways, summed '
+          'over the MeSH terms an article carries and averaged over them. Sum '
+          'favours articles indexed with many relevant terms; mean favours '
+          'articles that are tightly on-topic.\n'
+          '\n'
+          'Each is scored by BEDROC, enrichment factor, recall and mean average '
+          'precision, with bootstrap intervals, so the comparison is between '
+          'ranked lists rather than between single numbers. Adds roughly 20 '
+          'minutes to the benchmark step.'),
         F('benchmark.run_ground_truth_analysis', 'Run ground-truth analysis', 'bool', False,
           'Score the network against the curated positive set.',
           'Default: off. Turning on "Use bundled reference data" forces it on '
@@ -376,11 +401,39 @@ TABS = [
           'Sets the floor on reportable p-values. The published run used 1000 '
           'node and 500 edge permutations.'),
         F('benchmark.network_validation_weight_key', 'Node validation weight key',
-          'text', 'MRS_pagerank_centrality',
-          'Node attribute ranked when testing overlap against the ground truth.',
+          'choice', 'MRS_pagerank_centrality',
+          'Which node score is tested against the ground truth.',
           'Default: MRS_pagerank_centrality.',
-          'Written as [MRS_]{betweenness|pagerank|eigenvector}[_subgraph]_centrality. '
-          'A name the network does not carry fails the validation step.'),
+          'The validation asks a single question: if the terms in the network '
+          'are ranked by this number, do the ones that appear in the curated '
+          'ground-truth papers come out on top? It reports the rank '
+          'correlation against how often each term appears in those papers, '
+          'the AUC separating attested terms from unattested ones, and - '
+          'because a term that is simply common everywhere would score well by '
+          'accident - the same figures after controlling for corpus-wide '
+          'frequency.\n'
+          '\n'
+          'The choice is a 2x3x2 grid: raw or MRS, betweenness or PageRank or '
+          'eigenvector, whole-corpus or subgraph. MRS is the score adjusted by '
+          'how strongly the literature supports the term; subgraph means '
+          'centrality measured within the consensus network rather than the '
+          'whole corpus.\n'
+          '\n'
+          'The six subgraph options only exist when the ground-truth analysis '
+          'was on at the time the network was BUILT. Picking one the network '
+          'does not carry fails the validation step.',
+          ['MRS_pagerank_centrality',
+           'MRS_betweenness_centrality',
+           'MRS_eigenvector_centrality',
+           'MRS_pagerank_subgraph_centrality',
+           'MRS_betweenness_subgraph_centrality',
+           'MRS_eigenvector_subgraph_centrality',
+           'pagerank_centrality',
+           'betweenness_centrality',
+           'eigenvector_centrality',
+           'pagerank_subgraph_centrality',
+           'betweenness_subgraph_centrality',
+           'eigenvector_subgraph_centrality']),
     ]),
     ('Figures', [
         F('_heading.which_figures', 'Which figures to draw', 'heading', '',

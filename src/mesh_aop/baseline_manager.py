@@ -654,7 +654,18 @@ class PubMedBaselineManager:
 
             # One worker pool for the whole run; re-creating it per chunk paid
             # process-spawn overhead on every block (dozens of times per ETL).
-            pool = multiprocessing.Pool(cores)
+            #
+            # maxtasksperchild is what stops it growing. A worker that has
+            # parsed a few hundred gzipped XML files does not hand its heap back
+            # to the operating system - CPython keeps freed arenas - so without
+            # this each worker's memory ratchets upward for the whole build and
+            # is only released when the pool is torn down at the very end. That
+            # is the shape of "it climbed to 13 GB and stayed there".
+            #
+            # Replacing a worker every few tasks returns its memory outright.
+            # The cost is one process spawn per replacement, tenths of a second
+            # against a build measured in hours.
+            pool = multiprocessing.Pool(cores, maxtasksperchild=4)
             try:
                 for chunk_idx, chunk in enumerate(chunks, 1):
                     local_chunk_paths = []

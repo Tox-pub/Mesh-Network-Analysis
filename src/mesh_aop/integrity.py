@@ -365,6 +365,19 @@ STEP_CHAIN = {
 }
 
 
+def _step_rewrites(config, step, key):
+    """Will this step actually rewrite this output, or skip it because it exists?
+
+    Most steps do rewrite: the network stage rebuilds whatever it is asked for.
+    The MeSH support files are the exception - they are built once and reused,
+    and only rebuilt when explicitly refreshed - so a warning that they are
+    about to be replaced is false unless a refresh was asked for.
+    """
+    if step == 'process' and key == 'mesh_terms_csv':
+        return bool(config.get('search_parameters', 'update_mesh_support_files'))
+    return True
+
+
 def would_overwrite(config, step):
     """What running `step` with this prefix would replace.
 
@@ -372,10 +385,12 @@ def would_overwrite(config, step):
     risk - which is the common case for a prefix that has not been used yet, and
     the case in which the user should not be asked anything at all.
 
-    Only counts files that actually exist. A step that skips its work because
-    the output is already there does not overwrite it either, but the user
-    cannot tell those apart in advance, and being told "this already exists" is
-    the useful half of the message in both cases.
+    Only counts files that actually exist, and only those the step will really
+    rewrite. The MeSH term table is the case that made the difference: Step 1
+    rebuilds it only when it is missing or a refresh was asked for, so once it
+    exists a later run skips it - and warning that it was about to be replaced
+    was simply untrue. Someone who had just generated it from the Database
+    screen was then told, on their very next run, that the run would destroy it.
     """
     import glob as _glob
 
@@ -385,9 +400,14 @@ def would_overwrite(config, step):
     for st in steps:
         for key, label in STEP_OUTPUTS.get(st, ()):
             path = str(config.files.get(key, ''))
-            if path and os.path.exists(_paths.long_path(path)) and path not in seen:
-                seen.add(path)
-                out.append((label, path, _stat(path) or 0))
+            if not path or path in seen:
+                continue
+            if not os.path.exists(_paths.long_path(path)):
+                continue
+            if not _step_rewrites(config, st, key):
+                continue
+            seen.add(path)
+            out.append((label, path, _stat(path) or 0))
 
         for pattern, label in STEP_RESULT_GLOBS.get(st, ()):
             spec = os.path.join(str(config.results_dir),

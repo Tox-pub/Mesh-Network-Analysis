@@ -381,7 +381,7 @@ class Workbench(tk.Tk):
         m.add_command(label='Exit', command=self._on_close)
         bar.add_cascade(label='File', menu=m)
         r = tk.Menu(bar, tearoff=0)
-        for step, label, _ in schema.STEPS:
+        for step, label in schema.STEPS:
             r.add_command(label=label, command=lambda s=step: self.start_run(s))
         bar.add_cascade(label='Run', menu=r)
         # Settings, Database and Results are the three screens a user moves
@@ -1073,7 +1073,10 @@ class Workbench(tk.Tk):
 
     def _setup_delete(self, item, gb):
         cost = {'hours': 'hours', 'minutes': 'minutes'}.get(item['cost'], 'time')
-        detail = ('Rebuilding this takes HOURS.' if item['cost'] == 'hours' else '')
+        detail = ('Rebuilding this can take hours - longer on a machine with '
+                  'less than 16 GB of memory, which is the limit that bites '
+                  'here rather than the processor.'
+                  if item['cost'] == 'hours' else '')
         if not self.confirm_typed(
                 f"Delete: {item['label']}", 'DELETE',
                 f"{item['path']}\n\n"
@@ -1165,14 +1168,21 @@ class Workbench(tk.Tk):
                     'The existing database is deleted and built again from the '
                     'archive.\n\nNothing else in the pipeline can run while it '
                     'is missing.',
-                    'This takes HOURS.'):
+                    'This can take hours, and how long depends far more on '
+                    'memory than on processor: the archive is parsed in '
+                    'parallel and each worker needs room. With 16 GB or more '
+                    'it runs comfortably; below that it slows sharply as the '
+                    'machine starts swapping.'):
                 return
             extra.append('--rebuild-corrupt')
         elif not have_archive and not self.confirm_typed(
                 'Download and build', 'REBUILD',
                 'No archive is present, so it is downloaded first: roughly 44 GB, '
-                'and several hours on a fast connection.\n\nThe download resumes '
-                'if interrupted, and the archive can be deleted afterwards.'):
+                'and several hours on a fast connection. Compiling it afterwards '
+                'depends on memory more than on processor - 16 GB or more runs '
+                'comfortably, less than that slows sharply.\n\nThe download '
+                'resumes if interrupted, and the archive can be deleted '
+                'afterwards.'):
             return
 
         if have_archive:
@@ -1187,14 +1197,15 @@ class Workbench(tk.Tk):
         top.pack(fill='x', padx=10, pady=(10, 8))
         tk.Label(top, text='Pipeline step:', bg=FACE).pack(side='left', padx=(8, 6), pady=6)
         self.step_var = tk.StringVar(value='all')
-        om = tk.OptionMenu(top, self.step_var, *[s for s, _, _ in schema.STEPS],
+        om = tk.OptionMenu(top, self.step_var, *[s for s, _ in schema.STEPS],
                            command=lambda *_: self._step_changed())
         om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12)
         om.pack(side='left', pady=4)
         self.step_desc = tk.Label(top, bg=FACE, fg=DIM, anchor='w')
         self.step_desc.pack(side='left', padx=8)
-        self.step_eta = tk.Label(top, bg=FACE, fg=OK, font=self.f_bold)
-        self.step_eta.pack(side='right', padx=10)
+        # No time estimate. It was measured on one machine, is dominated by
+        # how much memory the machine has, and read as a promise - the figure
+        # shown was several times the real runtime on adequate hardware.
 
         strip = tk.Frame(root, bg=FACE)
         strip.pack(fill='x', padx=10)
@@ -1211,7 +1222,13 @@ class Workbench(tk.Tk):
             self.panes[name] = pane
             self._build_fields(pane, fields, tab_name=name)
 
-        self.help = tk.Frame(root, bg=FACE, relief='sunken', bd=2, height=HELP_H)
+        # Tall enough for the longest note in the schema, measured rather than
+        # guessed - a caveat cut off mid-sentence is worse than absent, because
+        # the reader cannot tell there was more, and this pane cannot be
+        # scrolled: moving the pointer to a scrollbar changes which field is
+        # focused and replaces the text you were reading.
+        self.help = tk.Frame(root, bg=FACE, relief='sunken', bd=2,
+                             height=self._help_height())
         self.help.pack(fill='x', padx=10, pady=(8, 0))
         self.help.pack_propagate(False)
         self.help_title = tk.Label(self.help, bg=FACE, font=self.f_bold, anchor='w')
@@ -1245,24 +1262,71 @@ class Workbench(tk.Tk):
         self._step_changed()
         self._refresh_effective_paths()
 
+    def _help_height(self):
+        """How tall the description pane has to be to show everything in it.
+
+        Every note in the schema is wrapped at the real pane width using the
+        real font, and the tallest wins. HELP_H was a fixed 150 px chosen when
+        the longest note was much shorter; the reference-corpus note now runs to
+        three paragraphs and was being clipped.
+        """
+        wrap = self.px(W - 60)
+        line = self.f_ui.metrics('linespace')
+        widest = 0
+        for _tab, fields in schema.TABS:
+            for f in fields:
+                lines = 1                       # the title
+                for text in (f.what, f.deflt, f.note):
+                    if not text:
+                        continue
+                    for para in str(text).splitlines() or ['']:
+                        lines += self._wrapped_lines(para, wrap)
+                widest = max(widest, lines)
+        # Never more than half the window: a description pane that crowds out
+        # the fields it describes has solved the wrong problem.
+        return int(min(widest * line + 26, H * 0.46))
+
+    def _wrapped_lines(self, text, wrap_px):
+        """How many lines this text takes at that width, in the actual font."""
+        if not text.strip():
+            return 1
+        words, lines, cur = text.split(), 1, ''
+        for word in words:
+            trial = (cur + ' ' + word).strip()
+            if cur and self.f_ui.measure(trial) > wrap_px:
+                lines += 1
+                cur = word
+            else:
+                cur = trial
+        return lines
+
     def _build_fields(self, pane, fields, tab_name=None):
         grid = tk.Frame(pane, bg=FACE)
         grid.pack(fill='x', padx=10, pady=10)
         grid.columnconfigure(1, weight=1)
-        for r, f in enumerate(fields):
+        # A running row counter, NOT enumerate(). A heading places three
+        # widgets - a rule, its title and its description - and putting all
+        # three in one grid row stacked them on top of each other, which is why
+        # the text under a heading appeared as a smear of overlapping lines.
+        r = -1
+        for f in fields:
+            r += 1
             # A heading is a divider, not a setting: no variable, nothing saved,
             # nothing read. It exists so the two folders that matter are not
             # presented as equals with three overrides nobody should touch.
             if f.kind == 'heading':
                 tk.Frame(grid, bg='#808080', height=1).grid(
-                    row=r, column=0, columnspan=3, sticky='we', pady=(12, 4))
+                    row=r, column=0, columnspan=3, sticky='we', pady=(14, 0))
+                r += 1
                 tk.Label(grid, text=f.label, bg=FACE, font=self.f_bold, anchor='w'
-                         ).grid(row=r, column=0, columnspan=3, sticky='w', pady=(14, 0))
+                         ).grid(row=r, column=0, columnspan=3, sticky='w',
+                                pady=(6, 0))
                 if f.what:
+                    r += 1
                     tk.Label(grid, text=f.what, bg=FACE, fg=DIM, anchor='w',
                              justify='left', wraplength=self.px(700)
                              ).grid(row=r, column=0, columnspan=3, sticky='w',
-                                    pady=(30, 2))
+                                    pady=(2, 6))
                 continue
             cur = schema.get(self.cfg, f.key, f.default)
             # An empty folder field means "work it out from the defaults", which
@@ -1384,10 +1448,9 @@ class Workbench(tk.Tk):
 
     def _step_changed(self):
         s = self.step_var.get()
-        for step, label, eta in schema.STEPS:
+        for step, label in schema.STEPS:
             if step == s:
                 self.step_desc.config(text=label.split(' - ', 1)[-1])
-                self.step_eta.config(text='est. ' + eta)
 
     def restore_defaults(self):
         if not messagebox.askyesno(
