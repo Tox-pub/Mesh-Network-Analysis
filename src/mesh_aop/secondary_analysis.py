@@ -379,8 +379,7 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
                              exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
                              sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Retrieves and scores articles across the entire refined network."""
-    if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
-        raise FileNotFoundError("Missing required databases.")
+    _require_databases(db_path, cleaned_db_path)
 
     print(f"\n<<< Extracting Top {limit} Network-Wide Articles >>>")
     oversample_limit = limit * 5
