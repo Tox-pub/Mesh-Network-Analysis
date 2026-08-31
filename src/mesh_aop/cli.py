@@ -1061,6 +1061,22 @@ def main():
                     entrez_email=api_email, entrez_api_key=api_key,
                     sort_metric=sort_metric, linear_weight_ars=linear_weight_ars
                 )
+            _t_nodes_cfg = config.get('secondary_analysis', 'target_nodes') or ''
+            _t_edges_cfg = config.get('secondary_analysis', 'target_edges') or ''
+            if args.step != 'secondary' and (_t_nodes_cfg or _t_edges_cfg):
+                # Configured work that is not going to happen has to say so.
+                # Each target hydrates hundreds of articles from NCBI, which is
+                # why a full run does not do it - but silence here looked
+                # exactly like the queries running and finding nothing.
+                print("\n  [i] Target nodes and edges are not run as part of a full")
+                print("      pipeline run - each one fetches hundreds of records from")
+                print("      NCBI, which would add a long tail to every run.")
+                if _t_nodes_cfg:
+                    print(f"        target nodes still configured: {_t_nodes_cfg}")
+                if _t_edges_cfg:
+                    print(f"        target edges still configured: {_t_edges_cfg}")
+                print("      Run the Secondary Analysis step on its own to do them.")
+
             if args.step == 'secondary':
                 # The names below have to match a term in the network exactly.
                 # A typo, or a heading that simply is not in this corpus, is not
