@@ -345,14 +345,34 @@ TABS = [
           'Reviews gather citations across a whole field, so leaving them in '
           'pushes primary studies down a citation-weighted ranking.'),
         F('secondary_analysis.target_nodes', 'Target nodes', 'text', '',
-          'Limit the secondary step to named terms.',
-          'Default: empty, meaning the whole network.',
-          'Semicolon-separated, e.g. "Term A; Term B". Only the secondary step '
-          'reads this; a full run ignores it.'),
+          'Export the articles behind one or more named terms.',
+          'Default: empty, meaning no per-term export.',
+          'Semicolon-separated, e.g. "Skin; Haptens".\n'
+          '\n'
+          'An article is returned when the term is one of the MeSH headings it '
+          'was indexed with AND that heading is a node in your network - the '
+          'articles that actually put the term there. Matching is on the WHOLE '
+          'heading, so "Skin" returns articles indexed under Skin and not those '
+          'under Skin Diseases, Skin Absorption or Skin Tests.\n'
+          '\n'
+          'Because of that, the name has to be spelled exactly as the network '
+          'spells it: "Dermatitis, Allergic Contact", not "allergic contact '
+          'dermatitis". Take the spellings from the network Excel export or '
+          'from the network JSON in Cytoscape. A name that is not in the '
+          'network finds nothing, so what you type is checked first and the '
+          'nearest matches are offered.\n'
+          '\n'
+          'Only the secondary step reads this; a full run says it skipped it.'),
         F('secondary_analysis.target_edges', 'Target edges', 'text', '',
-          'Limit the secondary step to named term pairs.',
-          'Default: empty, meaning the whole network.',
-          'Written as "NodeA - NodeB; NodeC - NodeD".'),
+          'Export the articles behind one or more named relationships.',
+          'Default: empty, meaning no per-edge export.',
+          'Written as "NodeA - NodeB; NodeC - NodeD" - a space, a hyphen, a '
+          'space between the two headings.\n'
+          '\n'
+          'An article is returned when BOTH headings are among the MeSH terms '
+          'it was indexed with, so these are the articles that put the edge '
+          'there rather than either node alone. Both names match on the whole '
+          'heading and both must be spelled as the network spells them.'),
         F('secondary_analysis.compare_networks', 'Compare multiple networks', 'bool', False,
           'Also compare this run against other saved networks.', 'Default: off.'),
         F('secondary_analysis.comparison_networks', 'Networks to compare', 'text', '',
@@ -605,12 +625,50 @@ TAB_NOTES = {
         'and if the prefix has not been used for that step, there is nothing to '
         'warn about and you are not asked.'),
 
+    'Secondary': (
+        'Target nodes and edges are NOT part of a full run - start it yourself',
+        'Choosing "all - full pipeline" runs the export of top network-wide '
+        'articles, but it does NOT run the target nodes and edges you type '
+        'below. Each target pulls hundreds of records from NCBI, which would '
+        'add a long tail to every run, so they wait until you ask for them.\n'
+        '\n'
+        'To run them, pick "secondary - targeted queries & exports" from the '
+        'step list and press Run. Everything they need is on disk after a full '
+        'run, so this can be done at any point afterwards - days later is fine, '
+        'as long as the project prefix is the same. If you leave targets typed '
+        'in and run the full pipeline, the run says out loud that it skipped '
+        'them rather than leaving you to wonder.\n'
+        '\n'
+        'WHERE TO FIND THE NAMES TO TYPE. A target has to be a MeSH heading '
+        'that is actually in your network, spelled exactly as the network '
+        'spells it - "Dermatitis, Allergic Contact", not "allergic contact '
+        'dermatitis". Two places give you the real list:\n'
+        '\n'
+        '  - The network Excel export in your results folder, written by "Export '
+        '    network to Excel" on this tab. One row per node, one per edge, so '
+        '    you can sort by centrality and copy the names straight out.\n'
+        '  - The network JSON itself, in your networks folder. Open it in '
+        '    Cytoscape (File > Import > Network from File) to see the graph and '
+        '    click nodes to read their exact ids. The "Open network folder" '
+        '    button on the Results screen takes you there.\n'
+        '\n'
+        'Type several nodes separated by semicolons: Skin; Haptens. An edge is '
+        'two headings with a space-hyphen-space between them: Skin - '
+        'Dermatitis, Allergic Contact. A name that is not in the network is not '
+        'an error - the query simply finds nothing - so the run checks what you '
+        'typed first and offers the nearest matches it can see.\n'
+        '\n'
+        'This step needs the cleaned citation database from your own retrieval, '
+        'so it cannot run against the bundled reference corpus, which ships as '
+        'a finished network with no article lists behind it.'),
+
     'Benchmark': (
         'The benchmark is NOT part of a full run - start it yourself',
         'Choosing "all - full pipeline" runs retrieval, the network, the '
         'secondary analysis and the figures. It does NOT run the benchmark. '
-        'That is deliberate: the benchmark takes about another 69 minutes, and '
-        'most runs do not need it.\n'
+        'That is deliberate: the benchmark scores every weighting against every '
+        'article in the corpus, which takes a good while on a full-sized one, '
+        'and most runs do not need it.\n'
         '\n'
         'To run it, pick "benchmark - ground truth & validation" from the step '
         'list and press Run. Everything it needs is already on disk by then, so '
@@ -618,7 +676,17 @@ TAB_NOTES = {
         'later, as long as the project prefix is the same.\n'
         '\n'
         'Its results go to a benchmark folder inside your results folder, kept '
-        'apart from the figures and the secondary analysis.\n'
+        'apart from the figures and the secondary analysis, and grouped by the '
+        'question each one answers:\n'
+        '\n'
+        '  inputs              the ground truth the run was scored against,\n'
+        '                      kept under your project prefix so the numbers\n'
+        '                      stay readable later\n'
+        '  ranking             how well each weighting ranks articles\n'
+        '  ranking_validation  every weighting compared, with confidence\n'
+        '                      intervals and the projection comparison\n'
+        '  network_validation  whether the network\'s own terms and links are\n'
+        '                      reproduced by the ground truth\n'
         '\n'
         'One setting here reaches backwards. "Run ground-truth analysis" also '
         'decides whether the subgraph centralities are computed, and those are '

@@ -329,11 +329,20 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 Executes highly targeted queries against the finalized network to extract specific publications for manual review.
 
+> **Target nodes and edges do not run as part of a full pipeline run.** Each one hydrates hundreds of records from NCBI, which would add a long tail to every run, so they wait until you ask for them: choose **secondary — targeted queries & exports** from the step list and press Run. Everything they need is on disk once a full run has finished, so this can be done days later as long as the project prefix is the same. If you leave targets configured and start a full run, it now says out loud that it skipped them. (Export Top Articles is not affected — that one *does* run in a full pipeline.)
+
+**Where to get the names to type.** A target must be a MeSH heading that is in your network, spelled exactly as the network spells it — `Dermatitis, Allergic Contact`, not `allergic contact dermatitis`. Two places give you the real list:
+
+* The **network Excel export** in your results folder (written by *Export network to Excel* on the same tab) — one row per node and per edge, so you can sort by centrality and copy the names out.
+* The **network JSON** in your networks folder, opened in **Cytoscape** (*File → Import → Network from File*), where clicking a node shows its exact id. The **Open network folder** button on the Results screen takes you there.
+
+**How an article is matched.** `relevance.py` records, for every article, which of your network's nodes appear among the MeSH headings it was indexed with (base headings — `Skin/drug effects` is stored as `Skin`). A target node returns the articles carrying that heading; a target edge returns the articles carrying **both**. Matching is on the **whole heading**, so `Skin` returns articles indexed under Skin and never those under `Skin Diseases`, `Skin Absorption` or `Skin Tests`. A name that is not in the network finds nothing, so what you type is checked before the query runs and the nearest matches are offered.
+
 * **Export Top Articles:** If `True` (default), always exports the highest-scoring network-wide articles at the end of Step 3 without requiring `--step secondary`.
 * **Export Limit:** Maximum number of articles returned per query (default `500`).
 * **Exclude Review Articles:** Filters out broad review articles to isolate primary literature.
-* **Target Nodes:** Evaluates the literature density of specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
-* **Target Edges (`target_edges`):** Evaluates literature specifically linking two concepts. Separate the two node names with a **space-padded hyphen** (` - `), and separate multiple edge queries with semicolons: `NodeA - NodeB; NodeC - NodeD`. *(Distinct from the numeric `target_num_edges`)*
+* **Target Nodes:** The articles behind specific nodes. **Must be semicolon-separated** (e.g., `Skin; T-Lymphocytes`).
+* **Target Edges (`target_edges`):** The articles behind a specific relationship — those indexed under both headings. Separate the two node names with a **space-padded hyphen** (` - `), and separate multiple edge queries with semicolons: `NodeA - NodeB; NodeC - NodeD`. *(Distinct from the numeric `target_num_edges`)*
 * **Sort Metric (`sort_metric`):** Selects the ranking engine — `Linear` (compensatory weighted average) or `F1` (penalizing harmonic mean). Default `F1`.
 
   **1. Linear (Weighted Additive Model)**
@@ -418,7 +427,12 @@ Upon successful completion of the pipeline, the following critical files are gen
 ### Data & Network Artifacts (`data/processed/`)
 
 * `master_mesh_database.db`: A persistent offline cache of all PubMed IDs and MeSH annotations.
-* `*_pmids.db` / `*_cleaned_pmids.db`: The raw and de-duplicated SQLite schemas holding the hierarchical citation linkage of your extracted articles.
+* `*_pmids.db`: What retrieval downloaded — every PMID reached, which citation generation it came from, and its `cited_by` list.
+* `*_cleaned_pmids.db`: **Belongs to one search, not to the installation.** It is a copy of `*_pmids.db` with the citation generations at or beyond your generation depth deleted, then annotated with MeSH headings from the master database. Because it depends on the search term, the date window and the generation depth, it is rebuilt per project prefix rather than shared — it is *not* a derivation of the master MeSH database and does not belong in the Databases screen.
+
+  It is created automatically in **Step 2 (Retrieval & Database Operations)** of a full run, and it is a hard prerequisite of network construction, secondary analysis and the benchmark. If you delete it, the next full run rebuilds it from `*_pmids.db` without re-downloading anything.
+
+  The **bundled reference corpus has no cleaned database and cannot have one**: it ships as a finished network, and the article lists behind it were never downloaded. That is why secondary analysis is refused under *Use bundled reference data* rather than producing empty output — and it is not a path problem that copying files could fix.
 * `mesh_terms.csv`: The MeSH vocabulary extracted from the XML in Step 1.
 * `*_full_network_data.json`: The raw, unfiltered NetworkX graphical representation.
 * `*_glf_optimal_subgraph.json` / `*_sa_optimal_subgraph.json`: The two independent optimizer solutions whose intersection forms the consensus subgraph.

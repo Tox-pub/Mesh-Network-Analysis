@@ -1416,9 +1416,17 @@ class Workbench(tk.Tk):
             box.pack(fill='both', expand=True, padx=10, pady=(0, 10))
             tk.Label(box, text=title, bg=FACE, font=self.f_bold, anchor='w'
                      ).pack(fill='x', padx=8, pady=(6, 2))
+            # These notes explain when a step runs and where to get the names it
+            # wants, and they are longer than the box on a small window. Without
+            # a scrollbar the tail was simply unreachable - and the tail is
+            # where the instructions are.
+            sb = tk.Scrollbar(box)
+            sb.pack(side='right', fill='y', pady=(0, 6))
             body = tk.Text(box, bg=FACE, relief='flat', wrap='word',
                            font=self.f_ui, height=11, cursor='arrow',
-                           highlightthickness=0, padx=8, pady=0)
+                           highlightthickness=0, padx=8, pady=0,
+                           yscrollcommand=sb.set)
+            sb.config(command=body.yview)
             body.insert('1.0', text)
             # Read-only, but still selectable: these are instructions someone
             # may well want to copy.

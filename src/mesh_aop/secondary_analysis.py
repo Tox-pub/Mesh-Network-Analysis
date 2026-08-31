@@ -257,7 +257,18 @@ def _require_databases(db_path: str, cleaned_db_path: str):
 def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
                            sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
-    """Pulls and scores all articles associated with a specific node."""
+    """Pulls and scores the articles that put `node_name` in the network.
+
+    An article qualifies when the heading is one of the MeSH terms it was
+    indexed with AND that heading is a node in this network - relevance.py
+    stores exactly that intersection in contributing_seeds, base headings with
+    subheadings stripped, so 'Skin/drug effects' is stored as 'Skin'.
+
+    The match is on the whole heading, not a substring of it: 'Skin' returns
+    articles indexed under Skin, never those under Skin Diseases, Skin
+    Absorption or Skin Tests. The name therefore has to be spelled as the
+    network spells it.
+    """
     _require_databases(db_path, cleaned_db_path)
 
     print(f"\n<<< Searching for Node: '{node_name}' >>>")
@@ -319,7 +330,13 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
 def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
                            sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
-    """Pulls and scores all articles associated with a specific EDGE (relationship)."""
+    """Pulls and scores the articles that put an EDGE in the network.
+
+    Both headings must be among the MeSH terms the article was indexed with, so
+    these are the articles supporting the relationship rather than either node
+    on its own. Whole-heading matching applies to both sides; see
+    analyze_node_relevancy.
+    """
     _require_databases(db_path, cleaned_db_path)
 
     print(f"\n<<< Searching for Edge: '{node1}' <--> '{node2}' >>>")
