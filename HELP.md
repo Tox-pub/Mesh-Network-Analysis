@@ -435,7 +435,16 @@ Upon successful completion of the pipeline, the following critical files are gen
 * `*_run_ledger.csv`: Every count the run produced, at every stage — records per citation generation, MeSH annotations screened, what each optimiser kept, what the consensus and the LCC discarded. Semicolon-delimited (MeSH headings contain commas), one ledger per file prefix, with the timestamp each figure was recorded. See **The Run Ledger & PRISMA Report** below.
 * `*_prisma_flow_report.txt` and `figures/*_prisma_flow.*`: A PRISMA-style flow of records through the pipeline, in text and as a figure — the overview of the whole search, suitable for a methods section or a supplementary figure.
 * `*_network_overlap_membership.csv` / `*_network_overlap_matrix.csv` / `*_Network_Overlap.png`: node-overlap comparison across the networks you named — produced only when **Compare Multiple Networks** is enabled.
-* **Benchmark & validation outputs** (all under `results/benchmark/`): everything the `--step benchmark` step produces is consolidated in one folder — the article-ranking benchmark, the node/edge convergent validation with its figures, and the node-weighting/projection report (nested in `results/benchmark/validation/`). See the **Validation & Benchmarking** section below for the complete list (`*_benchmark_results.json`, `*_benchmark_enrichment.png`, `*_benchmark_quarantined_pmids.csv`, `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, the `*_GT_*.png` figures, and `validation/*_validation_report.xlsx`/`.html` + `validation/*_projection_comparison.csv`).
+* **Benchmark & validation outputs** (all under `results/benchmark/`): the `--step benchmark` step asks several different questions of the same network, so its folder is grouped by question rather than left as one pile of files:
+
+  | Folder | What is in it |
+  | --- | --- |
+  | `inputs/` | The ground truth the run actually used, kept under the project prefix (`*_ground_truth.*`, and `*_negative_control.*` when one is configured). A benchmark number cannot be read without knowing what it was scored against, and the original lives wherever you put it — this copy is the one the results belong to. |
+  | `ranking/` | The article-ranking benchmark: `*_benchmark_results.json`, `*_benchmark_quarantined_pmids.csv`, and `figures/*_benchmark_enrichment.png`. |
+  | `ranking_validation/` | Every node weighting scored across the evaluation frames: `*_validation_report.xlsx` / `.html`, `*_projection_comparison.csv`, and `figures/`. |
+  | `network_validation/` | The node/edge convergent validation — is the network's vocabulary and wiring reproduced? `*_gt_network_validation.xlsx`, `*_gt_cooccurrence_network.json`, and `figures/*_GT_*.png`. |
+
+  See the **Validation & Benchmarking** section below for what each file contains.
 * `logs/`: run logs and failed-fetch records.
 * **Figures (`results/figures/`)**:
 * **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.

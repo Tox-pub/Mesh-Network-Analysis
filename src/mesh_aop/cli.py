@@ -24,6 +24,7 @@ import sys
 import time
 import argparse
 import json
+import shutil
 import subprocess
 import pandas as pd
 from pathlib import Path
@@ -233,6 +234,34 @@ def _reference_skip(config, step, requested):
         sys.exit(1)
     print(f"\n>>> SKIPPING: {label} - {why}.")
     return True
+
+
+def _keep_benchmark_input(src, config, what):
+    """Copy a benchmark input into the run's own folder, under the prefix.
+
+    A benchmark number means nothing without the set it was scored against, and
+    that set lives wherever the user happened to put it - editable, movable, and
+    not named after this project. Keeping a prefixed copy beside the results
+    makes the pair self-contained and lets the workflow report cite a real file.
+
+    Returns the kept path, or the original if it could not be copied - a failure
+    here must never stop a benchmark that is otherwise ready to run.
+    """
+    if not src or not os.path.exists(str(src)):
+        return src
+    dest = (config.benchmark_inputs_dir /
+            f"{config.prefix}_{what}{os.path.splitext(str(src))[1].lower()}")
+    try:
+        if os.path.exists(dest) and os.path.samefile(str(src), str(dest)):
+            return str(dest)
+        shutil.copy2(str(src), str(dest))
+        print(f"  [+] Kept the {what.replace('_', ' ')} used: "
+              f"{os.path.join(os.path.basename(str(config.benchmark_inputs_dir)), dest.name)}")
+        return str(dest)
+    except OSError as exc:
+        print(f"  [!] Could not keep a copy of the {what.replace('_', ' ')} ({exc}); "
+              f"reading it in place.")
+        return src
 
 
 def _network_term_index(network_path):
@@ -1259,13 +1288,21 @@ def main():
 
             print(f"  [+] Using ground-truth file: {os.path.basename(gt_path)}")
 
-            # All --step benchmark artifacts (article-ranking benchmark, ground-truth
-            # node/edge validation with its figures, and the validation/projection
-            # report) are consolidated under results/benchmark/ so the outputs of this
-            # step live in one place rather than scattered across results/.
+            # Benchmarking answers several different questions about the same
+            # network, so its folder is grouped by question rather than left as
+            # one pile of files: what went in, and one folder per thing asked.
             bench_dir = config.benchmark_dir
-            os.makedirs(bench_dir, exist_ok=True)
-            os.makedirs(bench_dir / 'validation', exist_ok=True)
+            for d in (bench_dir, config.benchmark_inputs_dir,
+                      config.benchmark_ranking_dir, config.benchmark_network_dir,
+                      config.benchmark_validation_dir):
+                os.makedirs(d, exist_ok=True)
+
+            # Keep the ground truth that was actually used, under the project
+            # prefix like every other artefact. Results are unreadable without
+            # knowing what they were scored against, and the original may be a
+            # file the user later edits, moves, or drops from data/raw.
+            gt_kept = _keep_benchmark_input(gt_path, config, 'ground_truth')
+            nc_kept = _keep_benchmark_input(nc_path, config, 'negative_control')
 
             # Node/edge convergent validation runs first: it takes minutes rather
             # than the benchmark's tens of minutes, and answers a different
@@ -1275,11 +1312,11 @@ def main():
                 if os.path.exists(config.files['final_network']):
                     try:
                         run_gt_network_validation(
-                            ground_truth_path=gt_path,
+                            ground_truth_path=gt_kept,
                             master_db_path=str(config.files['master_db']),
                             final_network_path=str(config.files['final_network']),
-                            output_dir=str(bench_dir),
-                            figures_dir=str(bench_dir),
+                            output_dir=str(config.benchmark_network_dir),
+                            figures_dir=str(config.benchmark_network_dir / 'figures'),
                             file_prefix=config.prefix,
                             weight_key=bench_params.get(
                                 'network_validation_weight_key', 'MRS_pagerank_centrality'),
@@ -1305,8 +1342,8 @@ def main():
                             final_network_file=str(config.files['final_network']),
                             master_db_path=str(config.files['master_db']),
                             pmid_db_path=str(config.files['pmids_db']),
-                            ground_truth_file=gt_path,
-                            output_dir=str(bench_dir / 'validation'),
+                            ground_truth_file=gt_kept,
+                            output_dir=str(config.benchmark_validation_dir),
                             project_prefix=f"{config.prefix}_",
                             primary_query_term=primary_node,
                             n_boot=bench_params.get('validation_report_n_boot', 2000),
@@ -1330,8 +1367,8 @@ def main():
                             final_network_file=str(config.files['final_network']),
                             master_db_path=str(config.files['master_db']),
                             pmid_db_path=str(config.files['pmids_db']),
-                            ground_truth_file=gt_path,
-                            output_dir=str(bench_dir / 'validation'),
+                            ground_truth_file=gt_kept,
+                            output_dir=str(config.benchmark_validation_dir),
                             project_prefix=f"{config.prefix}_",
                             primary_query_term=primary_node,
                             n_boot=bench_params.get(
@@ -1349,12 +1386,12 @@ def main():
 
             try:
                 run_benchmark(
-                    resolved_csv_path=gt_path,
+                    resolved_csv_path=gt_kept,
                     relevance_db_path=str(config.files['relevance_db']),
-                    output_dir=str(bench_dir),
+                    output_dir=str(config.benchmark_ranking_dir),
                     file_prefix=f"{config.prefix}_benchmark",
                     primary_node=primary_node,
-                    negative_control_csv=nc_path,
+                    negative_control_csv=nc_kept,
                     random_seed=config.get('analysis_parameters', 'random_seed') or 42,
                     n_boot=bench_params.get('n_boot', 25),
                     n_perm=bench_params.get('n_perm', 25)

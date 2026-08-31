@@ -485,6 +485,14 @@ class MeshConfig:
         # them is findable.
         self.secondary_dir = self.results_dir / 'secondary_analysis'
         self.benchmark_dir = self.results_dir / 'benchmark'
+        # Benchmarking runs four things that answer different questions and used
+        # to land in one folder, where the only clue to which output came from
+        # which was the filename. One folder for what went IN - the ground truth
+        # a result can only be read against - and one per question asked of it.
+        self.benchmark_inputs_dir = self.benchmark_dir / 'inputs'
+        self.benchmark_ranking_dir = self.benchmark_dir / 'ranking'
+        self.benchmark_network_dir = self.benchmark_dir / 'network_validation'
+        self.benchmark_validation_dir = self.benchmark_dir / 'ranking_validation'
         # Logs are machinery, not results. A portable copy keeps everything
         # together; an installed one keeps them in the user's private area.
         self.log_dir = (self.results_dir / 'logs'

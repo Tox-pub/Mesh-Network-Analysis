@@ -796,7 +796,9 @@ def _plot_enrichment_curves(scores_df, scorer_cols, output_dir, file_prefix, rng
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(os.path.join(output_dir, f"{file_prefix}_enrichment.png"), dpi=200)
+    fig_dir = os.path.join(output_dir, "figures")
+    os.makedirs(fig_dir, exist_ok=True)
+    fig.savefig(os.path.join(fig_dir, f"{file_prefix}_enrichment.png"), dpi=200)
     plt.close(fig)
 
 

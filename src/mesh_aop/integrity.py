@@ -326,7 +326,11 @@ def scan(config, deep=False):
                          config.results_dir,
                          getattr(config, 'figures_dir', None),
                          getattr(config, 'secondary_dir', None),
-                         getattr(config, 'benchmark_dir', None)]))
+                         getattr(config, 'benchmark_dir', None),
+                         getattr(config, 'benchmark_inputs_dir', None),
+                         getattr(config, 'benchmark_ranking_dir', None),
+                         getattr(config, 'benchmark_validation_dir', None),
+                         getattr(config, 'benchmark_network_dir', None)]))
     return out
 
 

@@ -676,6 +676,10 @@ class Workbench(tk.Tk):
                 ('  ... figures', str(cfg.figures_dir)),
                 ('  ... secondary analysis', str(cfg.secondary_dir)),
                 ('  ... benchmark', str(cfg.benchmark_dir)),
+                ('      ... ground truth used', str(cfg.benchmark_inputs_dir)),
+                ('      ... article ranking', str(cfg.benchmark_ranking_dir)),
+                ('      ... ranking validation', str(cfg.benchmark_validation_dir)),
+                ('      ... network validation', str(cfg.benchmark_network_dir)),
                 ('Logs', str(cfg.log_dir)),
                 ('Settings file', self.cfg_path),
             ]
@@ -2117,7 +2121,7 @@ class Workbench(tk.Tk):
             'pmids', 'cleaned', 'mean', 'full', 'consensus', 'final', 'glf',
             'sa', 'optimization', 'run', 'prisma', 'export', 'benchmark',
             'scored', 'gt', 'validation', 'projection', 'network', 'processing',
-            'failed', 'empty',
+            'failed', 'empty', 'ground', 'negative', 'relevance',
         }
 
     def _write_section(self, title, folder, rows, first=False, limit=400):
