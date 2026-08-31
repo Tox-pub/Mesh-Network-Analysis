@@ -244,13 +244,72 @@ def _pmid_db_reason(path, exc):
     return str(exc)
 
 
+def _tie_offsets(n_tied, k, rng):
+    """k distinct places drawn from 1..n_tied, uniform over the k-subsets.
+
+    Distinct matters: MAP pairs the i-th positive with the i-th smallest rank,
+    so two positives sharing a rank would score a precision that no ranking can
+    actually produce. Sequential draws rejecting repeats IS sampling without
+    replacement, and it beats permuting a tie group that can hold millions.
+    """
+    if k >= n_tied:
+        return rng.permutation(n_tied)[:k] + 1
+    if n_tied < 4 * k or n_tied < 512:
+        return rng.choice(n_tied, size=k, replace=False) + 1
+    seen, out = set(), []
+    while len(out) < k:
+        for v in rng.integers(0, n_tied, size=(k - len(out)) * 2 + 8).tolist():
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+                if len(out) == k:
+                    break
+    return np.asarray(out) + 1
+
+
 def _positions(scores, mask, is_pos, rng):
-    """Rank a masked subset (random tie-breaking) and return positive positions."""
+    """Rank a masked subset (random tie-breaking) and return positive positions.
+
+    Only the positives' ranks are ever used, and there are a few dozen of them
+    against millions of articles, so the pool is never sorted. For each distinct
+    positive score, count how many articles beat it and how many tie with it;
+    the positives' places then come from inside their own tie group. Identical
+    to sorting the pool with a random tie-break key - exactly so when no scores
+    tie, and in distribution when they do - at a fraction of the cost, and the
+    cost grows with the number of DISTINCT positive scores rather than with the
+    pool, so a large user-supplied ground-truth set does not degrade it.
+    """
     s = scores[mask]
-    order = np.lexsort((rng.random(s.size), -s))
-    rank = np.empty(s.size, dtype=np.int64)
-    rank[order] = np.arange(1, s.size + 1)
-    return rank[is_pos[mask]].astype(float), s.size
+    n = s.size
+    pv = s[is_pos[mask]]
+    if pv.size == 0:
+        return np.empty(0, dtype=float), n
+
+    uniq = np.unique(pv)
+    below = np.searchsorted(uniq, s, side='left')     # distinct values under each score
+    at_or = np.searchsorted(uniq, s, side='right')
+    cum = np.cumsum(np.bincount(below, minlength=uniq.size + 1))
+    greater = (n - cum[:uniq.size]).astype(np.int64)  # articles beating uniq[j]
+    tied = np.bincount(below[at_or > below],
+                       minlength=uniq.size)[:uniq.size].astype(np.int64)
+    del below, at_or, cum
+
+    grp = np.searchsorted(uniq, pv, side='left')
+    order = np.argsort(grp, kind='stable')
+    sorted_grp = grp[order]
+    starts = np.flatnonzero(np.r_[True, sorted_grp[1:] != sorted_grp[:-1]])
+    sizes = np.r_[starts[1:], sorted_grp.size] - starts
+    which = sorted_grp[starts]
+
+    rank = np.empty(pv.size, dtype=float)
+    alone = sizes == 1
+    if alone.any():                    # sole positive in its tie group: nothing
+        j = which[alone]               # to coordinate, so draw them all at once
+        rank[order[starts[alone]]] = greater[j] + rng.integers(1, tied[j] + 1)
+    for start, size, j in zip(starts[~alone], sizes[~alone], which[~alone]):
+        rank[order[start:start + size]] = (
+            greater[j] + _tie_offsets(int(tied[j]), int(size), rng))
+    return rank, n
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
