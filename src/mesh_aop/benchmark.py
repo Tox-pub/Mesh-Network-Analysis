@@ -746,8 +746,9 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
     if make_figures and _HAS_MPL:
         try:
             _plot_enrichment_curves(scores_df, scorer_cols, output_dir, file_prefix, rng)
-            report["meta"]["figures"] = f"{file_prefix}_enrichment.png"
-            print(f"\n  [+] Wrote enrichment figure to {file_prefix}_enrichment.png")
+            report["meta"]["figures"] = f"figures/{file_prefix}_enrichment.png"
+            print(f"\n  [+] Wrote enrichment figure to "
+                  f"figures/{file_prefix}_enrichment.png")
         except Exception as e:
             print(f"  [!] Figure generation failed: {e}")
 

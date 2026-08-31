@@ -229,6 +229,21 @@ def _paired_bootstrap(pos_a, pos_b, n_total, metric_fn, n_boot, rng):
     return obs, lo, hi, min(p, 1.0)
 
 
+def _pmid_db_reason(path, exc):
+    """Why the retrieval database could not be read, in the user's terms.
+
+    A bare "unable to open database file" reads like corruption. Much the most
+    common cause is that there is no retrieval database at all - the run scored
+    a network it did not retrieve, which is exactly what the bundled reference
+    corpus does - so say that instead of relaying SQLite's wording.
+    """
+    if not path or not os.path.exists(str(path)):
+        return ("no retrieval database was produced by this run - the "
+                "demonstration corpus ships as a finished network, so the "
+                "article lists behind it were never downloaded")
+    return str(exc)
+
+
 def _positions(scores, mask, is_pos, rng):
     """Rank a masked subset (random tie-breaking) and return positive positions."""
     s = scores[mask]
@@ -462,7 +477,7 @@ def run_validation_report(final_network_file, master_db_path, pmid_db_path,
 
     print("\n" + "=" * 78)
     print("VALIDATION REPORT")
-    print("=" * 78)
+    print("<" * 30 + ">" * 30)
 
     with open(final_network_file, "r", encoding="utf-8") as f:
         net = json.load(f)
@@ -508,8 +523,9 @@ def run_validation_report(final_network_file, master_db_path, pmid_db_path,
         con.close()
         in_query = np.isin(pmids, list(p0))
     except Exception as exc:
-        print(f"  [!] Could not read the P0 query set ({exc}); "
-              f"query-conditioned frames will be skipped.")
+        print(f"  [i] Query-conditioned frames skipped: "
+              f"{_pmid_db_reason(pmid_db_path, exc)}. The whole-pool ranking "
+              f"below is unaffected.")
 
     if primary_query_term and primary_query_term in terms:
         col = terms.index(primary_query_term)
@@ -1071,7 +1087,7 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
 
     print("\n" + "=" * 78)
     print("PROJECTION COMPARISON (article-scoring methods)")
-    print("=" * 78)
+    print("<" * 30 + ">" * 30)
 
     with open(final_network_file, "r", encoding="utf-8") as f:
         net = json.load(f)
@@ -1156,8 +1172,8 @@ def run_projection_comparison(final_network_file, master_db_path, pmid_db_path,
         in_q = np.isin(pmids, list(p0))
         in_nb = np.isin(pmids, list(nb))
     except Exception as exc:
-        print(f"  [!] Could not read the query/neighbourhood sets ({exc}); "
-              f"only the whole-pool frame will be scored.")
+        print(f"  [i] Only the whole-pool frame will be scored: "
+              f"{_pmid_db_reason(pmid_db_path, exc)}.")
 
     frames = {"whole pool": np.ones(n_pool, bool),
               "citation neighbourhood": in_nb,

@@ -629,7 +629,7 @@ def generate_filtering_summary_sankeys(data: dict, output_dir: str, file_prefix:
 
         print("\n" + "="*80)
         print("                Summary of Network Filtering Cascade")
-        print("="*80)
+        print("<" * 30 + ">" * 30)
         rows = []
         stages = [('Initial Subgraph', 'Initial Subgraph'), ('LCC', 'Largest Connected Component'), ('Final Consensus LCC', 'Final Consensus Largest Connected Component')]
         for key, name in stages:

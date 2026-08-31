@@ -45,14 +45,30 @@ TABS = [
         # below it, and putting it here means a user sees them grey out the
         # moment it is ticked instead of finding them locked later with no
         # visible cause.
-        F('control_flags.use_reference_data', 'Use bundled reference data', 'bool', False,
-          'Analyse the reference corpus that shipped with the program instead '
-          'of building one from your own PubMed search.',
+        F('control_flags.use_reference_data',
+          'Use bundled reference data (demonstration only)', 'bool', False,
+          'FOR DEMONSTRATION ONLY. Analyse the finished reference network that '
+          'shipped with the program, so you can see what a completed run looks '
+          'like - the figures, the report, the benchmark - in minutes, before '
+          'committing to a real retrieval of your own.',
           'Default: off - the normal case is analysing your own corpus.',
-          'TICK THIS AND THE PROGRAM ANALYSES A NETWORK THAT ALREADY EXISTS - '
-          'the allergic contact dermatitis network published with this '
-          'software, included in the download, already built and scored. '
-          'Figures and benchmarking take minutes instead of a full run.\n'
+          'FOR DEMONSTRATION ONLY. This is not a way to do new research; it is '
+          'a way to look at finished output before you spend a day making your '
+          'own.\n'
+          '\n'
+          'A first real run means a long PubMed download and a full rebuild '
+          'before you see a single figure. Tick this instead and the program '
+          'analyses a network that already exists - the allergic contact '
+          'dermatitis network published with this software, included in the '
+          'download, already built and scored. Figures, the workflow report '
+          'and the benchmark come out in minutes, so you can judge whether the '
+          'outputs are what you want and learn where everything lands on disk '
+          'first.\n'
+          '\n'
+          'What you cannot do with it is change the corpus. The articles behind '
+          'this network are fixed; the retrieval that produced them is not '
+          'repeated and cannot be varied. Findings from it are the published '
+          'findings, not yours - untick it and run your own search for that.\n'
           '\n'
           'The network, the AOP strata and the ground-truth set are read from '
           'the program folder. The settings describing that corpus - search '
@@ -65,7 +81,14 @@ TABS = [
           'drawn, your folders, your credentials, and your own project. Your '
           'saved settings are not altered - untick and they return. Files it '
           'produces are named Reference_ so they cannot be confused with '
-          'yours.'),
+          'yours.\n'
+          '\n'
+          'The reference networks are copied into your own networks folder the '
+          'first time you tick this, and everything downstream reads them from '
+          'there. They are yours to open, edit or delete like any other result. '
+          'Copies already in that folder are left alone, so your changes '
+          'survive later runs; delete one and the pristine original comes back '
+          'from the program folder.'),
         F('search_parameters.search_term', 'Search term', 'text', '',
           'The PubMed query that defines the starting article set (P0).',
           'Default: empty. There is no sensible query for another research '

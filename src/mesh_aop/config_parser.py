@@ -18,6 +18,7 @@ import json
 import copy
 from datetime import date
 from pathlib import Path
+from shutil import copy2
 
 class MeshConfig:
     """Parses user configuration, applies factory defaults, and generates absolute paths."""
@@ -218,7 +219,54 @@ class MeshConfig:
         """Triggers path resolution if directories or control flags are updated."""
         self._resolve_dynamic_values()
         self._build_directories()
+        self._seed_reference_networks()
         self._map_files()
+
+    def _seed_reference_networks(self):
+        """Put the bundled corpus into the project, rather than reading it in place.
+
+        Copied once, when the box is ticked and the copy is not already there.
+        Four JSON files and an annotation table, about a megabyte and a half.
+
+        This is what makes the reference corpus behave like any other project
+        instead of a special case threaded through every step. Before it, the
+        networks folder sat empty after a reference run - which is exactly as
+        confusing as it sounds, since the run plainly used networks - and every
+        consumer had to know that this one project's inputs lived inside the
+        program directory.
+
+        The shipped originals are never written to. This copies FROM them, so
+        the published corpus stays as published and the copy is the user's to
+        open, edit and experiment on.
+        """
+        if not self.use_reference_data:
+            return
+        from . import paths as _paths
+        source = _paths.bundled_reference_dir(self.root)
+        if not source.is_dir():
+            return
+        try:
+            self.networks_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+
+        copied = []
+        for item in sorted(source.iterdir()):
+            if not item.is_file() or item.suffix.lower() != '.json':
+                continue
+            target = self.networks_dir / item.name
+            if target.exists():
+                continue          # already seeded, or the user has their own
+            try:
+                copy2(item, target)
+                copied.append(item.name)
+            except OSError:
+                pass
+        if copied:
+            print(f"  [+] Reference networks copied into {self.networks_dir}")
+            for name in copied:
+                print(f"        {name}")
+            print( "      These are yours now - the shipped originals are untouched.")
 
     # HOW THE PUBLISHED REFERENCE CORPUS WAS BUILT.
     #
@@ -404,7 +452,16 @@ class MeshConfig:
         # a user might want to open sat among the SQLite databases the pipeline
         # depends on - which is how someone deletes or edits a database meaning
         # to touch a network. They are separated now.
-        self.networks_dir = self.active_source_dir / 'networks'
+        #
+        # ALWAYS the user's, like the databases. When the bundled corpus is in
+        # use its networks are COPIED here rather than read in place - see
+        # _seed_reference_networks. That means every later step finds them where
+        # it finds any other project's, instead of each one needing to know that
+        # this project's inputs live inside the program folder; it means the
+        # networks folder is not empty and confusing after a reference run; and
+        # it means the copy can be opened, edited and experimented on, while the
+        # shipped original stays exactly as published.
+        self.networks_dir = self._user_processed_dir() / 'networks'
 
         # THE DATABASES ARE ALWAYS THE USER'S, never the shipped corpus.
         #

@@ -1567,6 +1567,15 @@ class Workbench(tk.Tk):
         self.sub_lab.config(text='')
         self._elapsed = 0
         self._spin_i = 0
+        # Everything the LAST run left on screen. Without this the status strip
+        # still read "Completed successfully." for the whole of the next run -
+        # and during a long silent stretch, like the benchmark's ranking pass,
+        # that is the only thing a user has to go on. It said the run was over
+        # while it was still working.
+        self.run_status.config(text='Starting…', fg=INK)
+        self.lab_spin.config(text='  Working')
+        self.lab_transient.config(text='')
+        self.btn_results.config(state='disabled')
         self.btn_cancel.config(state='normal')
         self.btn_pause.config(state='normal', text='Pause')
         self._paused_annotation = None
