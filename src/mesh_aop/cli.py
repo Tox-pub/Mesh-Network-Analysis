@@ -134,6 +134,26 @@ def _figure_on(config, name):
 NETWORK_STEP_FIGURES = ('distribution', 'optimisation')
 
 
+_FIGURE_OUTPUT_ANNOUNCED = False
+
+
+def _announce_figure_output(config):
+    """Say what figures are being written at, the first time one is written.
+
+    Once per run: Step 3 and Step 4 both draw, and repeating it would be noise.
+    """
+    global _FIGURE_OUTPUT_ANNOUNCED
+    if _FIGURE_OUTPUT_ANNOUNCED:
+        return
+    _FIGURE_OUTPUT_ANNOUNCED = True
+    vp = config.params.get('viz_parameters', {})
+    dpi, fmts = configure_output(vp.get('figure_dpi'), vp.get('figure_formats'))
+    source = ('your settings' if (vp.get('figure_dpi') or vp.get('figure_formats'))
+              else 'built-in defaults - nothing set on the Figures tab')
+    print(f"\n    Figures are being written at {dpi} dpi as "
+          f"{', '.join(fmts)}  ({source}).")
+
+
 def _report_skipped_figures(config, step=''):
     """Say what was left out, rather than let it look like a failure.
 
@@ -717,10 +737,10 @@ def main():
     # collecting data began by reporting figure settings neither would ever use
     # - and when the settings were absent it reported the module defaults,
     # 300 dpi and jpeg/tif, which is why the line looked hardcoded.
-    if args.step in ('all', 'network', 'viz', 'benchmark'):
-        _src = ('settings' if (_vp.get('figure_dpi') or _vp.get('figure_formats'))
-                else 'built-in defaults - nothing set on the Figures tab')
-        print(f"\nFigure output: {_dpi} dpi, formats {', '.join(_fmts)}  ({_src})")
+    # Announced by whichever step first draws a figure, not here. On a full run
+    # this was the very first line printed - figure settings reported before the
+    # pipeline had done anything that could produce a figure. See
+    # _announce_figure_output.
 
     # The rebuild instructions live beside the database, refreshed each run so
     # they always name the current paths. Cheap, and it means the data folder is
@@ -966,6 +986,7 @@ def main():
             raw_edge_df, raw_all_edges = load_full_raw_data(config.files['full_network'])
 
             if raw_edge_df is not None and _figure_on(config, 'distribution'):
+                _announce_figure_output(config)
                 analyze_dispersion(raw_edge_df, str(config.figures_dir), config.prefix)
                 plot_cooccurrance_distribution(raw_edge_df, edge_df, str(config.figures_dir), config.prefix)
 
@@ -1132,6 +1153,7 @@ def main():
             node_df, edge_df, G = load_and_prepare_data(config.files['final_network'], run_anno_path)
 
             figs = str(config.figures_dir)
+            _announce_figure_output(config)
             if _figure_on(config, 'communities'):
                 plot_louvain_community_bars(node_df, figs, config.prefix)
             if _figure_on(config, 'tsne'):
