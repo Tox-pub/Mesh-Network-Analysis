@@ -42,6 +42,26 @@ def _open_readonly_resilient(db_path):
     return sqlite3.connect(str(db_path), timeout=120.0)
 
 
+def _seed_match(*terms):
+    """SQL and parameters matching WHOLE seed terms, not substrings of them.
+
+    contributing_seeds is ';'.join(sorted(terms)), and the obvious
+    `LIKE '%Skin%'` matches every seed that merely CONTAINS the word - asking
+    for 'Skin' returned articles seeded by 'Skin Diseases', 'Skin Absorption'
+    and 'Skin Tests', with no sign anything was wrong. Wrapping both sides in
+    the delimiter pins the match to a complete element of the list.
+
+    LIKE's own wildcards are escaped too: a heading with a literal '_' would
+    otherwise match any character in that position.
+    """
+    clause = " AND ".join(
+        ["';' || contributing_seeds || ';' LIKE ? ESCAPE '\\'"] * len(terms))
+    params = tuple(
+        '%;' + t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + ';%'
+        for t in terms)
+    return "WHERE " + clause, params
+
+
 def _fetch_relevance_rows(conn, clause, params):
     """Fetch (pmid, ARS, contributing_seeds, pub_year) from article_relevance_scores.
 
@@ -246,7 +266,7 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
     try:
         # Step 1: Query Relevance DB
         conn_rel = _open_readonly_resilient(db_path)
-        rel_rows = _fetch_relevance_rows(conn_rel, "WHERE contributing_seeds LIKE ?", (f'%{node_name}%',))
+        rel_rows = _fetch_relevance_rows(conn_rel, *_seed_match(node_name))
         conn_rel.close()
 
         if not rel_rows:
@@ -307,7 +327,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
 
     try:
         conn_rel = _open_readonly_resilient(db_path)
-        rel_rows = _fetch_relevance_rows(conn_rel, "WHERE contributing_seeds LIKE ? AND contributing_seeds LIKE ?", (f'%{node1}%', f'%{node2}%'))
+        rel_rows = _fetch_relevance_rows(conn_rel, *_seed_match(node1, node2))
         conn_rel.close()
 
         if not rel_rows:

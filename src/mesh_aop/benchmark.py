@@ -597,9 +597,13 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
 
     pool_pmids = set(scores_df["pmid"])
     scores_df["y_true"] = scores_df["pmid"].isin(target).astype(int)
-    scores_df["has_primary"] = scores_df["contributing_seeds"].str.contains(
-        primary_node, na=False, regex=False
-    ).astype(int)
+    # Whole seed terms only. A bare substring test for 'Skin' also fires on
+    # 'Skin Diseases' and 'Skin Absorption', which would credit articles to the
+    # primary node that never had it as a seed; the delimiters pin the match to
+    # a complete element of the ';'-separated list.
+    scores_df["has_primary"] = (
+        ";" + scores_df["contributing_seeds"].fillna("") + ";"
+    ).str.contains(f";{primary_node};", regex=False).astype(int)
 
     # The seed string is only needed to derive n_seeds and has_primary (both done).
     # On a ~9M-row pool it is a multi-GB object column, so release it before the
