@@ -7,7 +7,7 @@ ignore the other two.
 | System | File | What to do |
 | :--- | :--- | :--- |
 | **Windows** | `MeSH-Workbench-3.2.0-windows.msi` | Double-click it. |
-| **Linux** | `MeSH-Workbench-3.2.0-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` |
+| **Linux** | `MeSH-Workbench-3.2.0-linux-x86_64.tar.gz` | Extract, then `./"MeSH Workbench"` — it adds itself to your applications menu |
 | **macOS** | `MeSH-Workbench-3.2.0-macos-arm64.tar.gz` | Extract, then `./"MeSH Workbench"` |
 
 **Every one carries its own Python.** There is nothing to install first - no
@@ -58,6 +58,14 @@ That is all. The folder carries its own Python, its own Tk, and every library
 already compiled - **you do not need a system Python, and you do not need
 `python3-tk`**. The first run unpacks the libraries from `wheels/`, takes about
 a minute, and needs no network.
+
+**It appears in your applications menu after that first launch.** A `.desktop`
+entry has to name an absolute path, and that is not known until you unpack the
+folder somewhere, so it cannot be shipped ready-made - the launcher writes it
+the first time it runs, to `~/.local/share/applications/mesh-workbench.desktop`.
+No root, nothing outside your own home directory, and it is rewritten if you
+later move the folder. `./mesh-uninstall` removes it again. If your desktop does
+not pick it up immediately, log out and back in.
 
 Without a desktop:
 

@@ -382,6 +382,41 @@ if [ ! -f "$STAMP" ]; then
     echo "Done."
 fi
 
+# 3. Linux applications menu. A .desktop entry has to name an absolute Exec
+#    path, and that is not known until this folder is unpacked somewhere, so
+#    it cannot be shipped ready-made - it is written here instead, and
+#    rewritten if the folder is later moved. Nothing outside the user's own
+#    ~/.local/share is touched: no root, no system files, and mesh-uninstall
+#    takes it away again.
+if [ "$(uname -s)" = "Linux" ]; then
+    APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    ENTRY="$APPS/mesh-workbench.desktop"
+    if ! grep -qF "Exec=\\"$HERE/MeSH Workbench\\"" "$ENTRY" 2>/dev/null; then
+        if mkdir -p "$APPS" 2>/dev/null; then
+            cat > "$ENTRY" <<DESKTOP_ENTRY_EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MeSH Workbench
+GenericName=MeSH concept network builder
+Comment=Build MeSH co-occurrence concept networks from PubMed
+Exec="$HERE/MeSH Workbench"
+Icon=$HERE/app/src/mesh_workbench/assets/mesh_workbench.png
+Path=$HERE
+Terminal=false
+StartupNotify=true
+Categories=Science;Biology;Education;
+Keywords=MeSH;PubMed;network;bibliometrics;AOP;
+DESKTOP_ENTRY_EOF
+            chmod 644 "$ENTRY" 2>/dev/null || true
+            if command -v update-desktop-database >/dev/null 2>&1; then
+                update-desktop-database "$APPS" >/dev/null 2>&1 || true
+            fi
+            echo "Added MeSH Workbench to your applications menu."
+        fi
+    fi
+fi
+
 # The application runs from source on the path: pure Python, nothing to build.
 PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
@@ -414,6 +449,13 @@ PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 "$PY" -m mesh_aop.uninstall_cli "$@"
 
+# The applications-menu entry, if the launcher wrote one.
+ENTRY="${XDG_DATA_HOME:-$HOME/.local/share}/applications/mesh-workbench.desktop"
+if [ -f "$ENTRY" ]; then
+    rm -f "$ENTRY"
+    echo "Removed the applications-menu entry."
+fi
+
 echo
 echo "That covered everything outside this folder."
 echo "To finish, delete the folder itself:"
@@ -443,6 +485,37 @@ PYTHONPATH="$HERE/app/src${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 exec "$PY" -m mesh_aop.cli "$@"
 """
+
+
+def _write_png_icon(assets_dir):
+    """Convert the shipped .ico to a PNG the Linux menu entry can use.
+
+    Not fatal if it cannot be done: without the PNG the entry still works and
+    still launches, it just draws with the desktop's generic icon, which is not
+    worth failing a build over.
+    """
+    ico = os.path.join(assets_dir, 'mesh_workbench.ico')
+    png = os.path.join(assets_dir, 'mesh_workbench.png')
+    if not os.path.exists(ico):
+        print('    [!] no .ico to convert; the menu entry will use a generic icon')
+        return
+    try:
+        from PIL import Image
+    except ImportError:
+        print('    [!] Pillow not available; the menu entry will use a generic icon')
+        return
+    try:
+        with Image.open(ico) as im:
+            # The largest frame in the file - .ico holds several, and Pillow
+            # opens the first, which is usually 16x16 and looks like mush at
+            # menu size.
+            sizes = im.info.get('sizes') or {im.size}
+            im.size = max(sizes, key=lambda wh: wh[0] * wh[1])
+            im.load()
+            im.convert('RGBA').save(png, format='PNG')
+        print(f'    icon: {os.path.basename(png)} ({im.size[0]}x{im.size[1]})')
+    except Exception as exc:                                  # noqa: BLE001
+        print(f'    [!] could not convert the icon ({exc}); using a generic one')
 
 
 def repack(target, out_dir):
@@ -521,6 +594,11 @@ def build(target, out_dir, stripped=True):
                                   '.env', '*.pyo')
     shutil.copytree(os.path.join(REPO, 'src'), os.path.join(app, 'src'),
                     dirs_exist_ok=True, ignore=skip)
+
+    # A PNG beside the .ico, for the Linux menu entry the launcher writes:
+    # freedesktop icon lookup does not read .ico, so an .ico Icon= line shows
+    # the generic missing-application square on most desktops.
+    _write_png_icon(os.path.join(app, 'src', 'mesh_workbench', 'assets'))
 
     # Our own licence travels with the program. Redistributing CPython, Tcl/Tk
     # and forty compiled wheels without stating what any of it is licensed
