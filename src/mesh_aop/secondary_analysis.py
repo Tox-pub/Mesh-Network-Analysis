@@ -209,12 +209,36 @@ def _fetch_metadata_and_filter(pmid_score_dicts: list, exclude_reviews: bool, li
         return pd.DataFrame()
 
 
+def _require_databases(db_path: str, cleaned_db_path: str):
+    """Both databases, or a message naming the one that is not there.
+
+    "Missing required databases." named neither file, so the usual cause - a
+    project prefix that was changed after the databases were built, leaving
+    them under the old name - looked identical to a corrupt install. The path
+    is printed because seeing it is normally enough to recognise the old prefix.
+    """
+    missing = [(label, path) for label, path in
+               (("relevance database", db_path), ("cleaned citation database", cleaned_db_path))
+               if not os.path.exists(str(path))]
+    if not missing:
+        return
+    lines = ["Secondary analysis needs two databases from an earlier step, and "
+             f"{'neither is' if len(missing) == 2 else 'one is not'} there:"]
+    for label, path in missing:
+        lines.append(f"    the {label}, expected at {path}")
+    lines.append("")
+    lines.append("  Databases are named after the project prefix. If you changed the")
+    lines.append("  prefix after building them, they are still under the old name -")
+    lines.append("  set it back, or rerun retrieval and network construction to build")
+    lines.append("  them under the new one.")
+    raise FileNotFoundError("\n  ".join(lines))
+
+
 def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
                            sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Pulls and scores all articles associated with a specific node."""
-    if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
-        raise FileNotFoundError("Missing required databases.")
+    _require_databases(db_path, cleaned_db_path)
 
     print(f"\n<<< Searching for Node: '{node_name}' >>>")
     oversample_limit = limit * 5
@@ -276,8 +300,7 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
                            limit: int, exclude_reviews: bool, entrez_email: str, entrez_api_key: str,
                            sort_metric: str = 'F1', linear_weight_ars: float = 0.5):
     """Pulls and scores all articles associated with a specific EDGE (relationship)."""
-    if not os.path.exists(db_path) or not os.path.exists(cleaned_db_path):
-        raise FileNotFoundError("Missing required databases.")
+    _require_databases(db_path, cleaned_db_path)
 
     print(f"\n<<< Searching for Edge: '{node1}' <--> '{node2}' >>>")
     oversample_limit = limit * 5
