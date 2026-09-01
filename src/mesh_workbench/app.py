@@ -1199,11 +1199,16 @@ class Workbench(tk.Tk):
     def _build_settings(self, root):
         top = self._sunken(root)
         top.pack(fill='x', padx=10, pady=(10, 8))
-        tk.Label(top, text='Pipeline step:', bg=FACE).pack(side='left', padx=(8, 6), pady=6)
+        # Bold, because this is the control a user has to change to reach
+        # secondary analysis or the benchmark - neither runs under "all" - and
+        # in plain text at the top of a full page of settings it was missed.
+        tk.Label(top, text='Pipeline step:', bg=FACE, font=self.f_bold
+                 ).pack(side='left', padx=(8, 6), pady=6)
         self.step_var = tk.StringVar(value='all')
         om = tk.OptionMenu(top, self.step_var, *[s for s, _ in schema.STEPS],
                            command=lambda *_: self._step_changed())
-        om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12)
+        om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12,
+                  font=self.f_bold)
         om.pack(side='left', pady=4)
         self.step_desc = tk.Label(top, bg=FACE, fg=DIM, anchor='w')
         self.step_desc.pack(side='left', padx=8)
@@ -1685,6 +1690,64 @@ class Workbench(tk.Tk):
             self.btn_pause.config(state='disabled')
             self.run_status.config(text='Aborting…', fg=WARN)
 
+    def _check_after_abort(self):
+        """Find what the kill left half-written, and offer to remove it.
+
+        An abort kills the process outright - that is the point of it, and it is
+        why Abort and Pause are separate buttons. The cost is that a file being
+        written at that moment is left truncated: a network JSON that will not
+        parse, a database with no tables, a zero-byte export. The repair tool
+        has always been able to find those, but only if the user knew to open
+        it, and a truncated file that is never noticed is read by the NEXT run
+        as though it were finished output.
+
+        So the scan runs here instead of waiting to be asked. Nothing is deleted
+        without agreement; a run stopped at a checkpoint (exit 130) never gets
+        here, because nothing is half-written in that case.
+        """
+        try:
+            from mesh_aop import integrity
+            config = MeshConfig(config_path=self.cfg_path)
+            damaged = [a for a in integrity.scan(config, deep=False)
+                       if a.status in (integrity.EMPTY, integrity.CORRUPT,
+                                       integrity.ORPHAN)]
+        except Exception as exc:                                  # noqa: BLE001
+            self._log(f'    (could not check for half-written files: {exc})', 'warn')
+            return
+
+        if not damaged:
+            self._log('    nothing was left half-written.', 'ok')
+            self.run_status.config(
+                text='Aborted - nothing was left half-written.', fg=WARN)
+            return
+
+        self._log(f'    {len(damaged)} file(s) left half-written by the abort:', 'warn')
+        for a in damaged:
+            self._log(f'      {a.label} - {a.detail}', 'warn')
+        self.run_status.config(
+            text=f'Aborted - {len(damaged)} half-written file(s) found.', fg=ERR)
+
+        total = sum(a.size for a in damaged) / 1e6
+        if messagebox.askyesno(
+                'Remove the half-written files?',
+                f'The abort left {len(damaged)} file(s) incomplete:\n\n'
+                + '\n'.join(f'    {a.label}' for a in damaged[:8])
+                + ('\n    ...' if len(damaged) > 8 else '')
+                + f'\n\nThese are truncated, not finished output. Left in place, '
+                f'the next run treats them as done and works from them.\n\n'
+                f'Removing them frees {total:,.0f} MB, and the pipeline rebuilds '
+                f'whatever is missing. Remove them now?',
+                icon='warning', default='yes'):
+            removed, freed, failures = integrity.remove(damaged)
+            self._log(f'    removed {len(removed)} file(s), {freed/1e6:,.0f} MB freed.', 'ok')
+            for a, err in failures:
+                self._log(f'    could not remove {a.label}: {err}', 'err')
+            self.run_status.config(
+                text=f'Aborted - {len(removed)} half-written file(s) removed.', fg=WARN)
+        else:
+            self._log('    left in place - Tools > Check and repair files '
+                      'will find them again.', 'warn')
+
     def _annotation_pause(self, anno_path):
         """The run stopped on purpose and is waiting for the user.
 
@@ -1848,6 +1911,7 @@ class Workbench(tk.Tk):
         elif rc == -1:
             self._log('--- aborted ---', 'warn')
             self.run_status.config(text='Aborted.', fg=WARN)
+            self._check_after_abort()
         elif rc == 130:
             # The pipeline saw the stop request at a checkpoint and exited
             # tidily. Worth distinguishing from a crash: nothing is half-written.
@@ -1884,9 +1948,14 @@ class Workbench(tk.Tk):
         a jump the instant a long run ends reads as though something went wrong.
         """
         target = self._NEXT_SCREEN.get(getattr(self, '_run_step', ''), 'results')
-        self.btn_back.config(
-            text=('Back to the database' if target == 'setup' else 'View results'),
-            command=(self.open_setup if target == 'setup' else self.open_results))
+        # Only relabel for the database screen. When the output is the results
+        # screen, btn_results already sits in this bar saying "View results" and
+        # relabelling this one produced two identical buttons side by side.
+        if target == 'setup':
+            self.btn_back.config(text='Back to the database', command=self.open_setup)
+        else:
+            self.btn_back.config(text='Back to settings',
+                                 command=lambda: self.show('settings'))
 
         def go():
             # Only if the user has not already navigated somewhere themselves.
