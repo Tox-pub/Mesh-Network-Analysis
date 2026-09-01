@@ -584,7 +584,8 @@ def _console_answer(prompt, default=''):
         return default
 
 
-def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool):
+def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,
+                        decided: str = 'ask'):
     """Asks the user if they want to update the Master Dictionary with their new annotations."""
     if not os.path.exists(run_anno_path) or not os.path.exists(master_anno_path):
         return
@@ -608,9 +609,15 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool)
     # Skip is the safe default: this permanently rewrites a library the user
     # has curated across every project they have ever run, and doing that
     # because nobody was listening would be the wrong way round.
-    ans = _console_answer(
-        "\n  [?] Do you want to sync the AOP levels from your run-specific file "
-        "back to the Master Library? [y/n/Enter to skip]: ")
+    if decided in ('yes', 'no'):
+        # The Workbench already asked, in a dialog, and is telling us the answer.
+        ans = 'y' if decided == 'yes' else 'n'
+        print(f"\n  [?] Sync back to the Master Library: {'yes' if ans == 'y' else 'no'} "
+              f"(answered in the application).")
+    else:
+        ans = _console_answer(
+            "\n  [?] Do you want to sync the AOP levels from your run-specific file "
+            "back to the Master Library? [y/n/Enter to skip]: ")
     if ans not in ['y', 'yes']:
         print("      The master library was NOT changed. Your run-specific "
               "annotations are kept either way, and")
@@ -714,6 +721,12 @@ def main():
     parser.add_argument('--rebuild-corrupt', action='store_true',
                         help="With --build-database, delete an unreadable master database before rebuilding it.")
 
+    parser.add_argument('--sync-annotations', choices=['ask', 'yes', 'no'], default='ask',
+                        help="After a pause for annotation, whether to merge this run's "
+                             "AOP levels back into your master annotations library. "
+                             "'ask' prompts on the console; the Workbench asks in a "
+                             "dialog and passes the answer here, because a subprocess "
+                             "with no console cannot be asked anything.")
     parser.add_argument('--check-files', action='store_true',
                         help="Check every file this project depends on and report anything damaged, then exit.")
     parser.add_argument('--repair-files', action='store_true',
@@ -1229,7 +1242,9 @@ def main():
             }, "Step 4 (Biological Figure Generation)")
 
             is_afk = not config.params.get('control_flags', {}).get('pause_for_annotation', False)
-            _sync_run_to_master(run_anno_path, config.files['annotations'], is_afk=is_afk)
+            _sync_run_to_master(run_anno_path, config.files['annotations'],
+                                is_afk=is_afk,
+                                decided=getattr(args, 'sync_annotations', 'ask'))
 
             node_df, edge_df, G = load_and_prepare_data(config.files['final_network'], run_anno_path)
 

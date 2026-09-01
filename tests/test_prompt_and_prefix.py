@@ -156,6 +156,52 @@ ck('"Skin; Haptens"' not in (tn.note or ''),
    'the field example no longer shows quotes around the list')
 ck('Skin; Haptens' in (tn.note or ''), 'but still shows the example')
 
+print('\n=== 4. the sync answer comes from the application, not a dead prompt ===')
+import csv                                                         # noqa: E402
+import subprocess                                                  # noqa: E402
+from mesh_workbench.app import Workbench                           # noqa: E402
+
+# the flag exists and only accepts the three answers
+help_out = subprocess.run(
+    [sys.executable, '-m', 'mesh_aop.cli', '--help'],
+    capture_output=True, text=True,
+    env={**os.environ, 'PYTHONPATH': 'src'}).stdout
+ck('--sync-annotations {ask,yes,no}' in help_out,
+   'the pipeline takes --sync-annotations {ask,yes,no}')
+
+# a decided answer must not consult the console at all
+sync_src = inspect.getsource(cli._sync_run_to_master)
+ck("decided in ('yes', 'no')" in sync_src,
+   'a decided answer short-circuits the prompt')
+ck(sync_src.index("decided in ('yes', 'no')") < sync_src.index('_console_answer'),
+   'and it is checked BEFORE the console is asked')
+
+# the GUI asks on both routes into step 4
+start_src = inspect.getsource(Workbench.start_run)
+ck("step in ('viz', 'all')" in start_src,
+   'the dialog route and the step-list route both reach the question')
+ck("'--sync-annotations' not in extra" in start_src,
+   'and it is not asked twice when the answer is already known')
+ck('_ask_annotation_sync' in start_src, 'via the dialog helper')
+
+ask_src = inspect.getsource(Workbench._ask_annotation_sync)
+ck('askyesnocancel' in ask_src, 'the dialog offers yes, no and cancel')
+ck("return 'no'" in ask_src, 'AFK runs answer no without a dialog')
+ck('return None' in ask_src, 'cancel means nothing runs')
+
+# the unassigned count the dialog shows
+anno = os.path.join(box, 'run_annotations.csv')
+with open(anno, 'w', encoding='utf-8', newline='') as fh:
+    w = csv.writer(fh, delimiter=';')
+    w.writerow(['mesh_term', 'aop_level'])
+    w.writerow(['Skin', 'Key Event'])
+    w.writerow(['Haptens', 'Unassigned'])
+    w.writerow(['Allergens', 'unassigned'])
+ck(Workbench._unassigned_count(anno) == 2,
+   f'counts Unassigned case-insensitively: {Workbench._unassigned_count(anno)}')
+ck(Workbench._unassigned_count(os.path.join(box, 'nope.csv')) == 0,
+   'a missing file counts zero rather than raising')
+
 print()
 if FAILS:
     print(f'FAILED ({len(FAILS)}):')

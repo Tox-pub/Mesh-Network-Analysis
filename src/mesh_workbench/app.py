@@ -1570,10 +1570,21 @@ class Workbench(tk.Tk):
             return
         if not self._confirm_overwrite(step):
             return
+        extra = list(extra or [])
+        # Step 4 merges this run's AOP levels into the master annotations
+        # library, and the pipeline used to ask about that on a console this
+        # process does not have - so the question killed the run instead of
+        # being answered. Ask here, whichever way Step 4 was started, and hand
+        # the answer over on the command line.
+        if step in ('viz', 'all') and '--sync-annotations' not in extra:
+            answered = self._ask_annotation_sync(step)
+            if answered is None:
+                return
+            extra += ['--sync-annotations', answered]
         # Remembered so the finished run can send the user where the thing it
         # just produced actually is.
         self._run_step = step
-        self._run_extra = list(extra or [])
+        self._run_extra = list(extra)
         self.show('running')
         self.run_title.config(text=f'Running: {title}')
         self._log_clear()
@@ -1814,11 +1825,70 @@ class Workbench(tk.Tk):
         tk.Button(row, text='Show me the folder', width=18,
                   command=lambda: self._reveal(anno_path)).pack(side='left', padx=4)
         tk.Button(row, text='Run Step 4 now', width=16,
-                  command=lambda: (win.destroy(), self.start_run('viz', title='Step 4 - Figures'))
+                  command=lambda: (win.destroy(), self._run_step4(anno_path))
                   ).pack(side='left', padx=(0, 4))
         tk.Button(row, text='Later', width=9, command=win.destroy).pack(side='right')
 
         self._place_modal(win, offset=40)
+
+    def _run_step4(self, anno_path):
+        """Run the figures after the annotation pause. start_run does the asking."""
+        self.start_run('viz', title='Step 4 - Figures')
+
+    def _ask_annotation_sync(self, step):
+        """'yes' / 'no' for the master-library merge, or None to not run at all.
+
+        Only worth asking when there is something to merge: a run in AFK mode
+        never pauses and the pipeline skips the merge outright, so putting a
+        dialog in front of every figure run would be noise.
+
+        It has to be asked rather than assumed, because the master library is
+        curated across every project the user has ever run and this rewrites it.
+        """
+        if not self.vars['control_flags.pause_for_annotation'].get():
+            return 'no'
+        anno = self._paused_annotation or self._run_annotations_path()
+        if not anno or not os.path.exists(anno):
+            return 'no'
+
+        unassigned = self._unassigned_count(anno)
+        note = ''
+        if unassigned:
+            note = (f'\n\n{unassigned} term(s) are still Unassigned. Those are '
+                    f'ignored by the merge - they cannot overwrite levels already '
+                    f'in your library.')
+        answer = messagebox.askyesnocancel(
+            'Save these AOP levels to your master library?',
+            'Your master annotations library remembers the level you gave every '
+            'MeSH term, so the same term never has to be annotated twice.\n\n'
+            "YES  -  merge this run's levels into it. This permanently changes "
+            'the library, and every future project starts from the result.\n\n'
+            'NO  -  leave the library alone. These levels stay with this run, '
+            'and the file is kept so you can merge it whenever you like.'
+            + note + '\n\nCancel goes back without running anything.',
+            icon='question', default='no')
+        if answer is None:
+            return None
+        return 'yes' if answer else 'no'
+
+    def _run_annotations_path(self):
+        """Where this project's run annotations file is, or None."""
+        try:
+            cfg = MeshConfig(config_path=self.cfg_path)
+            return str(cfg.results_dir / f'{cfg.prefix}_run_annotations.csv')
+        except Exception:                                          # noqa: BLE001
+            return None
+
+    @staticmethod
+    def _unassigned_count(anno_path):
+        """How many terms were left Unassigned, or 0 if that cannot be read."""
+        try:
+            import csv
+            with open(anno_path, 'r', encoding='utf-8-sig', newline='') as fh:
+                return sum(1 for r in csv.DictReader(fh, delimiter=';')
+                           if (r.get('aop_level') or '').strip().lower() == 'unassigned')
+        except (OSError, ValueError, KeyError):
+            return 0
 
     def _open_path(self, path):
         """Open a file with whatever the system uses for it."""
