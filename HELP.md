@@ -261,9 +261,25 @@ The interactive wizard is categorized into discrete blocks. Below is the scienti
 
 ### 1. Control Flags & Directories
 
-* **Use Reference Data:** If `True`, bypasses API downloading and utilizes a static, pre-curated reference dataset.
+* **Use Bundled Reference Data (demonstration only):** Analyses the finished network that ships with the program instead of building one from your own search. See [Using the bundled reference data](#using-the-bundled-reference-data) below for what it does and does not change.
 * **Pause for Annotation (AFK Mode):** If `False` (Default), the pipeline operates in AFK Mode. It will run uninterrupted from start to finish, automatically assigning 'Unassigned' to all biological levels. If `True`, the pipeline will safely pause after Step 3 to allow the user to manually annotate the network before rendering the final biological visualizations.
 * **Custom Prefix:** The naming convention prepended to all output files (e.g., `DAC_Mesh`).
+
+#### Using the bundled reference data
+
+**This is for demonstration, not for research.** A first real run means a long PubMed download and a full rebuild before you see a single figure. Ticking this box instead analyses a network that already exists — the allergic contact dermatitis network published with this software, already built and scored — so the figures, the workflow report and the benchmark come out in minutes. Use it to judge whether the outputs are what you want, and to learn where everything lands on disk, before committing to a retrieval of your own.
+
+What you **cannot** do with it is change the corpus. The articles behind that network are fixed, the retrieval that produced them is not repeated and cannot be varied, and any finding in it is already published — it is not yours. Untick the box and run your own search for that.
+
+| | |
+| :--- | :--- |
+| **Set for you, and greyed out** | Search term, both date windows, citation depth, random seed, benchmark primary node — anything else would label the figures with a query that did not make them. |
+| **Still yours** | Figure resolution and formats, which figures are drawn, your folders, your credentials, your project prefix. |
+| **Does not run** | Retrieval (there is nothing to fetch), network construction (it ships built), and secondary analysis (it needs the cleaned citation database, which only retrieval produces). |
+| **Your settings** | Untouched. Untick the box and your own search term and dates come back as you left them. |
+| **File naming** | Outputs are prefixed `Reference_` so they can never be confused with your own. |
+
+The reference networks are **copied into your own networks folder** the first time you tick the box, and everything downstream reads them from there. They are yours to open, edit or delete like any other result. Copies already in that folder are left alone, so your edits survive later runs; delete one and the pristine original returns from the program folder.
 
 ### 2. Master Database Status (Step 0 ETL)
 

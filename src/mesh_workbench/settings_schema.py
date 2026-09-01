@@ -47,48 +47,13 @@ TABS = [
         # visible cause.
         F('control_flags.use_reference_data',
           'Use bundled reference data (demonstration only)', 'bool', False,
-          'FOR DEMONSTRATION ONLY. Analyse the finished reference network that '
-          'shipped with the program, so you can see what a completed run looks '
-          'like - the figures, the report, the benchmark - in minutes, before '
-          'committing to a real retrieval of your own.',
+          'Demonstration only. Analyses the finished network that ships with '
+          'the program, so you can see what a completed run produces in '
+          'minutes.',
           'Default: off - the normal case is analysing your own corpus.',
-          'FOR DEMONSTRATION ONLY. This is not a way to do new research; it is '
-          'a way to look at finished output before you spend a day making your '
-          'own.\n'
-          '\n'
-          'A first real run means a long PubMed download and a full rebuild '
-          'before you see a single figure. Tick this instead and the program '
-          'analyses a network that already exists - the allergic contact '
-          'dermatitis network published with this software, included in the '
-          'download, already built and scored. Figures, the workflow report '
-          'and the benchmark come out in minutes, so you can judge whether the '
-          'outputs are what you want and learn where everything lands on disk '
-          'first.\n'
-          '\n'
-          'What you cannot do with it is change the corpus. The articles behind '
-          'this network are fixed; the retrieval that produced them is not '
-          'repeated and cannot be varied. Findings from it are the published '
-          'findings, not yours - untick it and run your own search for that.\n'
-          '\n'
-          'The network, the AOP strata and the ground-truth set are read from '
-          'the program folder. The settings describing that corpus - search '
-          'term, both date windows, citation depth, random seed, benchmark '
-          'primary node - are set for you and shown greyed out, because '
-          'anything else would label the figures with a query that did not '
-          'make them. Retrieval will not run: there is nothing to fetch.\n'
-          '\n'
-          'Yours either way: figure resolution and formats, which figures are '
-          'drawn, your folders, your credentials, and your own project. Your '
-          'saved settings are not altered - untick and they return. Files it '
-          'produces are named Reference_ so they cannot be confused with '
-          'yours.\n'
-          '\n'
-          'The reference networks are copied into your own networks folder the '
-          'first time you tick this, and everything downstream reads them from '
-          'there. They are yours to open, edit or delete like any other result. '
-          'Copies already in that folder are left alone, so your changes '
-          'survive later runs; delete one and the pristine original comes back '
-          'from the program folder.'),
+          'Not a way to do new research: the corpus is fixed and any finding '
+          'in it is already published. Retrieval will not run, and the settings '
+          'describing that corpus grey out. See HELP.md for the full list.'),
         F('search_parameters.search_term', 'Search term', 'text', '',
           'The PubMed query that defines the starting article set (P0).',
           'Default: empty. There is no sensible query for another research '
@@ -347,32 +312,16 @@ TABS = [
         F('secondary_analysis.target_nodes', 'Target nodes', 'text', '',
           'Export the articles behind one or more named terms.',
           'Default: empty, meaning no per-term export.',
-          'Semicolon-separated, e.g. "Skin; Haptens".\n'
-          '\n'
-          'An article is returned when the term is one of the MeSH headings it '
-          'was indexed with AND that heading is a node in your network - the '
-          'articles that actually put the term there. Matching is on the WHOLE '
-          'heading, so "Skin" returns articles indexed under Skin and not those '
-          'under Skin Diseases, Skin Absorption or Skin Tests.\n'
-          '\n'
-          'Because of that, the name has to be spelled exactly as the network '
-          'spells it: "Dermatitis, Allergic Contact", not "allergic contact '
-          'dermatitis". Take the spellings from the network Excel export or '
-          'from the network JSON in Cytoscape. A name that is not in the '
-          'network finds nothing, so what you type is checked first and the '
-          'nearest matches are offered.\n'
-          '\n'
-          'Only the secondary step reads this; a full run says it skipped it.'),
+          'Semicolon-separated, e.g. "Skin; Haptens". Returns the articles '
+          'indexed under that exact heading, so it must be spelled as the '
+          'network spells it - "Dermatitis, Allergic Contact", not "allergic '
+          'contact dermatitis". Read only by the secondary step.'),
         F('secondary_analysis.target_edges', 'Target edges', 'text', '',
           'Export the articles behind one or more named relationships.',
           'Default: empty, meaning no per-edge export.',
           'Written as "NodeA - NodeB; NodeC - NodeD" - a space, a hyphen, a '
-          'space between the two headings.\n'
-          '\n'
-          'An article is returned when BOTH headings are among the MeSH terms '
-          'it was indexed with, so these are the articles that put the edge '
-          'there rather than either node alone. Both names match on the whole '
-          'heading and both must be spelled as the network spells them.'),
+          'space between the two headings. Returns the articles indexed under '
+          'BOTH, so it is the evidence for the link rather than either node.'),
         F('secondary_analysis.compare_networks', 'Compare multiple networks', 'bool', False,
           'Also compare this run against other saved networks.', 'Default: off.'),
         F('secondary_analysis.comparison_networks', 'Networks to compare', 'text', '',
