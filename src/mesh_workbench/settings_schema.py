@@ -611,9 +611,9 @@ TAB_NOTES = {
         'an error - the query simply finds nothing - so the run checks what you '
         'typed first and offers the nearest matches it can see.\n'
         '\n'
-        'This step needs the cleaned citation database from your own retrieval, '
-        'so it cannot run against the bundled reference corpus, which ships as '
-        'a finished network with no article lists behind it.'),
+        'This runs against the bundled reference corpus too: it fetches the '
+        'citation data for the articles it is about to rank and keeps it, so a '
+        'demonstration run shows the same output a real one would.'),
 
     'Benchmark': (
         'The benchmark is NOT part of a full run - start it yourself',

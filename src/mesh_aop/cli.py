@@ -201,12 +201,15 @@ def _gt_wanted(config):
 # not run against a corpus that is already built. Skipping them is not a
 # limitation of the mode; it IS the mode. The corpus ships with the work already
 # done, which is why figures and benchmarking take minutes rather than a night.
+# Secondary analysis is deliberately NOT here. It was, on the grounds that it
+# reads the cleaned citation database and only retrieval produces one - but the
+# pipeline can produce what it needs, which is the whole point of a
+# demonstration. It now fetches citations for the shortlist it is about to rank
+# and caches them; see secondary_analysis._ensure_citations.
 REFERENCE_SKIPS = {
     'data_ops': ('Retrieval', 'that corpus is already built - there is nothing to fetch'),
     'network': ('Network construction',
                 'that corpus ships with its network already built, filtered and scored'),
-    'secondary': ('Secondary analysis',
-                  'it reads the cleaned citation database, which only retrieval produces'),
 }
 
 
@@ -1038,9 +1041,15 @@ def main():
         if args.step in ['all', 'secondary'] and should_run_sec and not _skip_secondary:
             runcontrol.checkpoint("before Secondary Analysis")
             print("\n>>> STARTING: Secondary Analysis Operations")
+            # The relevance database is what there is to rank; build it if this
+            # is the reference corpus, where the network step never ran.
+            _build_relevance_db_if_missing(config,
+                                           include_subgraph_weightings=_gt_wanted(config))
+            # The cleaned citation database is NOT required. A retrieved corpus
+            # has one; the reference corpus has none, and the citations for the
+            # shortlist are fetched and cached instead.
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db'],
-                "Cleaned Database": config.files['cleaned_db']
             }, "Secondary Analysis")
 
             api_email = config.get('credentials', 'entrez_email')

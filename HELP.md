@@ -275,7 +275,7 @@ What you **cannot** do with it is change the corpus. The articles behind that ne
 | :--- | :--- |
 | **Set for you, and greyed out** | Search term, both date windows, citation depth, random seed, benchmark primary node — anything else would label the figures with a query that did not make them. |
 | **Still yours** | Figure resolution and formats, which figures are drawn, your folders, your credentials, your project prefix. |
-| **Does not run** | Retrieval (there is nothing to fetch), network construction (it ships built), and secondary analysis (it needs the cleaned citation database, which only retrieval produces). |
+| **Does not run** | Retrieval (there is nothing to fetch) and network construction (it ships built). Secondary analysis and the benchmark both run: they generate the relevance and citation data they need. |
 | **Your settings** | Untouched. Untick the box and your own search term and dates come back as you left them. |
 | **File naming** | Outputs are prefixed `Reference_` so they can never be confused with your own. |
 
@@ -448,7 +448,7 @@ Upon successful completion of the pipeline, the following critical files are gen
 
   It is created automatically in **Step 2 (Retrieval & Database Operations)** of a full run, and it is a hard prerequisite of network construction, secondary analysis and the benchmark. If you delete it, the next full run rebuilds it from `*_pmids.db` without re-downloading anything.
 
-  The **bundled reference corpus has no cleaned database and cannot have one**: it ships as a finished network, and the article lists behind it were never downloaded. That is why secondary analysis is refused under *Use bundled reference data* rather than producing empty output — and it is not a path problem that copying files could fix.
+  The **bundled reference corpus ships without one**, because nothing was retrieved. Secondary analysis still runs against it: it fetches the citation data for the shortlist it is about to rank from the iCite API and caches it in a cleaned database of the same shape, so the second query reads from disk. Generating what it needs is what the demonstration is for.
 * `mesh_terms.csv`: The MeSH vocabulary extracted from the XML in Step 1.
 * `*_full_network_data.json`: The raw, unfiltered NetworkX graphical representation.
 * `*_glf_optimal_subgraph.json` / `*_sa_optimal_subgraph.json`: The two independent optimizer solutions whose intersection forms the consensus subgraph.

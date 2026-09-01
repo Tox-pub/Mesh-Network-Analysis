@@ -125,12 +125,24 @@ def _calculate_impact_scores(raw_rows: list, sort_metric: str, linear_weight_ars
     max_log = df['log_cit'].max()
 
     if max_log > 0:
-        one_citation_scale = np.log10(2) / max_log
-        dynamic_floor = one_citation_scale / 2.0
         normalized = df['log_cit'] / max_log
+        # The floor stands in for "no citations at all", so it has to sit BELOW
+        # every article that has some. one_citation_scale alone does not: it is
+        # log10(2)/max_log, which exceeds 1 as soon as the best article in the
+        # set manages under 0.41 citations a year - a narrow query, or a young
+        # corner of the literature. The floor then outscored the most-cited
+        # article in the set, and the clip below dragged every relevance score
+        # up to it, so the ranking inverted and ARS stopped mattering. Bounding
+        # it by the smallest real score keeps that impossible by construction.
+        cited = normalized[citation_signal > 0]
+        ceiling = (float(cited.min()) / 2.0) if len(cited) else 0.5
+        dynamic_floor = min(np.log10(2) / max_log / 2.0, ceiling)
         df['Normalized_Citation'] = np.where(citation_signal == 0, dynamic_floor, normalized)
     else:
-        dynamic_floor = 1.0
+        # Nothing in the set is cited. There is no citation signal to separate
+        # them, so give them all the same and let relevance do the ranking -
+        # which means the floor must not clip the relevance scores either.
+        dynamic_floor = 0.0
         df['Normalized_Citation'] = 1.0
 
     df['ars_score'] = df['ars_score'].clip(lower=dynamic_floor)
@@ -230,28 +242,112 @@ def _fetch_metadata_and_filter(pmid_score_dicts: list, exclude_reviews: bool, li
 
 
 def _require_databases(db_path: str, cleaned_db_path: str):
-    """Both databases, or a message naming the one that is not there.
+    """The relevance database, without which there is nothing to rank.
+
+    The cleaned citation database is NOT required. A run that retrieved its own
+    corpus has one and every citation comes from it; a run against the bundled
+    reference corpus never retrieved anything, so the citations for the handful
+    of articles being ranked are fetched and cached instead. See _ensure_citations.
 
     "Missing required databases." named neither file, so the usual cause - a
-    project prefix that was changed after the databases were built, leaving
-    them under the old name - looked identical to a corrupt install. The path
-    is printed because seeing it is normally enough to recognise the old prefix.
+    project prefix changed after the databases were built, leaving them under
+    the old name - looked identical to a corrupt install. The path is printed
+    because seeing it is normally enough to recognise the old prefix.
     """
-    missing = [(label, path) for label, path in
-               (("relevance database", db_path), ("cleaned citation database", cleaned_db_path))
-               if not os.path.exists(str(path))]
-    if not missing:
+    if os.path.exists(str(db_path)):
         return
-    lines = ["Secondary analysis needs two databases from an earlier step, and "
-             f"{'neither is' if len(missing) == 2 else 'one is not'} there:"]
-    for label, path in missing:
-        lines.append(f"    the {label}, expected at {path}")
-    lines.append("")
-    lines.append("  Databases are named after the project prefix. If you changed the")
-    lines.append("  prefix after building them, they are still under the old name -")
-    lines.append("  set it back, or rerun retrieval and network construction to build")
-    lines.append("  them under the new one.")
-    raise FileNotFoundError("\n  ".join(lines))
+    raise FileNotFoundError(
+        "Secondary analysis needs the relevance database, and it is not there:\n"
+        f"    expected at {db_path}\n\n"
+        "  Databases are named after the project prefix. If you changed the\n"
+        "  prefix after building them, they are still under the old name -\n"
+        "  set it back, or rerun the network step to build it under the new one.")
+
+
+_ICITE_BATCH = 100
+
+
+def _ensure_citations(pmids, cleaned_db_path, fetch_budget=5000):
+    """{pmid: cited_by} for these articles, fetching whatever is not on disk.
+
+    Citations are what the impact score's second axis is made of. A retrieved
+    corpus already has them: the cleaned database was built from the run's own
+    downloads and every candidate is in it, so this reads and fetches nothing.
+
+    The bundled reference corpus has no such database, because nothing was
+    retrieved. Rather than refuse - or, worse, score every article against zero
+    citations, which drives the whole ranking to a constant - the citations for
+    the articles actually being ranked are fetched from iCite and written into a
+    cleaned database of the same shape. Generating what it needs is exactly what
+    the demonstration is meant to show.
+
+    The fetch is bounded: `pmids` should already be the shortlist, and only the
+    first `fetch_budget` unknown ones are looked up, so a query matching a
+    hundred thousand articles cannot turn into a hundred thousand lookups.
+    """
+    want = [str(p) for p in pmids]
+    known, missing = {}, []
+    if os.path.exists(str(cleaned_db_path)):
+        conn = _open_readonly_resilient(cleaned_db_path)
+        try:
+            for i in range(0, len(want), 900):
+                chunk = want[i:i + 900]
+                q = ','.join('?' for _ in chunk)
+                for pmid, cited in conn.execute(
+                        f"SELECT pmid, cited_by FROM pmids_table WHERE pmid IN ({q})", chunk):
+                    known[str(pmid)] = cited
+        except sqlite3.Error:
+            pass                      # a database without the table is simply no help
+        finally:
+            conn.close()
+    missing = [p for p in want if p not in known]
+    if not missing:
+        return known
+
+    capped = missing[:fetch_budget]
+    print(f"  -> {len(missing):,} of {len(want):,} articles have no citation data on "
+          f"disk; fetching {len(capped):,} from iCite...")
+    from .data_ops import fetch_links_in_batches
+    fetched = {}
+    for i in range(0, len(capped), _ICITE_BATCH):
+        batch = capped[i:i + _ICITE_BATCH]
+        try:
+            for pmid, links in fetch_links_in_batches([int(p) for p in batch]).items():
+                fetched[str(pmid)] = links.get('cited_by', '')
+        except (ValueError, TypeError):
+            continue
+    _cache_citations(fetched, cleaned_db_path)
+    known.update(fetched)
+    print(f"  -> citation data for {len(fetched):,} articles cached in "
+          f"{os.path.basename(str(cleaned_db_path))}")
+    return known
+
+
+def _cache_citations(fetched, cleaned_db_path):
+    """Write fetched citations into a cleaned database, creating it if needed.
+
+    Same table and column names the retrieval path writes, so nothing
+    downstream has to know which of the two produced it. Failing to cache is
+    not fatal - the query still has its answer in memory - it just means the
+    next query fetches again.
+    """
+    if not fetched:
+        return
+    try:
+        os.makedirs(os.path.dirname(str(cleaned_db_path)), exist_ok=True)
+        conn = sqlite3.connect(str(cleaned_db_path), timeout=120.0)
+        conn.execute("CREATE TABLE IF NOT EXISTS pmids_table ("
+                     "pmid INTEGER PRIMARY KEY, generation TEXT, "
+                     "cited_by TEXT, cites TEXT, mesh_terms TEXT)")
+        conn.executemany(
+            "INSERT INTO pmids_table (pmid, generation, cited_by) VALUES (?, 'P0', ?) "
+            "ON CONFLICT(pmid) DO UPDATE SET cited_by=excluded.cited_by",
+            [(int(p), c) for p, c in fetched.items() if str(p).isdigit()])
+        conn.commit()
+        conn.close()
+    except (sqlite3.Error, OSError) as exc:
+        print(f"  [!] Could not cache the citation data ({exc}); "
+              f"the results below are unaffected.")
 
 
 def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, results_dir: str, file_prefix: str,
@@ -289,21 +385,17 @@ def analyze_node_relevancy(node_name: str, db_path: str, cleaned_db_path: str, r
         rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
         # Step 3: Batch lookup in Master DB
-        citation_map = {}
-        conn_clean = _open_readonly_resilient(cleaned_db_path)
-        cursor_clean = conn_clean.cursor()
-
-        chunk_size = 900
-        for i in range(0, len(clean_pmids), chunk_size):
-            chunk = clean_pmids[i:i + chunk_size]
-            placeholders = ','.join('?' for _ in chunk)
-            cursor_clean.execute(f"SELECT pmid, cited_by FROM pmids_table WHERE pmid IN ({placeholders})", chunk)
-            for row in cursor_clean.fetchall():
-                citation_map[str(row[0])] = row[1]
-        conn_clean.close()
+        # Citations for the shortlist only. Ranking by relevance first bounds
+        # what has to be looked up: a heading matching a hundred thousand
+        # articles still only needs citations for the ones that can reach the
+        # export. A retrieved corpus has them all on disk already and fetches
+        # nothing; the reference corpus has none and fetches these.
+        shortlist = sorted(clean_pmids,
+                           key=lambda p: rel_map[p][0] or 0.0, reverse=True)[:oversample_limit]
+        citation_map = _ensure_citations(shortlist, cleaned_db_path)
 
         # Step 4: Reconstruct array
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in shortlist]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
         print(f"  -> Extracted & Scored top {len(pmid_dicts)} candidates. Hydrating metadata...")
@@ -354,20 +446,16 @@ def analyze_edge_relevancy(node1: str, node2: str, db_path: str, cleaned_db_path
         clean_pmids = [str(r[0]).split('.')[0] for r in rel_rows]
         rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
-        citation_map = {}
-        conn_clean = _open_readonly_resilient(cleaned_db_path)
-        cursor_clean = conn_clean.cursor()
+        # Citations for the shortlist only. Ranking by relevance first bounds
+        # what has to be looked up: a heading matching a hundred thousand
+        # articles still only needs citations for the ones that can reach the
+        # export. A retrieved corpus has them all on disk already and fetches
+        # nothing; the reference corpus has none and fetches these.
+        shortlist = sorted(clean_pmids,
+                           key=lambda p: rel_map[p][0] or 0.0, reverse=True)[:oversample_limit]
+        citation_map = _ensure_citations(shortlist, cleaned_db_path)
 
-        chunk_size = 900
-        for i in range(0, len(clean_pmids), chunk_size):
-            chunk = clean_pmids[i:i + chunk_size]
-            placeholders = ','.join('?' for _ in chunk)
-            cursor_clean.execute(f"SELECT pmid, cited_by FROM pmids_table WHERE pmid IN ({placeholders})", chunk)
-            for row in cursor_clean.fetchall():
-                citation_map[str(row[0])] = row[1]
-        conn_clean.close()
-
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in shortlist]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
         print(f"  -> Extracted & Scored top {len(pmid_dicts)} candidates. Hydrating metadata...")
@@ -413,20 +501,16 @@ def get_top_network_articles(db_path: str, cleaned_db_path: str, results_dir: st
         clean_pmids = [str(r[0]).split('.')[0] for r in rel_rows]
         rel_map = {clean_pmids[i]: (rel_rows[i][1], rel_rows[i][2], rel_rows[i][3]) for i in range(len(clean_pmids))}
 
-        citation_map = {}
-        conn_clean = _open_readonly_resilient(cleaned_db_path)
-        cursor_clean = conn_clean.cursor()
+        # Citations for the shortlist only. Ranking by relevance first bounds
+        # what has to be looked up: a heading matching a hundred thousand
+        # articles still only needs citations for the ones that can reach the
+        # export. A retrieved corpus has them all on disk already and fetches
+        # nothing; the reference corpus has none and fetches these.
+        shortlist = sorted(clean_pmids,
+                           key=lambda p: rel_map[p][0] or 0.0, reverse=True)[:oversample_limit]
+        citation_map = _ensure_citations(shortlist, cleaned_db_path)
 
-        chunk_size = 900
-        for i in range(0, len(clean_pmids), chunk_size):
-            chunk = clean_pmids[i:i + chunk_size]
-            placeholders = ','.join('?' for _ in chunk)
-            cursor_clean.execute(f"SELECT pmid, cited_by FROM pmids_table WHERE pmid IN ({placeholders})", chunk)
-            for row in cursor_clean.fetchall():
-                citation_map[str(row[0])] = row[1]
-        conn_clean.close()
-
-        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in clean_pmids]
+        raw_rows = [(pmid, rel_map[pmid][0], rel_map[pmid][1], citation_map.get(pmid, None), rel_map[pmid][2]) for pmid in shortlist]
 
         pmid_dicts = _calculate_impact_scores(raw_rows, sort_metric, linear_weight_ars, oversample_limit)
 
