@@ -1716,13 +1716,16 @@ class Workbench(tk.Tk):
         without agreement; a run stopped at a checkpoint (exit 130) never gets
         here, because nothing is half-written in that case.
         """
+        from mesh_aop import integrity
+        config = self._setup_config()
+        if config is None:
+            self._log('    (could not read the settings, so nothing was checked)', 'warn')
+            return
         try:
-            from mesh_aop import integrity
-            config = MeshConfig(config_path=self.cfg_path)
             damaged = [a for a in integrity.scan(config, deep=False)
                        if a.status in (integrity.EMPTY, integrity.CORRUPT,
                                        integrity.ORPHAN)]
-        except Exception as exc:                                  # noqa: BLE001
+        except OSError as exc:
             self._log(f'    (could not check for half-written files: {exc})', 'warn')
             return
 
@@ -1873,11 +1876,10 @@ class Workbench(tk.Tk):
 
     def _run_annotations_path(self):
         """Where this project's run annotations file is, or None."""
-        try:
-            cfg = MeshConfig(config_path=self.cfg_path)
-            return str(cfg.results_dir / f'{cfg.prefix}_run_annotations.csv')
-        except Exception:                                          # noqa: BLE001
+        cfg = self._setup_config()
+        if cfg is None:
             return None
+        return str(cfg.results_dir / f'{cfg.prefix}_run_annotations.csv')
 
     @staticmethod
     def _unassigned_count(anno_path):
