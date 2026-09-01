@@ -682,6 +682,15 @@ class MeshConfig:
         # These two are semicolon-separated lists, so each entry is handled.
         if key in ('target_nodes', 'target_edges'):
             parts = [self._strip_quotes(p) for p in value.split(';')]
+            # A quote left dangling on an entry means the quotes went around the
+            # WHOLE list rather than each name: "Skin; Haptens" splits into
+            # '"Skin' and 'Haptens"', neither of which is a matched pair, so
+            # nothing was stripped and both names then matched no term at all.
+            # Quoting the list is at least as natural as quoting each entry, so
+            # take the quotes off the whole thing and split again.
+            if any(p[:1] in ('"', "'") or p[-1:] in ('"', "'") for p in parts if p):
+                parts = [self._strip_quotes(p)
+                         for p in self._strip_quotes(value).split(';')]
             return ';'.join(p for p in parts if p)
         return self._strip_quotes(value)
 

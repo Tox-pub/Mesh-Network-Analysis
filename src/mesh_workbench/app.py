@@ -2185,21 +2185,11 @@ class Workbench(tk.Tk):
         remove. So the remainder after 'prefix_' must be a known artefact name,
         not the continuation of a longer prefix.
         """
-        if not filename.startswith(prefix + '_'):
-            return False
-        rest = filename[len(prefix) + 1:]
-        # The first word after the prefix, with any extension taken off - a name
-        # like "DAC_Mesh_1_pmids.db" leaves "pmids.db", and splitting on '_'
-        # alone keeps the extension attached and matches nothing.
-        head = rest.split('_')[0].split('.')[0]
-        # Every artefact this pipeline writes starts with one of these once the
-        # prefix is gone. Anything else is a longer prefix's file.
-        return head[:1].isupper() or head in {
-            'pmids', 'cleaned', 'mean', 'full', 'consensus', 'final', 'glf',
-            'sa', 'optimization', 'run', 'prisma', 'export', 'benchmark',
-            'scored', 'gt', 'validation', 'projection', 'network', 'processing',
-            'failed', 'empty', 'ground', 'negative', 'relevance',
-        }
+        # One rule, in one place. The overwrite warning needs exactly the same
+        # judgement - it warned a brand-new prefix about another project's
+        # files - and two copies of a list of artefact names would drift.
+        from mesh_aop import integrity
+        return integrity.belongs_to(filename, prefix)
 
     def _write_section(self, title, folder, rows, first=False, limit=400):
         """One headed block of the file listing, with its folder named."""

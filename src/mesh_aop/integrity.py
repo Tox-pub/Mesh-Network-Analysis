@@ -26,6 +26,7 @@ Three things this module will not do:
 
 import json
 import os
+import re as _re
 import sqlite3
 import time
 from datetime import datetime
@@ -360,7 +361,13 @@ STEP_RESULT_GLOBS = {
             ('figures/{p}_*.png', 'Figures (PNG)'),
             ('figures/{p}_*.svg', 'Figures (SVG)'),
             ('figures/{p}_*.html', 'Interactive figures')],
-    'benchmark': [('benchmark/*', 'Benchmark and validation outputs')],
+    # Prefixed, and recursive, like every other pattern here. This one was
+    # 'benchmark/*': no {p} at all, so it matched every file any project had
+    # ever left in that folder and told the user their brand-new prefix was
+    # already in use, naming files that had nothing to do with it. The ** is
+    # needed too, now that the folder has inputs/ranking/ranking_validation/
+    # network_validation beneath it.
+    'benchmark': [('benchmark/**/{p}_*', 'Benchmark and validation outputs')],
 }
 
 # Which steps a given selection actually runs. 'all' is every one of them.
@@ -394,6 +401,45 @@ def _step_rewrites(config, step, key):
 # Kept in step with cli.REFERENCE_SKIPS. Named here rather than imported to
 # avoid a cycle: integrity is imported by the CLI, not the other way round.
 REFERENCE_SKIPPED_STEPS = ('data_ops', 'network', 'secondary')
+
+
+
+# Every artefact this pipeline writes begins with one of these once the project
+# prefix is stripped off. Anything else is a LONGER prefix's file: 'DAC_Mesh' is
+# itself a prefix of 'DAC_Mesh_run', so a plain startswith attributes the second
+# project's output to the first and warns about overwriting files that are not
+# the user's to lose.
+_ARTEFACT_HEADS = {
+    'pmids', 'cleaned', 'mean', 'full', 'consensus', 'final', 'glf',
+    'sa', 'optimization', 'run', 'prisma', 'export', 'benchmark',
+    'scored', 'gt', 'validation', 'projection', 'network', 'processing',
+    'failed', 'empty', 'ground', 'negative', 'relevance', 'top',
+    'alluvial', 'edge', 'enrichment', 'results', 'quarantined', 'node',
+}
+
+# Figures are numbered - fig1..fig7 today, and more later - so they are matched
+# by shape rather than listed one by one.
+_ARTEFACT_HEAD_RE = _re.compile(r'fig\d*$')
+
+
+def belongs_to(filename, prefix):
+    """Is this file that project's, exactly - not a longer prefix's?
+
+    'DAC_Mesh' is itself a prefix of 'DAC_Mesh_run', so startswith alone
+    attributes the second project's files to the first. The word after the
+    prefix decides: it has to be the start of an artefact name this pipeline
+    actually writes, not the continuation of a longer project name.
+
+    An earlier version accepted any Capitalised word here, which let
+    'DAC_Mesh_...' pass as project 'DAC' with artefact 'Mesh_...'. The heads
+    are enumerable, so they are enumerated.
+    """
+    if not prefix:
+        return True
+    if not filename.startswith(prefix + '_'):
+        return False
+    head = filename[len(prefix) + 1:].split('_')[0].split('.')[0].lower()
+    return bool(head) and (head in _ARTEFACT_HEADS or bool(_ARTEFACT_HEAD_RE.match(head)))
 
 
 def would_overwrite(config, step):
@@ -430,7 +476,9 @@ def would_overwrite(config, step):
         for pattern, label in STEP_RESULT_GLOBS.get(st, ()):
             spec = os.path.join(str(config.results_dir),
                                 pattern.format(p=config.prefix))
-            matches = [m for m in _glob.glob(spec) if os.path.isfile(m)]
+            matches = [m for m in _glob.glob(spec, recursive=True)
+                       if os.path.isfile(m)
+                       and belongs_to(os.path.basename(m), config.prefix)]
             matches = [m for m in matches if m not in seen]
             if not matches:
                 continue

@@ -555,6 +555,35 @@ def _generate_run_annotations(json_path: str, master_anno_path: str, run_anno_pa
     except Exception as e:
         print(f"  [!] Failed to generate run annotations: {e}")
 
+def _console_answer(prompt, default=''):
+    """input(), or the safe default when there is nobody able to answer.
+
+    The Workbench runs the pipeline as a subprocess with no console attached,
+    so input() gets EOF the instant it is called and the step dies with a
+    traceback. That is what happened to anyone who used Pause for annotation:
+    the question about syncing back to the master library was printed, and the
+    run was killed by it before they could have answered.
+
+    A question nobody can hear must not stop a run. When stdin is not a
+    terminal the default is taken and said out loud, so the console log shows
+    both the question and what was assumed.
+    """
+    try:
+        interactive = sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        interactive = False
+    if not interactive:
+        print(prompt)
+        print(f"      No console is attached, so this cannot be answered here - "
+              f"continuing as '{default or 'skip'}'.")
+        return default
+    try:
+        return input(prompt).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\n      No answer - continuing as '{default or 'skip'}'.")
+        return default
+
+
 def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool):
     """Asks the user if they want to update the Master Dictionary with their new annotations."""
     if not os.path.exists(run_anno_path) or not os.path.exists(master_anno_path):
@@ -576,7 +605,16 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool)
         print(f"  [!] CAUTION: Your run-specific file contains {unassigned_count} 'Unassigned' term(s).")
         print("      (Note: 'Unassigned' terms are safely ignored and will NOT overwrite existing Master assignments).")
 
-    ans = input("\n  [?] Do you want to sync the AOP levels from your run-specific file back to the Master Library? [y/n/Enter to skip]: ").strip().lower()
+    # Skip is the safe default: this permanently rewrites a library the user
+    # has curated across every project they have ever run, and doing that
+    # because nobody was listening would be the wrong way round.
+    ans = _console_answer(
+        "\n  [?] Do you want to sync the AOP levels from your run-specific file "
+        "back to the Master Library? [y/n/Enter to skip]: ")
+    if ans not in ['y', 'yes']:
+        print("      The master library was NOT changed. Your run-specific "
+              "annotations are kept either way, and")
+        print(f"      you can merge them later from: {run_anno_path}")
     if ans in ['y', 'yes']:
         try:
             master_df = pd.read_csv(master_anno_path, sep=';')

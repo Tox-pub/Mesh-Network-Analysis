@@ -312,16 +312,17 @@ TABS = [
         F('secondary_analysis.target_nodes', 'Target nodes', 'text', '',
           'Export the articles behind one or more named terms.',
           'Default: empty, meaning no per-term export.',
-          'Semicolon-separated, e.g. "Skin; Haptens". Returns the articles '
-          'indexed under that exact heading, so it must be spelled as the '
-          'network spells it - "Dermatitis, Allergic Contact", not "allergic '
-          'contact dermatitis". Read only by the secondary step.'),
+          'Semicolon-separated, and do not put quotes round them:\n'
+          '    Skin; Haptens\n'
+          'Each name must be spelled as the network spells it, e.g. '
+          'Dermatitis, Allergic Contact. Read only by the secondary step.'),
         F('secondary_analysis.target_edges', 'Target edges', 'text', '',
           'Export the articles behind one or more named relationships.',
           'Default: empty, meaning no per-edge export.',
-          'Written as "NodeA - NodeB; NodeC - NodeD" - a space, a hyphen, a '
-          'space between the two headings. Returns the articles indexed under '
-          'BOTH, so it is the evidence for the link rather than either node.'),
+          'Two headings with a space-hyphen-space between them, no quotes:\n'
+          '    Skin - Dermatitis, Allergic Contact\n'
+          'Returns the articles indexed under BOTH, so it is the evidence for '
+          'the link rather than either node.'),
         F('secondary_analysis.compare_networks', 'Compare multiple networks', 'bool', False,
           'Also compare this run against other saved networks.', 'Default: off.'),
         F('secondary_analysis.comparison_networks', 'Networks to compare', 'text', '',

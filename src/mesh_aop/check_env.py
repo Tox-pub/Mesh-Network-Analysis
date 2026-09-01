@@ -58,7 +58,7 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
         if not auto_install:
             try:
                 input("    Press Enter to continue anyway, or Ctrl+C to exit...")
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n\n[!] Exiting: Environment check cancelled by user.")
                 return False
     elif current_py < (3, 11):
@@ -66,7 +66,7 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
         if not auto_install:
             try:
                 input("    Press Enter to attempt to continue, or Ctrl+C to exit...")
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n\n[!] Exiting: Environment check cancelled by user.")
                 return False
 
@@ -153,7 +153,7 @@ def check_environment(toml_path="pyproject.toml", auto_install=False):
                 if choice != 'y':
                     print("\n[!] Exiting: User declined to install required dependencies.")
                     return False
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n\n[!] Exiting: Installation prompt cancelled by user.")
                 return False
         else:
