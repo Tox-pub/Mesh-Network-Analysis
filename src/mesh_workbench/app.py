@@ -2731,9 +2731,14 @@ class Workbench(tk.Tk):
                     'that has them open - a file manager, an editor, or a sync '
                     'client mid-upload - then run this again:\n\n' +
                     '\n'.join(f'    {p}\n        {e}' for p, e in failures[:4]))
+        # What removes the PROGRAM depends on how this copy got here, and the
+        # old text assumed a pip install: on a self-contained bundle it told
+        # the user to run "python3.12 -m pip uninstall", naming an interpreter
+        # that exists only inside the bundle and a package that was never
+        # installed. uninstall.removal_instructions works it out instead.
         if not portable:
-            msg += ('\n\nThe package itself is still installed. To remove it, run:\n\n'
-                    f'    {U.pip_hint()}')
+            heading, lines = U.removal_instructions()
+            msg += '\n\n' + heading + '\n\n' + '\n'.join(lines)
         if deferred:
             msg += '\n\nClose the window now to finish.'
         messagebox.showinfo('Uninstall', msg)

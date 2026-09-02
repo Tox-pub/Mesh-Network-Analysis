@@ -478,9 +478,93 @@ def remove(items, dry_run=False, on_event=None):
     return removed, freed, failures, deferred
 
 
+def package_is_installed():
+    """Was this actually installed with pip, or is it just on the path?
+
+    A self-contained bundle unpacks its dependencies into its own interpreter
+    but never installs the application: it is put on PYTHONPATH, so there is no
+    distribution to uninstall and `pip uninstall` reports it is not installed.
+    Telling someone to run it anyway sends them looking for a problem that is
+    not there.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, distribution
+    except ImportError:
+        return False
+    for name in ('mesh-aop-network', 'mesh_aop_network'):
+        try:
+            distribution(name)
+            return True
+        except PackageNotFoundError:
+            continue
+        except Exception:                                          # noqa: BLE001
+            continue
+    return False
+
+
+def bundle_root():
+    """The folder to delete for a self-contained copy, or None.
+
+    A bundle is an interpreter, the application and its wheels in one directory
+    tree; removing it is removing the program. Recognised by the interpreter
+    living inside that tree rather than by a marker, because the Unix bundles
+    ship no marker.
+    """
+    exe = Path(sys.executable).resolve()
+    for parent in list(exe.parents)[:4]:
+        if (parent / 'python').is_dir() and any(
+                (parent / n).exists() for n in ('MeSH Workbench', 'mesh-pipeline',
+                                                'MeSH Workbench.bat', 'app')):
+            return parent
+    return None
+
+
 def pip_hint():
-    """The command that removes the package itself, where one applies."""
-    return f'{Path(sys.executable).name} -m pip uninstall mesh_aop_network'
+    """The command that removes the package itself, where one applies.
+
+    The FULL path to the interpreter, not its name. `Path(sys.executable).name`
+    gave 'python3.12', which inside a bundle names an interpreter that exists
+    only in that bundle - so the command was copied into a shell that had no
+    python3.12 on its PATH and failed with "no such file or directory".
+    """
+    exe = str(Path(sys.executable))
+    if ' ' in exe:
+        exe = f'"{exe}"'
+    return f'{exe} -m pip uninstall mesh_aop_network'
+
+
+def removal_instructions():
+    """How to remove the program itself on THIS copy, as (heading, lines).
+
+    Three different answers, and giving the wrong one wastes real time:
+    a pip install is uninstalled with pip, a self-contained bundle is a folder
+    to delete, and a Windows install belongs to Add/Remove Programs.
+    """
+    root = bundle_root()
+    if root is not None:
+        if sys.platform == 'win32':
+            return ('This copy is self-contained - it installed nothing.', [
+                'Everything it needs is inside one folder. To finish, delete it:',
+                f'    {root}',
+                'If it was installed with the .msi or Setup.exe, use',
+                'Settings > Apps > MeSH Workbench > Uninstall instead.'])
+        return ('This copy is self-contained - it installed nothing.', [
+            'Everything it needs is inside one folder, including its own',
+            'Python. To finish, delete that folder:',
+            f'    rm -rf "{root}"',
+            'There is nothing to uninstall with pip: the application was never',
+            'installed into an interpreter, only added to its path.'])
+    if sys.platform == 'win32':
+        return ('Remove the program itself from Windows.', [
+            'Settings > Apps > Installed apps > MeSH Workbench > Uninstall.',
+            'If you are running a pip install instead, use:',
+            f'    {pip_hint()}'])
+    if package_is_installed():
+        return ('The package itself is still installed.', [
+            'To remove it, run:', f'    {pip_hint()}'])
+    return ('The program itself was not installed by a package manager.', [
+        'It is running from this folder, so deleting the folder removes it:',
+        f'    {Path(__file__).resolve().parents[2]}'])
 
 
 def summarise(items):

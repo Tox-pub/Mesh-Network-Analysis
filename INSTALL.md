@@ -190,9 +190,40 @@ build leaves in your Windows temp folder. To remove the downloaded data too:
 msiexec /x "MeSH-Workbench-3.2.0-win64.msi" REMOVEDATA=1
 ```
 
-**Portable:** run `Uninstall.bat`, then delete the folder.
+**Windows portable zip:** run `Uninstall.bat`, then delete the folder.
 
-**macOS and Linux:** `./packaging/install.sh --uninstall`.
+**Linux and macOS (the `.tar.gz` bundle)** — two steps, and the second one is
+just deleting a folder:
+
+```
+cd MeSH-Workbench-3.2.0-linux-x86_64
+```
+
+```
+./mesh-uninstall
+```
+
+That removes what the program put **outside** its own folder: settings and
+downloaded data under `~/.local/share/MeSH Workbench` (`~/Library/Application
+Support` on macOS), the applications-menu entry, and — if you ask it to — your
+results. It lists everything with sizes and asks before removing anything.
+
+Then delete the folder itself, which is the program:
+
+```
+rm -rf MeSH-Workbench-3.2.0-linux-x86_64
+```
+
+**There is nothing to `pip uninstall`.** The bundle carries its own Python and
+puts the application on that interpreter's path; it never installs it. Earlier
+versions ended the uninstall by suggesting `python3.12 -m pip uninstall
+mesh_aop_network`, which failed with *no such file or directory* because
+`python3.12` exists only inside the bundle — ignore that instruction if you meet
+it, and delete the folder instead.
+
+**Installed from source with pip:** `python -m pip uninstall mesh_aop_network`,
+after running `mesh-uninstall` to clear the data. Use the same interpreter you
+installed it into.
 
 Your results are never removed unless you explicitly ask.
 

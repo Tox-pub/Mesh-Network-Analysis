@@ -130,11 +130,14 @@ def main(argv=None):
         for path, err in failures[:10]:
             print(f'    {path}\n        {err}')
 
-    if not portable:
-        print(f'\n  The package itself is still installed. To remove it:\n'
-              f'    {U.pip_hint()}\n')
-    else:
+    if portable:
         print('\n  To finish, delete this folder.\n')
+    else:
+        heading, lines = U.removal_instructions()
+        print(f'\n  {heading}')
+        for line in lines:
+            print(f'  {line}')
+        print()
     return 0 if not failures else 1
 
 
