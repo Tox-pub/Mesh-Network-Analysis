@@ -50,7 +50,8 @@ from . import runcontrol
 from .runcontrol import RunAborted
 from .relevance import run_mean_relevancy_scoring
 from .secondary_analysis import convert_network_json_to_excel, analyze_node_relevancy, analyze_edge_relevancy, get_top_network_articles, run_network_overlay_comparison
-from .benchmark import run_benchmark, resolve_ground_truth_path, KNOWN_GT_FILENAMES
+from .benchmark import (run_benchmark, resolve_ground_truth_path,
+                        gt_search_paths, KNOWN_GT_FILENAMES)
 from .gt_network_validation import run_gt_network_validation
 from .validation_report import run_validation_report, run_projection_comparison
 from .viz import (
@@ -1328,25 +1329,31 @@ def main():
             # (looked up in the ACTIVE raw directory -- data/raw/ for own data,
             # data/reference_raw/ under reference data), an absolute path, or a path
             # relative to the project root. Empty triggers auto-detection in raw/.
-            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt, root=config.root)
+            gt_path = resolve_ground_truth_path(config.active_raw_dir, configured_gt,
+                                                root=config.root, prefix=config.prefix)
             if not gt_path:
                 print("\n" + "<"*30 + ">"*30)
                 print("[CRITICAL ERROR] No ground-truth file found for Benchmarking")
                 print("<"*30 + ">"*30)
-                print(f"  Searched in: {config.active_raw_dir}")
                 if configured_gt:
-                    print(f"  Configured filename '{configured_gt}' was not present there.")
+                    print(f"  '{configured_gt}' was not found. Looked in:")
                 else:
-                    print("  Place a ground-truth file there using one of these names:")
-                    for name in KNOWN_GT_FILENAMES:
-                        print(f"    - {name}")
+                    print("  No ground-truth file was found. Looked for:")
+                for cand in gt_search_paths(config.active_raw_dir, configured_gt,
+                                            root=config.root, prefix=config.prefix):
+                    print(f"    {cand}")
+                if not configured_gt:
+                    print("\n  Put one in your raw data folder under any of those names,")
+                    print("  or type its full path into 'Ground truth file'.")
                 print("\n  Accepted formats: a CSV/TSV with a 'PMID' column (optionally a")
                 print("  reference/citation column for date validation), a single column of")
                 print("  PMIDs, or a plain .txt list with one PMID per line.")
                 sys.exit(1)
 
             nc_filename = bench_params.get('negative_control_csv', '')
-            nc_path = resolve_ground_truth_path(config.active_raw_dir, nc_filename, root=config.root) if nc_filename else None
+            nc_path = (resolve_ground_truth_path(config.active_raw_dir, nc_filename,
+                                                 root=config.root, prefix=config.prefix)
+                       if nc_filename else None)
 
             _build_relevance_db_if_missing(config, include_subgraph_weightings=_gt_wanted(config))
             _ensure_prerequisites({

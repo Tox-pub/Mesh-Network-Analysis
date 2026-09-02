@@ -118,30 +118,55 @@ def _read_csv_any_encoding(path, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, encoding="utf-8", encoding_errors="replace", **kwargs)
 
 
-def resolve_ground_truth_path(raw_dir, configured_name: str = "", root=None) -> str:
-    """Locate a ground-truth file; honors a configured name, else tries the known defaults.
+def gt_search_paths(raw_dir, configured_name="", root=None, prefix=""):
+    """Every place a ground-truth file is looked for, in order, as Paths.
 
-    A configured name may be a bare filename (looked up in raw_dir), an absolute path,
-    or a path relative to the project root (e.g. 'data/reference_processed/...') when
-    ``root`` is given -- so the curated OECD ground truth can live outside data/raw.
+    Returned rather than just searched so a failure can print exactly where it
+    looked - "not found" without that list is unactionable, and this step stops
+    the run.
     """
     raw_dir = Path(raw_dir)
+    try:
+        from . import paths as _paths
+        bundled = _paths.bundled_reference_dir(root)
+    except Exception:                                            # noqa: BLE001
+        bundled = None
 
     if configured_name:
-        candidates = [Path(configured_name)]                     # absolute or cwd-relative
+        name = Path(configured_name).name
+        out = [Path(configured_name)]                            # absolute, or cwd-relative
         if root:
-            candidates.append(Path(root) / configured_name)      # project-root relative
-        candidates.append(raw_dir / configured_name)             # bare filename in raw_dir
-        for p in candidates:
+            out.append(Path(root) / configured_name)             # project-root relative
+        out.append(raw_dir / configured_name)                    # bare name in raw/
+        out.append(raw_dir / name)                               # a path whose file is in raw/
+        if bundled:
+            # The help text documents the bundled set as
+            # 'data/reference_processed/oecd_ground_truth_curated.xlsx'. That is
+            # relative to a source checkout; an installed copy resolves it
+            # against the working directory and finds nothing, so the run stopped
+            # with the file plainly sitting inside the program folder. Look there
+            # by name as well, whatever path was typed to reach it.
+            out += [Path(bundled) / configured_name, Path(bundled) / name]
+        return out
+
+    # Nothing configured: this project's own file first, then the generic names.
+    out = []
+    if prefix:
+        out += [raw_dir / f'{prefix}_ground_truth{ext}'
+                for ext in ('.csv', '.txt', '.tsv', '.xlsx')]
+    out += [raw_dir / n for n in KNOWN_GT_FILENAMES]
+    return out
+
+
+def resolve_ground_truth_path(raw_dir, configured_name: str = "", root=None,
+                              prefix: str = "") -> str:
+    """The first ground-truth file that actually exists, or None."""
+    for p in gt_search_paths(raw_dir, configured_name, root, prefix):
+        try:
             if p.exists():
                 return str(p)
-        return None
-
-    for name in KNOWN_GT_FILENAMES:
-        p = raw_dir / name
-        if p.exists():
-            return str(p)
-
+        except OSError:
+            continue
     return None
 
 

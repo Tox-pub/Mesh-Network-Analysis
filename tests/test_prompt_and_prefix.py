@@ -152,9 +152,11 @@ for typed, want in (
 # the help must not show an example that breaks when typed verbatim
 from mesh_workbench.settings_schema import SETTINGS                # noqa: E402
 tn = [f for _t, f in SETTINGS if f.key.endswith('target_nodes')][0]
-ck('"Skin; Haptens"' not in (tn.note or ''),
-   'the field example no longer shows quotes around the list')
-ck('Skin; Haptens' in (tn.note or ''), 'but still shows the example')
+ck('Skin; Haptens' in (tn.note or ''), 'the field shows the example')
+# It used to tell people NOT to use quotes, which was backwards once quotes
+# started working. The help now says they are accepted either way round.
+ck('Quotes are accepted' in (tn.note or ''),
+   'and says quotes are accepted rather than forbidden')
 
 print('\n=== 4. the sync answer comes from the application, not a dead prompt ===')
 import csv                                                         # noqa: E402
@@ -178,8 +180,13 @@ ck(sync_src.index("decided in ('yes', 'no')") < sync_src.index('_console_answer'
 
 # the GUI asks on both routes into step 4
 start_src = inspect.getsource(Workbench.start_run)
-ck("step in ('viz', 'all')" in start_src,
-   'the dialog route and the step-list route both reach the question')
+# Only a run that STARTS at the figures asks up front. Under "all" the merge
+# happens after the annotation pause, an hour or more in, so asking at the
+# start puts the question before the user has seen a single term to assign.
+ck("step == 'viz'" in start_src,
+   'a run starting at the figures asks up front')
+ck("step in ('viz', 'all')" not in start_src,
+   'a full run does NOT ask at the very beginning')
 ck("'--sync-annotations' not in extra" in start_src,
    'and it is not asked twice when the answer is already known')
 ck('_ask_annotation_sync' in start_src, 'via the dialog helper')

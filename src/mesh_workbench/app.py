@@ -92,6 +92,9 @@ class Workbench(tk.Tk):
         # Set when a run stops for AOP annotation, so _finish can tell an
         # intentional pause apart from an ordinary success - both exit zero.
         self._paused_annotation = None
+        # True only while the pause dialog itself is starting the figures, so
+        # start_run does not reopen the dialog the user just pressed a button on.
+        self._resuming_from_pause = False
         self._scan_rows = []
         self.current_screen = None
         self._run_step = ''
@@ -777,12 +780,47 @@ class Workbench(tk.Tk):
     # whether a file is present.
 
     def _setup_config(self):
-        """The live configuration, or None if it cannot be built."""
+        """The live configuration, or None if it cannot be built.
+
+        "Live" includes what is typed but not yet saved. The Database screen
+        reports on one project's files, and which files those are depends on the
+        prefix and on the reference checkbox - so reading only the saved config
+        meant typing a new prefix, switching to that tab and pressing Refresh
+        still described the PREVIOUS project. The refresh looked broken, and the
+        answer it gave was wrong rather than stale.
+        """
         try:
             from mesh_aop.config_parser import MeshConfig
-            return MeshConfig(config_path=self.cfg_path)
-        except Exception:
+            cfg = MeshConfig(config_path=self.cfg_path)
+        except Exception:                                          # noqa: BLE001
             return None
+
+        # Overlay the form, in memory only - nothing is written to the settings
+        # file by looking at a screen.
+        changed = False
+        for key, (section, name) in (
+                ('control_flags.custom_file_prefix',
+                 ('control_flags', 'custom_file_prefix')),
+                ('control_flags.use_reference_data',
+                 ('control_flags', 'use_reference_data'))):
+            var = self.vars.get(key)
+            if var is None:
+                continue
+            try:
+                typed = var.get()
+            except tk.TclError:
+                continue
+            if isinstance(typed, str):
+                typed = typed.strip()
+            if typed != cfg.params.get(section, {}).get(name):
+                cfg.update(section, name, typed)
+                changed = True
+        if changed:
+            try:
+                cfg.refresh_paths()
+            except Exception:                                      # noqa: BLE001
+                return None
+        return cfg
 
     def _build_setup(self, root):
         tk.Label(root, text='Local data sources', bg=FACE, font=self.f_bold,
@@ -805,11 +843,22 @@ class Workbench(tk.Tk):
             tk.Label(hdr, text=text, bg=FACE, font=self.f_bold, anchor=anchor
                      ).grid(row=0, column=c, sticky='we',
                             padx=(0, 8) if c == 2 else 0)
-        tk.Frame(box, bg='#808080', height=1).pack(fill='x', padx=4, pady=(2, 0))
+        rule = tk.Frame(box, bg='#808080', height=1)
+        rule.pack(fill='x', padx=4, pady=(2, 0))
         canvas = tk.Canvas(box, bg=FACE, highlightthickness=0)
         sb = tk.Scrollbar(box, command=canvas.yview)
         canvas.config(yscrollcommand=sb.set)
         sb.pack(side='right', fill='y')
+
+        # The rows are inside the canvas, which the scrollbar shares its width
+        # with; the header is not. Column 0 carries all the weight, so it grew
+        # by the scrollbar's width in the header and not in the rows, and every
+        # column after it - Status, Size - sat a scrollbar's width to the right
+        # of the values beneath it. Reserve the same width above the scrollbar
+        # and the two grids describe the same geometry again.
+        gutter = sb.winfo_reqwidth()
+        hdr.pack_configure(padx=(4, 4 + gutter))
+        rule.pack_configure(padx=(4, 4 + gutter))
         canvas.pack(side='left', fill='both', expand=True)
         self.setup_rows = tk.Frame(canvas, bg=FACE)
         canvas.create_window((0, 0), window=self.setup_rows, anchor='nw')
@@ -931,6 +980,8 @@ class Workbench(tk.Tk):
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
                 row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
 
+        self._setup_services()
+
         self.setup_total.config(
             text=f'   On disk now {total:,.2f} GB' +
                  (f'   -   {reclaim:,.2f} GB of that is downloaded archive, '
@@ -940,6 +991,95 @@ class Workbench(tk.Tk):
         # What the watcher below compares against.
         self._watch_paths = [it['path'] for it in items]
         self._watch_sig = self._disk_signature()
+
+    # The services a run cannot finish without. Everything on this screen is
+    # about whether the run can start; a file being present and the service
+    # that fills it being unreachable are the same failure to the user, and
+    # only one of them was visible.
+    SERVICES = [
+        ('NCBI E-utilities', 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi',
+         'PubMed searches, citation hops and article metadata.'),
+        ('NCBI FTP (baseline)', 'https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/',
+         'The yearly archive the master database is built from.'),
+        ('NLM MeSH descriptors', 'https://nlmpubs.nlm.nih.gov/projects/mesh/',
+         'The descriptor file behind the stop-word vocabulary.'),
+        ('iCite (NIH)', 'https://icite.od.nih.gov/api/pubs?pmids=1',
+         'Citation counts for the article impact score.'),
+    ]
+
+    def _setup_services(self):
+        """One row per external service, with whether it answered just now.
+
+        Checked when the screen opens and again on Refresh, never on the disk
+        timer: a poll every few seconds would be a poll of someone else's
+        server. Each runs in its own thread so four slow services cannot add
+        four timeouts to the wait, and the row updates when its answer lands.
+        """
+        head = tk.Frame(self.setup_rows, bg=FACE)
+        head.pack(fill='x', pady=(10, 2), padx=4)
+        tk.Label(head, text='Internet services', bg=FACE, font=self.f_bold,
+                 anchor='w').pack(side='left')
+        tk.Label(head, bg=FACE, fg=DIM, anchor='w',
+                 text='   (checked when this screen opens, and on Refresh)'
+                 ).pack(side='left')
+
+        for name, url, note in self.SERVICES:
+            row = tk.Frame(self.setup_rows, bg=FACE)
+            row.pack(fill='x', pady=2, padx=4)
+            self._setup_cols(row)
+            tk.Label(row, text=name, bg=FACE, font=self.f_bold, anchor='w'
+                     ).grid(row=0, column=0, sticky='w')
+            tk.Label(row, text=note, bg=FACE, fg=DIM, anchor='w'
+                     ).grid(row=1, column=0, sticky='w')
+            status = tk.Label(row, text='checking...', bg=FACE, fg=DIM,
+                              font=self.f_bold, anchor='w')
+            status.grid(row=0, column=1, sticky='w')
+            latency = tk.Label(row, text='', bg=FACE, anchor='e')
+            latency.grid(row=0, column=2, sticky='e', padx=(0, 8))
+            tk.Frame(row, bg='#b0b0b0', height=1).grid(
+                row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
+            self._ping_async(url, status, latency)
+
+    def _ping_async(self, url, status_label, latency_label):
+        """Ask one service whether it is there, without blocking the window."""
+        import threading
+
+        def work():
+            import time as _t
+            import urllib.error
+            import urllib.request
+            t0 = _t.perf_counter()
+            try:
+                req = urllib.request.Request(
+                    url, headers={'User-Agent': 'MeSH-Workbench/3.2.0'})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    r.read(64)
+                ms = (_t.perf_counter() - t0) * 1000
+                out = ('Reachable', OK, f'{ms:,.0f} ms')
+            except urllib.error.HTTPError as e:
+                # It answered, which is the question being asked. A 4xx to a
+                # probe is still proof the host is up and reachable.
+                ms = (_t.perf_counter() - t0) * 1000
+                out = (('Reachable', OK, f'{ms:,.0f} ms') if e.code < 500
+                       else ('Server error', WARN, f'HTTP {e.code}'))
+            except Exception as exc:                               # noqa: BLE001
+                reason = type(exc).__name__.replace('Error', '')
+                out = ('Unreachable', ERR, reason[:18] or 'no answer')
+
+            def apply():
+                # The screen may have been rebuilt by a Refresh while this was
+                # in flight, which destroys the labels it was going to write to.
+                try:
+                    status_label.config(text=out[0], fg=out[1])
+                    latency_label.config(text=out[2])
+                except tk.TclError:
+                    pass
+            try:
+                self.after(0, apply)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _disk_signature(self):
         """A cheap fingerprint of the tracked files: present, and changed when.
@@ -1574,9 +1714,25 @@ class Workbench(tk.Tk):
         # Step 4 merges this run's AOP levels into the master annotations
         # library, and the pipeline used to ask about that on a console this
         # process does not have - so the question killed the run instead of
-        # being answered. Ask here, whichever way Step 4 was started, and hand
-        # the answer over on the command line.
-        if step in ('viz', 'all') and '--sync-annotations' not in extra:
+        # being answered. It is asked here and handed over on the command line.
+        #
+        # Only for a run that STARTS at the figures, though. Under "all" the
+        # merge happens after the annotation pause, an hour or more in, and
+        # asking at the very beginning puts the question before the answer
+        # exists: the user has not seen the terms yet, let alone assigned them.
+        # That run gets asked when it resumes, from the pause dialog.
+        if step == 'viz' and not self._resuming_from_pause:
+            # Picking the figures from the step list is the same moment the
+            # pause dialog covers - the annotations are about to be read - so
+            # show that dialog here too. Without it, someone who closed the
+            # pause dialog, or who came back the next day, had no way back to
+            # the file the step is about to consume.
+            if self.vars['control_flags.pause_for_annotation'].get():
+                anno = self._paused_annotation or self._run_annotations_path()
+                if anno and os.path.exists(anno):
+                    self._annotation_pause(anno)
+                    return
+        if step == 'viz' and '--sync-annotations' not in extra:
             answered = self._ask_annotation_sync(step)
             if answered is None:
                 return
@@ -1835,8 +1991,16 @@ class Workbench(tk.Tk):
         self._place_modal(win, offset=40)
 
     def _run_step4(self, anno_path):
-        """Run the figures after the annotation pause. start_run does the asking."""
-        self.start_run('viz', title='Step 4 - Figures')
+        """Run the figures from the pause dialog.
+
+        The flag stops start_run reopening the very dialog this came from -
+        the user has just read it and pressed the button on it.
+        """
+        self._resuming_from_pause = True
+        try:
+            self.start_run('viz', title='Step 4 - Figures')
+        finally:
+            self._resuming_from_pause = False
 
     def _ask_annotation_sync(self, step):
         """'yes' / 'no' for the master-library merge, or None to not run at all.

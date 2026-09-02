@@ -39,6 +39,12 @@ json.dump({"control_flags": {"custom_file_prefix": "AUDIT",
 w = Workbench(os.getcwd(), sys.executable)
 w.withdraw()
 w.cfg_path = cfgp
+# The form is populated from the config at construction. This test points the
+# app at a different config afterwards, which cannot happen in the real
+# application - cfg_path is fixed at startup - so the form is brought into line
+# by hand, exactly as loading that config would have left it.
+w.vars['control_flags.custom_file_prefix'].set('AUDIT')
+w.vars['control_flags.use_reference_data'].set(False)
 w.update_idletasks()
 
 # ------------------------------------------------------------------ C

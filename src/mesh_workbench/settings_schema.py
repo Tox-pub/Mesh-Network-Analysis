@@ -35,7 +35,7 @@ STEPS = [
     ('data_ops',  'data_ops - retrieval & citations'),
     ('network',   'network - co-occurrence + consensus'),
     ('secondary', 'secondary - top articles & export'),
-    ('viz',       'viz - figures'),
+    ('viz',       'figures - plots and network images'),
     ('benchmark', 'benchmark - ground truth & validation'),
 ]
 
@@ -312,17 +312,18 @@ TABS = [
         F('secondary_analysis.target_nodes', 'Target nodes', 'text', '',
           'Export the articles behind one or more named terms.',
           'Default: empty, meaning no per-term export.',
-          'Semicolon-separated, and do not put quotes round them:\n'
-          '    Skin; Haptens\n'
+          'Semicolon-separated:   Skin; Haptens\n'
+          'Quotes are accepted either way round - "Skin; Haptens" and '
+          '"Skin"; "Haptens" both work - and are stripped before matching.\n'
           'Each name must be spelled as the network spells it, e.g. '
           'Dermatitis, Allergic Contact. Read only by the secondary step.'),
         F('secondary_analysis.target_edges', 'Target edges', 'text', '',
           'Export the articles behind one or more named relationships.',
           'Default: empty, meaning no per-edge export.',
-          'Two headings with a space-hyphen-space between them, no quotes:\n'
+          'Two headings with a space-hyphen-space between them:\n'
           '    Skin - Dermatitis, Allergic Contact\n'
-          'Returns the articles indexed under BOTH, so it is the evidence for '
-          'the link rather than either node.'),
+          'Quotes are accepted and stripped. Returns the articles indexed under '
+          'BOTH, so it is the evidence for the link rather than either node.'),
         F('secondary_analysis.compare_networks', 'Compare multiple networks', 'bool', False,
           'Also compare this run against other saved networks.', 'Default: off.'),
         F('secondary_analysis.comparison_networks', 'Networks to compare', 'text', '',
@@ -635,9 +636,17 @@ TAB_NOTES = {
         'Folders tab shows exactly where that is on this machine - under one of '
         'these names, and it is picked up on its own:\n'
         '\n'
+        '    <your project prefix>_ground_truth.csv   (or .txt/.tsv/.xlsx)\n'
         '    ground_truth_pmids.csv        ground_truth.csv\n'
         '    ground_truth_pmids.txt        ground_truth.txt\n'
         '    oecd_resolved_citations.csv\n'
+        '\n'
+        'The prefixed one is looked for first, so each project can keep its own '
+        'set side by side without renaming anything between runs.\n'
+        '\n'
+        'BUILDING YOUR OWN. Press Help for the walkthrough: which columns are '
+        'required, what the headers must be called, and how your PMIDs are '
+        'matched against the corpus.\n'
         '\n'
         'Any other name works too if you type it into "Ground truth CSV" below; '
         'a bare name is looked for in that same raw folder, and a full path is '
