@@ -150,6 +150,56 @@ for root, _d, files in os.walk('src'):
             stale.append(f)
 ck(not stale, 'no source file still says 44 GB', f'found in {stale}')
 
+print('\n=== 7. the accumulation can be purged, safely ===')
+from mesh_workbench import app as appmod                            # noqa: E402
+
+# sidecars must go with their parent: a stale write-ahead log describes a
+# database that no longer exists, and SQLite replays it into the next one.
+with open(os.path.join(db_dir, 'DAC_Mesh_pmids.db-wal'), 'wb') as fh:
+    fh.write(b'x' * 100)
+
+seen = {}
+
+
+def _confirm(title, word, message, detail=''):
+    seen.update(title=title, word=word, message=message, detail=detail)
+    return True
+
+
+app.confirm_typed = _confirm
+appmod.messagebox.showinfo = lambda *a, **k: None
+app.scan_data = lambda: None
+
+by_prefix = {p: [3, 1_500_000] for p in OTHERS}
+app._delete_other_projects(by_prefix, db_dir)
+
+ck(seen.get('word') == 'DELETE', 'it demands the word DELETE be typed')
+for p in OTHERS:
+    ck(p in seen['message'], f'{p} is named in the warning')
+ck('NOT touched' in seen['message'],
+   'the warning says this project and the master are safe')
+ck('results are not affected' in seen['detail'],
+   'and that results survive', seen['detail'][:80])
+ck('retrieving its corpus from PubMed again' in seen['detail'],
+   'and states the real cost: repeating a run means retrieving it again')
+
+left = sorted(os.listdir(db_dir))
+ck(any(f.startswith('Current') for f in left),
+   f'the current project survives: {[f for f in left if f.startswith("Current")]}')
+ck('master_mesh_database.db' in left, 'the master database survives')
+ck(not any(f.startswith(OTHERS) for f in left),
+   f'every other project is gone: {[f for f in left if f.startswith(OTHERS)]}')
+ck(not any(f.endswith('-wal') for f in left),
+   'and the write-ahead sidecar went with its parent')
+
+print('\n=== 8. nothing selected deletes nothing ===')
+before = sorted(os.listdir(db_dir))
+called = []
+app.confirm_typed = lambda *a, **k: called.append(1) or True
+app._delete_other_projects({}, db_dir)
+ck(not called, 'an empty set never even asks')
+ck(sorted(os.listdir(db_dir)) == before, 'and removes nothing')
+
 app.destroy()
 print()
 if FAILS:

@@ -178,6 +178,28 @@ Lists what is on disk **at the paths the pipeline actually uses** — the config
 
 **Also fetch the daily update files when building** is a checkbox on this screen, so you can see whether it is on without committing to a build first.
 
+#### Databases build up as you change the project prefix
+
+Every search writes its own PMID, citation and relevance databases, named for
+the project prefix that produced them. Changing the prefix starts a new set and
+leaves the old one where it is — nothing removes them, and each set is
+gigabytes.
+
+The Database screen reports them as **Databases from other projects**, grouped
+by prefix with a total, and its **Delete** button removes them all. Two things
+that button does not touch: the databases belonging to the project you are
+working on now, and the master annotation database.
+
+**What it costs.** Nothing you have produced is affected — networks, figures,
+workbooks and reports all stay exactly as they are. What you give up is
+repeating one of those earlier runs *exactly* without retrieving its corpus
+from PubMed again, which is the slow part of a run. If you may need to reproduce
+a particular analysis end to end, keep its databases; if you were simply trying
+things out under different prefixes, delete them.
+
+The two rows beneath, **Raw data folder** and **Working files folder**, give the
+totals for each tree, so it is clear where the space has actually gone.
+
 Every Build, Rebuild, Download and Delete here asks you to **type `REBUILD` or `DELETE`** before it proceeds. These actions either destroy something that took hours to produce or start something that will take hours to finish, and a yes/no box is one mis-aimed click. Deleting a database also removes its `-wal`, `-shm` and health sidecars — a stale write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
 
 ### Settings

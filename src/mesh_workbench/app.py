@@ -1247,7 +1247,10 @@ class Workbench(tk.Tk):
         tk.Label(row, text='Databases from other projects', bg=FACE,
                  font=self.f_bold, anchor='w', wraplength=self.px(285),
                  justify='left').grid(row=0, column=0, sticky='w')
-        tk.Label(row, text=f'{files} file(s) under {len(by_prefix)} prefix(es): {names}',
+        tk.Label(row,
+                 text=(f'{files} file(s) under {len(by_prefix)} prefix(es): {names}. '
+                       f'These build up as you change the project prefix and are '
+                       f'never removed on their own.'),
                  bg=FACE, fg=DIM, anchor='w', wraplength=self.px(285),
                  justify='left').grid(row=1, column=0, sticky='w')
         tk.Label(row, text='Kept', bg=FACE, fg=DIM, font=self.f_bold,
@@ -1256,10 +1259,86 @@ class Workbench(tk.Tk):
                  ).grid(row=0, column=2, sticky='e', padx=(0, 8))
         buttons = tk.Frame(row, bg=FACE)
         buttons.grid(row=0, column=4, rowspan=2, sticky='e', padx=4)
+        tk.Button(buttons, text='Delete', width=8,
+                  command=lambda d=dict(by_prefix), b=db_dir:
+                      self._delete_other_projects(d, b)).pack(side='left', padx=2)
         tk.Button(buttons, text='Show folder', width=12,
                   command=lambda d=db_dir: self._open_path(d)).pack(side='left', padx=2)
         tk.Frame(row, bg='#b0b0b0', height=1).grid(
             row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
+
+    def _delete_other_projects(self, by_prefix, db_dir):
+        """Remove the databases belonging to projects other than this one.
+
+        These are the only files on the machine that grow without bound: one
+        set per project prefix, several gigabytes each, and nothing deletes
+        them when the prefix changes. The figures and the networks are at least
+        somewhere the user has been taken to; these are not.
+
+        What it costs is stated rather than implied. Deleting them does not
+        touch any result already produced - the networks, figures, workbooks
+        and reports all stay - but reproducing one of those runs exactly means
+        retrieving its corpus from PubMed again.
+        """
+        if not by_prefix:
+            return
+        prefixes = sorted(by_prefix)
+        files = sum(v[0] for v in by_prefix.values())
+        total = sum(v[1] for v in by_prefix.values()) / 1e9
+
+        listing = '\n'.join(
+            f'    {p}   {by_prefix[p][0]} file(s), {by_prefix[p][1] / 1e9:,.2f} GB'
+            for p in prefixes[:12])
+        if len(prefixes) > 12:
+            listing += f'\n    ... and {len(prefixes) - 12} more'
+
+        if not self.confirm_typed(
+                'Delete databases from other projects', 'DELETE',
+                f'{files} file(s) from {len(prefixes)} project(s), '
+                f'freeing {total:,.2f} GB:\n\n{listing}\n\n'
+                f'This project and the master annotation database are NOT '
+                f'touched.',
+                'Your results are not affected - networks, figures, workbooks '
+                'and reports all stay exactly as they are. What you lose is the '
+                'ability to repeat one of those runs exactly without retrieving '
+                'its corpus from PubMed again, which is the slow part.'):
+            return
+
+        removed, freed, failures = 0, 0, []
+        for name in sorted(os.listdir(db_dir)):
+            path = os.path.join(db_dir, name)
+            if not os.path.isfile(path) or name.startswith('master_mesh'):
+                continue
+            owner = None
+            for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
+                           '_mean_relevancy.db', '_pmids.db'):
+                if name.endswith(marker):
+                    owner = name[:-len(marker)]
+                    break
+            if owner not in by_prefix:
+                continue
+            try:
+                freed += os.path.getsize(path)
+                os.remove(path)
+                removed += 1
+                # A stale write-ahead log or health record describes a database
+                # that is gone; SQLite would try to replay the log into
+                # whatever is built next.
+                for suffix in ('-wal', '-shm', '-journal', '.health.json'):
+                    side = path + suffix
+                    if os.path.exists(side):
+                        os.remove(side)
+            except OSError as exc:
+                failures.append((name, exc))
+
+        msg = f'Removed {removed} file(s), freeing {freed / 1e9:,.2f} GB.'
+        if failures:
+            msg += ('\n\nCould not remove:\n'
+                    + '\n'.join(f'    {n}: {e}' for n, e in failures[:6])
+                    + '\n\nA file in use cannot be deleted - close anything '
+                      'that has it open and try again.')
+        messagebox.showinfo('Databases removed', msg)
+        self.scan_data()
 
     def _setup_folder_totals(self, cfg):
         """How large the two folders actually are.
