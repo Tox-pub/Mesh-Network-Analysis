@@ -120,7 +120,7 @@ def _entrez_search_with_retry(db: str, term: str, retmax: int, **kwargs) -> dict
                 print(f"  - NCBI server returned error {e.code}. Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
             else:
-                # A 4xx is our fault, not the server's, and it used to arrive as
+                # A 4xx is our fault, not the server's, and it arrives as
                 # a bare "HTTP Error 400: Bad Request" with no hint of what was
                 # sent - which left the query itself to be guessed at. Print the
                 # term and the URL before re-raising: between them they name the

@@ -723,8 +723,8 @@ class Workbench(tk.Tk):
             return
 
         win = tk.Toplevel(self)
-        # Only leaves via a button. It used to swallow the close box in silence,
-        # which looks like a hung window; _make_modal answers instead.
+        # Only leaves via a button, and the close box is answered rather than
+        # swallowed - a dialog that ignores it looks like a hung window.
         self._make_modal(win, 'MeSH Workbench - first run')
 
         tk.Label(win, text='Where should your files go?', bg=FACE, font=self.f_bold,
@@ -909,7 +909,7 @@ class Workbench(tk.Tk):
         self.screens[name].pack(fill='both', expand=True)
         self.current_screen = name
         # Re-read the disk whenever the database screen comes to the front. It
-        # used to be scanned once, when the window was built, and then only on
+        # is rescanned on each visit rather than only when the window is built,
         # the Refresh button - so returning here after building the master
         # annotation database showed the table exactly as it had been before the
         # build, still saying Missing. The file was there; the screen was stale.
@@ -1059,7 +1059,7 @@ class Workbench(tk.Tk):
         foot = tk.Frame(root, bg=FACE)
         foot.pack(fill='x', padx=10, pady=9)
 
-        # The daily-update choice, in the open. It used to be the third dialog
+        # The daily-update choice, in the open rather than behind a third dialog
         # in a chain that only started once you had already agreed to a build,
         # so nobody could see whether it was on without committing to one.
         opts = tk.Frame(foot, bg=FACE)
@@ -1958,9 +1958,9 @@ class Workbench(tk.Tk):
             return
         extra = list(extra or [])
         # Step 4 merges this run's AOP levels into the master annotations
-        # library, and the pipeline used to ask about that on a console this
-        # process does not have - so the question killed the run instead of
-        # being answered. It is asked here and handed over on the command line.
+        # library. The pipeline cannot ask about it: this process gives it no
+        # console, so the question is asked here and handed over on the command
+        # line.
         #
         # Only for a run that STARTS at the figures, though. Under "all" the
         # merge happens after the annotation pause, an hour or more in, and
@@ -2405,7 +2405,7 @@ class Workbench(tk.Tk):
             self._log(f'--- failed, exit code {rc} ---', 'err')
             self.run_status.config(text=f'Failed (exit {rc}).', fg=ERR)
 
-    # Which screen shows what each step produces. A finished run used to leave
+    # Which screen shows what each step produces, so a finished run lands on
     # the user on the console with one button reading "Back to settings", so
     # every build - baseline archive, master annotation database, descriptor
     # file - ended on the Settings page, which is the one screen that shows none

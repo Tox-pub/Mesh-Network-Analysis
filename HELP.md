@@ -1,13 +1,18 @@
 # MeSH Workbench — Help and reference
 
-How the pipeline works, what every setting does, and what it produces. For
-getting the program onto a machine see [INSTALL.md](INSTALL.md); for a short
-overview see the [README](README.md).
+This document is how the pipeline works, what every setting does, and what it
+produces.
+
+MeSH Workbench is a desktop **application** with a command-line pipeline behind
+it. Everything described here can be done from either. The application is
+validated on **Windows** and **Linux**.
+
+To install it, see [INSTALL.md](INSTALL.md).
 
 
 ## Overview
 
-This repository contains a comprehensive computational pipeline designed to construct, filter, and analyze knowledge graphs representing Adverse Outcome Pathways (**AOPs**) and biological flows. By leveraging the NCBI Entrez API and the complete offline NLM PubMed Baseline, the pipeline extracts primary literature associated with specific Medical Subject Headings (**MeSH**), maps multi-generational citation topologies, and calculates semantic co-occurrence networks.
+This contains a comprehensive computational pipeline and application designed to construct, filter, and analyze knowledge graphs represented by adverse outcome pathways and biological flows. By leveraging the NCBI Entrez API and the complete offline NLM PubMed Baseline, the pipeline extracts primary literature associated with specific Medical Subject Headings (**MeSH**), maps multi-generational citation topologies, and calculates semantic co-occurrence networks.
 
 The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global Likelihood Filter (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Mean Relevancy Scoring (MRS) to rank nodes and edges based on their impact within the global corpus of literature.
 
@@ -30,8 +35,6 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
 **On GLF specifically.** The filter this pipeline runs is the Global Likelihood Filter of:
 
 > Dianati, N. (2016). *Unwinding the hairball graph: Pruning algorithms for weighted complex networks.* Physical Review E, **93**, 012304. <https://doi.org/10.1103/PhysRevE.93.012304>
-
-Cite it if you report a filtered network. Earlier versions of this documentation expanded GLF as "Global-Local Filtering", and parts of the source as "Graph Likelihood Filtering" — both were wrong, and are corrected throughout.
 
 
 ## Table of Contents
@@ -65,10 +68,9 @@ Cite it if you report a filtered network. Earlier versions of this documentation
 - [The Workbench Window](#the-workbench-window)
 - [Controlling a Run](#controlling-a-run)
 - [When Files Go Wrong](#when-files-go-wrong)
-- [The Run Ledger & PRISMA Report](#the-run-ledger--prisma-report)
+- [The Run Ledger and PRISMA-Style Flow Overview](#the-run-ledger-and-prisma-style-flow-overview)
 - [Validation & Benchmarking](#validation--benchmarking)
-  - [The Bundled OECD Ground Truth](#the-bundled-oecd-ground-truth)
-  - [Supplying Your Own Ground Truth](#supplying-your-own-ground-truth)
+  - [Ground Truth](#ground-truth)
   - [What It Reports](#what-it-reports)
   - [Node/Edge Convergent Validation](#nodeedge-convergent-validation)
 - [Jupyter Notebook Interface](#jupyter-notebook-interface)
@@ -81,7 +83,7 @@ Cite it if you report a filtered network. Earlier versions of this documentation
 
 ## Repository Structure
 
-The package assumes and enforces the following directory architecture. The required MeSH XML input file must be placed in the raw data directory prior to execution.
+The package assumes and enforces the following directory architecture.
 
 ```text
 Mesh-Network-Analysis/
@@ -91,7 +93,7 @@ Mesh-Network-Analysis/
 │   │   ├── aop_annotations_master.csv  # Ships w/ repo: AOP strata dictionary (pre-seeded; grows each run)
 │   │   ├── desc2025.xml                # Auto-downloaded from NLM if missing (or place manually); not in repo
 │   │   ├── ground_truth_pmids.template.csv # Ships w/ repo: copy+fill for your own benchmark set
-│   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Supplying Your Own Ground Truth")
+│   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Ground Truth")
 │   │   ├── master_mesh_database.db     # Auto-generated: offline PubMed corpus (Step 0)
 │   │   ├── pubmed_baseline/            # Auto-downloaded: NLM Baseline XMLs (~40GB, Step 0)
 │   │   └── pubmed_updates/             # Auto-downloaded: NLM Daily Update XMLs (optional)
@@ -150,7 +152,7 @@ Mesh-Network-Analysis/
 The NLM has officially discontinued the MeSH ASCII format as of 2026. This pipeline now utilizes the computational gold-standard **MeSH XML format**.
 
 * **Automatic download (default):** You do **not** need to fetch this file by hand. When Step 1 builds the MeSH support files, it checks `data/raw/` for the current descriptor XML and, if it is missing or a newer annual release has appeared, downloads the latest `descYYYY.xml` straight from NLM into `data/raw/` (verifying it is the genuine ~300 MB file, not an error page). The year advances automatically — `desc2025.xml` today, `desc2026.xml` once NLM publishes it.
-* **Manual placement (optional / offline):** If you prefer, or if the build machine has no internet, download `descYYYY.xml` yourself from the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/) and drop it into `data/raw/`. An existing local copy is always reused, and is the offline fallback when NLM cannot be reached.
+* **Manual placement (optional):** If you prefer, download `descYYYY.xml` yourself from the [NLM MeSH Data Distribution page](https://nlmpubs.nlm.nih.gov/projects/mesh/) and drop it into `data/raw/`. An existing local copy is always reused.
 
 ### 2. Internet Connectivity & Disk Budget
 
@@ -159,27 +161,27 @@ Internet access is required only for the steps that talk to NCBI; everything els
 | Pipeline step | Internet? | When |
 |---|---|---|
 | Step 0 — Master DB build (baseline FTP) | **Yes** | First run only; again only to refresh to a newer yearly baseline or apply daily updates |
+| Step 1 — MeSH support-file build | Only if XML absent | Downloads `descYYYY.xml` from NLM when it is missing or superseded |
 | Step 2 — Article collection (Entrez + citation links) | **Yes** | **Every** time you build a new query's citation database |
 | Step 3.5 — Secondary metadata hydration | **Yes** | Whenever you export top articles / run `--step secondary` |
-| Step 1 — MeSH support-file build | Only if XML absent | Downloads `descYYYY.xml` from NLM when it is missing or superseded; fully offline once the file is present |
-| Steps 3, 4, benchmark | No | Run fully offline against the local databases |
+| Steps 3, 4, benchmark | No | Run against the local databases |
 
-Once the master database is built, everyday analysis is offline — you only reconnect to build a **new query's** database (Step 2, which fetches the P0 cohort plus its incoming/outgoing citation links) or to update the master corpus. These baseline and daily-update archives are the official NLM/NCBI PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
+These baseline and daily-update archives are the official NLM/NCBI PubMed releases, distributed at the [NCBI PubMed Data Distribution page](https://pubmed.ncbi.nlm.nih.gov/download/).
 
-**Disk budget.** Set aside **~60–80 GB free** to build the master database the first time: the pipeline downloads the full set of NLM baseline `.xml.gz` archives (~40 GB) and expands them into the ~7 GB SQLite master database, with working headroom during extraction. This one-time bulk download plus local SQLite lookups is dramatically faster and more reliable than issuing millions of live Entrez queries per run, and is precisely what lets Steps 1/3/4/benchmark run fully offline. Once the master database is built and verified, you may **delete the `pubmed_baseline/` archives** to reclaim the ~40 GB — provided you keep `master_mesh_database.db` and do not intend to run local daily-update ingestion (which re-reads those archives).
+**Disk budget.** Set aside **~80 GB free** to build the master database the first time. The pipeline downloads the full set of NLM baseline `.xml.gz` archives (**~50 GB**) and expands them into the **~10 GB** SQLite master database, with working headroom during extraction. This one-time bulk download plus local SQLite lookups is dramatically faster and more reliable than issuing millions of live Entrez queries per run. Once the master database is built and verified, you may **delete the `pubmed_baseline/` archives** to reclaim the ~50 GB — provided you keep `master_mesh_database.db` and do not intend to run daily-update ingestion, which re-reads those archives.
 
-**Daily updates (optional).** Between annual baselines, NLM publishes daily update archives (`pubmed_updates/`). Applying them keeps the master corpus current with the newest PMIDs, but re-runs the multi-core ETL and requires the update archives to be present. A fresh yearly baseline supersedes accumulated daily updates, so for most analyses the annual baseline alone is sufficient — enable daily updates only if you specifically need very recent publications.
+**Daily updates (optional).** Between annual baselines, NLM publishes daily update archives (`pubmed_updates/`). Applying them keeps the master corpus current with the newest PMIDs, but re-runs the multi-core ETL and requires the update archives to be present. A fresh yearly baseline supersedes accumulated daily updates, so for most analyses the annual baseline **alone** is sufficient — enable daily updates only if you specifically need very recent publications.
 
 ---
 
 ## User-Provided Files — Quick Reference
 
-Everything a user supplies, where it goes, and how the pipeline picks it up. Most inputs are automatic or optional: only the MeSH XML (auto-downloaded) is always needed, plus a ground-truth list **if** you benchmark your own data.
+Everything a user supplies, where it goes, and how the pipeline picks it up. Most inputs are automatic or optional: only the MeSH XML (auto-downloaded) is **always** needed, plus a ground-truth list **only if** you benchmark your own data.
 
 | File | Where it goes | How it's picked up | Format / structure |
 |---|---|---|---|
 | **MeSH descriptor XML** | `data/raw/descYYYY.xml` | Auto-downloaded from NLM if missing (§1); or place manually | Unmodified NLM MeSH descriptor XML |
-| **Ground-truth PMIDs** (benchmark) | `data/raw/` (own data), or a path | Auto-detected by name, or `benchmark.ground_truth_csv`; requires `run_ground_truth_analysis = true` | `PMID` column required — see the template and **Supplying Your Own Ground Truth** |
+| **Ground-truth PMIDs** (benchmark) | `data/raw/` (own data), or a path | Auto-detected by name, or `benchmark.ground_truth_csv`; requires `run_ground_truth_analysis = true` | `PMID` column required — see **Ground Truth** below |
 | **Negative-control PMIDs** (optional) | `data/raw/`, or a path | `benchmark.negative_control_csv` (filename or path) | Same structure as ground truth |
 | **Comparison networks** (optional) | `data/processed/`, or a path | `comparison_networks` list when `compare_networks` is on | Pipeline network JSON (Cytoscape) or a networkx-readable graph — **reuse `*_consensus_lcc_network.json` outputs; do not hand-author** |
 | **AOP strata annotations** | `results/*_run_annotations.csv` (generated) | You edit the generated template during the Step-3 pause | Semicolon-delimited; assign one of the 7 strata |
@@ -200,16 +202,23 @@ is needed. What follows is for working on the source.
 * **Python 3.11–3.13** (`requires-python = ">=3.11,<3.14"`). 3.13 is supported:
   the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the
   `node2vec` package — which pinned `numpy<2.0` and had no 3.13 wheel — is no
-  longer a dependency. Newer releases are untested.
-* **Memory** — 16 GB minimum, 32 GB or more for the database build and for
-  networks past one citation generation.
-* **Storage** — 100 GB+ free. The NLM archives and the SQLite master database
-  expand quickly.
-* **tkinter**, for the desktop application. It ships with the python.org
-  installer, but is a separate package on most Linux distributions
-  (`python3-tk`) and is absent from the Microsoft Store build of Python.
+  longer a dependency.
+* **Memory** — 16 GB is the ideal minimum; 32 GB or more for the database
+  build and for networks past one citation generation. It will run on less.
+* **Storage** — 100 GB+ free. The NLM baseline archives are about 50 GB and
+  the SQLite master database it builds is about 10 GB. Once that database is
+  built and verified you can delete `data/raw/pubmed_baseline/` and reclaim
+  the 50 GB, provided you do not intend to apply daily updates later — those
+  re-read the archives.
 
 ### Install from source
+
+This installs the **command-line pipeline** from source. To install the
+application instead, see [INSTALL.md](INSTALL.md); the application is described
+under [The Workbench Window](#the-workbench-window) below.
+
+The commands assume **PowerShell** on Windows or **bash** on Linux and macOS.
+Adjust the paths and the activation command for another shell.
 
 ```bash
 git clone https://github.com/Tox-pub/Mesh-Network-Analysis.git
@@ -292,7 +301,7 @@ The interactive wizard is categorized into discrete blocks. Below is the scienti
 >
 > OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
 >
-> It is AOP 40. The set is a resolution of that bibliography, not an independent selection, so the document is what a methods section should cite.
+> It is AOP 40 ([AOP-Wiki.org](https://aopwiki.org/aops/40)). The set is a resolution of that bibliography, not an independent selection, so the document is what a methods section should cite.
 
 
 **This is for demonstration, not for research.** A first real run means a long PubMed download and a full rebuild before you see a single figure. Ticking this box instead analyses a network that already exists — the allergic contact dermatitis network published with this software, already built and scored — so the figures, the workflow report and the benchmark come out in minutes. Use it to judge whether the outputs are what you want, and to learn where everything lands on disk, before committing to a retrieval of your own.
@@ -326,11 +335,17 @@ The wizard actively probes your local Master SQLite Database for corruption, com
   * MeSH plus a free-text phrase — `"Dermatitis, Allergic Contact"[Mesh] OR "skin sensitization"[tiab]`
   * Boolean combination — `(Dermatitis, Allergic Contact[Mesh]) AND (Haptens[Mesh])`
 
-  A few rules keep the query valid and the downstream steps consistent:
-  * Spell MeSH headings exactly as they appear in the [MeSH Browser](https://meshb.nlm.nih.gov/) — internal commas are fine here (the term is a single value, not a CSV field). A misspelled heading silently degrades to a free-text search.
-  * Wrap any multi-word heading or phrase in double quotes, e.g. `"Dermatitis, Allergic Contact"[Mesh]`.
-  * Boolean operators must be **uppercase** (`AND`, `OR`, `NOT`); lowercase is treated as an ordinary search word.
-  * The benchmark's `primary_node` defaults to this term's MeSH node. If you use a compound or free-text query rather than a single MeSH heading, set `benchmark.primary_node` explicitly so the "naive query" baseline and the topology-exclusive split resolve to a real node.
+  Any query that works in PubMed works here. The field is passed to Entrez
+  unchanged, so the syntax is PubMed's — see the
+  [PubMed User Guide](https://pubmed.ncbi.nlm.nih.gov/help/) for how to build
+  one, and the [MeSH Browser](https://meshb.nlm.nih.gov/) to confirm a heading
+  exists. Two things are specific to this pipeline:
+  * A MeSH heading must be spelled exactly as MeSH spells it. A misspelling does
+    not fail — it degrades silently to a free-text search.
+  * The benchmark's `primary_node` is taken from this term. If you use a
+    compound or free-text query rather than a single MeSH heading, set
+    `benchmark.primary_node` explicitly so the naive-query baseline resolves to
+    a real node.
 * **Start / End Date:** Constrains the temporal boundaries of the initial P0 PubMed search.
 * **Citation Generations:** Controls the depth of the citation scrape. The value counts *levels including P0*, matching the wizard label (`P0=1, P0+G1=2, ...`).
   * `1`: Only the base parental generation (P0) articles.
@@ -407,7 +422,7 @@ Executes highly targeted queries against the finalized network to extract specif
 
 Controls the optional `--step benchmark` evaluation (see the **Validation & Benchmarking** section below). Configured under the `benchmark` block of `mesh_config.json`.
 
-* **`ground_truth_csv`:** Ground-truth PMID set. Leave **empty** (default) to auto-detect a recognized filename in `data/raw/`; set it to pin a specific filename or path. When `Use Reference Data` is on, the bundled OECD set is used automatically. See **Supplying Your Own Ground Truth** for the required structure and the template.
+* **`ground_truth_csv`:** Ground-truth PMID set. Leave **empty** (default) to auto-detect a recognized filename in `data/raw/`; set it to pin a specific filename or path. When `Use Reference Data` is on, the bundled OECD set is used automatically. See **Ground Truth** below for the required structure and the template.
 * **`negative_control_csv`:** Optional *unrelated* ground-truth set used as a specificity check (it should score near random). Same location, resolution, and structure as `ground_truth_csv` (drop it in `data/raw/` or give a path). Empty (default) disables the control.
 * **`primary_node`:** The base disease/seed node used to separate "naive" articles (those carrying the primary node) from topology-exclusive hits. Defaults to the search term's MeSH node.
 * **`n_boot` / `n_perm`:** Bootstrap resamples and permutation iterations behind the confidence intervals and the random-ranking null. Default `25` each. Each bootstrap resample re-ranks the full article pool, so runtime scales linearly with both this value and the size of that pool. Measured on a ~9-million-article pool:
@@ -421,7 +436,7 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 
   Increasing the count tightens the bootstrap confidence intervals and stabilizes the permutation p-value, but runtime grows proportionally; decreasing it runs faster at the cost of noisier, less reliable estimates. The default (`25`) is a practical balance. Interval precision is ultimately bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
 * **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
-  The six subgraph centralities are **no longer tied to this flag**. They are computed whenever a network is built, because they cost about 40 milliseconds on a network of the size this pipeline produces, and gating them meant deciding about the benchmark before building the network — turning it on later forced a network rebuild to recover attributes worth a fraction of a second. Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space, so having both makes centrality **scope** and centrality **type** a full grid rather than confounding them. Subgraph betweenness is computed **exactly** unless the network is very large, where it falls back to sampled sources and says so in the run log — Brandes is O(n·m) and at this pipeline's density that is roughly cubic in node count (41 ms at 173 nodes, 2.5 s at 1,000, 109 s at 4,000). The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant, the single control for all of them.
+  The six subgraph centralities are computed whenever the network is built, so every weighting is available whether or not this flag is set. Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space. Having both makes centrality **scope** and centrality **type** independent choices rather than confounded ones. Subgraph betweenness is exact on an ordinary network and falls back to sampled sources on a very large one, which the run log states when it happens. The `n_seeds` baseline is a uniform weight of 1 per node, and therefore the one scope-invariant control.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
 * **`run_projection_comparison` (Boolean):** If `True` (default), also runs the article-scoring **projection comparison** — with the node seed fixed, it scores the alternative ways of turning node weights into an article score (normalised ARS, unnormalised sum, MRS-weighted, bipartite-reinforced, BM25, uniform, random, naive query) by BEDROC across three frames with positives-only bootstrap CIs, writing `{prefix}_projection_comparison.csv` and a figure to `results/validation/`. Set `False` to skip it.
 * **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `MRS_pagerank_centrality`; set to `MRS_betweenness_centrality` to compare against the betweenness weighting instead. The wizard also lets you choose any raw or MRS centrality (betweenness / pagerank / eigenvector, whole-graph or subgraph).
@@ -505,12 +520,15 @@ Upon successful completion of the pipeline, the following critical files are gen
   See the **Validation & Benchmarking** section below for what each file contains.
 * `logs/`: run logs and failed-fetch records.
 * **Figures (`results/figures/`)**:
-* **Figure 1:** Edge weight distribution (Power law analysis) to assess network topology.
-* **Figure 2:** Optimization Trajectory (GLF vs SA convergence).
-* **Figure 3:** Community Composition bar charts detailing biological strata makeup per cluster.
-* **Figure 4:** MRS Centrality correlations (Betweenness vs PageRank).
-* **Figure 5:** t-SNE projection of the network colored by Louvain community.
-* **Figure 6:** AOP Alluvial/Sankey flows (The primary visualization connecting Stressors to Outcomes). *(Note: Provided as interactive `.html` files for deep pathway inspection).*
+* **Figure 1 — Edge weight distribution.** How often each pair of MeSH terms appears in the same article, before and after consensus filtering. Shows that filtering removed the long tail rather than the signal.
+* **Figure 2 — Optimisation trajectory.** GLF and SA traced over their search for the consensus subgraph.
+* **Figure 3 — Community composition.** Stacked bars showing which AOP levels make up each Louvain community. Needs AOP levels assigned; with everything left `Unassigned` it draws one bar.
+* **Figure 4 — t-SNE projection.** The graph distance matrix in two dimensions, each node coloured by its Louvain community.
+* **Figure 5 — AOP alluvial flow.** An interactive Sankey tracing flow from stressors through molecular, cellular, tissue and organ levels to adverse outcomes. Written as `.html`, labelled and unlabelled, plus the connection table behind it.
+* **Figure 6 — Node2Vec dendrogram.** Ward clustering of Node2Vec embeddings, leaves coloured by AOP level.
+* **Figure 7 — Network graph.** The consensus network drawn, every term labelled, nodes coloured by a metric you choose on the Figures tab.
+
+Each figure has its own switch on the **Figures** tab; unticking one costs nothing but that figure.
 
 
 
@@ -525,7 +543,7 @@ Lists what is on disk **at the paths the pipeline actually uses** — the config
 | Row | What it is |
 | :--- | :--- |
 | Master annotation database | Built from the archive. Required for every run. Hours to rebuild. |
-| PubMed baseline archive | The yearly snapshot, ~44 GB. Only needed to build the database. |
+| PubMed baseline archive | The yearly snapshot, ~50 GB. Only needed to build the database. |
 | PubMed daily updates | Records published since the baseline snapshot. |
 | MeSH descriptor file | Defines the stop-word vocabulary. Fetched automatically. |
 | Retrieved PMIDs / Citation database / Relevance database | Per-project, named with your prefix. |
@@ -536,9 +554,11 @@ Every Build, Rebuild, Download and Delete here asks you to **type `REBUILD` or `
 
 ### Settings
 
-Nine tabs. **Search**, **Folders** and **Credentials** come first, because the query, where things are written, and which NCBI account retrieves them are what a new user has to settle before anything else works.
+Nine tabs: **Search**, **Folders**, **Credentials**, **Analysis**, **Network**, **Consensus**, **Secondary**, **Benchmark** and **Figures**.
 
-The **Search** tab carries a standing note on the project prefix: how to resume an interrupted run by keeping it, and how to preserve an earlier analysis by changing it. The description pane at the foot of the window shows what the focused control does, its default, and the caveat that matters.
+Click any control and the description pane at the foot of the window shows what it does, its default, and anything worth knowing before changing it. The Search, Secondary and Benchmark tabs each carry a standing note above that pane covering the tab as a whole.
+
+The **Run** button beside the step list runs whichever step is selected. On the Secondary, Benchmark and Figures tabs it reads **Run secondary analysis**, **Run benchmark** and **Run figures**, and selecting one of those tabs sets the step list to match.
 
 ### Before a run starts
 
@@ -564,10 +584,9 @@ Opens on the **run overview**: the PRISMA-style account of the whole search, in 
 
 **Pause** asks the run to stop at its next safe point — between pipeline stages, and between batches inside the long retrieval loops. It is not instant, and the window says so: on a long step it can take a few minutes, and the status line reads *Pausing* until the run actually reports back, at which point it changes to *Paused at a safe point*. **Resume** lets it continue from exactly where it stopped.
 
-This is deliberately cooperative rather than a process suspend, for two reasons:
-
-- **A suspend is not reliable.** On a managed Windows machine the suspend calls return success, the per-thread suspend counts come back as expected, and the process carries on computing — the security layer virtualises them. A Pause button that silently does nothing is worse than none.
-- **A suspend is not safe.** It freezes the process wherever it happens to be, which here is often the middle of a multi-gigabyte SQLite transaction. Left suspended long enough for a laptop to sleep, it produces precisely the corruption the repair tool exists to clean up.
+Pausing is cooperative rather than a process suspend, which on a managed
+machine can silently fail and which would in any case freeze the run in the
+middle of a multi-gigabyte database transaction.
 
 Time spent paused is excluded from the elapsed clock, so reported durations remain honest.
 
@@ -583,7 +602,9 @@ From a terminal, the same controls are files: create `pause.flag` in the directo
 
 ## When Files Go Wrong
 
-A run that is interrupted — a machine that slept, a disk that filled, a sync client caught mid-write — can leave a file that looks complete and is not. It has the right name and a plausible size, and it fails much later, inside a step that had no way to know its input was rubbish.
+A run that is interrupted — a machine that hibernated, a disk that filled, a sync client caught mid-write — can leave a file that looks complete and is not. It has the right name and a plausible size, and it fails much later, inside a step that had no way to know its input was rubbish.
+
+**Before a long run, turn hibernation off.** An ordinary sleep, where the screen blanks and the machine stays powered, does not interrupt a run. Hibernation writes memory to disk and stops the process, which can leave a database half-written. On Windows set *Settings → System → Power → Hibernate* to Never; on Linux, `systemd-inhibit` or the equivalent in your desktop's power settings.
 
 ### Tools → Check and repair files
 
@@ -598,7 +619,7 @@ Opens every artefact the pipeline depends on and reports its condition:
 | **SUSPECT** | Opens, but the contents do not add up |
 | **ORPHAN** | A temporary or part-file no finished run would leave |
 
-Definitely-broken files are pre-ticked; merely suspect ones are listed unticked, because deleting something odd is not a call to make on your behalf. The dialog warns before removing anything that costs hours to rebuild, and afterwards names the step to resume from. Sidecar files go with their parent — a stale SQLite write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
+Definitely-broken files are pre-ticked; merely suspect ones are listed unticked. The dialog warns before removing anything that costs hours to rebuild, and afterwards names the step to resume from. Sidecar files go with their parent — a stale SQLite write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
 
 Nothing listed is your own work. Every one of these files is machinery the pipeline rebuilds; your results are never touched.
 
@@ -612,7 +633,7 @@ Add `--repair-files` to delete what is broken, and `--deep-check` for SQLite's f
 
 ### The master annotation database
 
-This one is treated differently because it is the only artefact whose replacement costs a night rather than a coffee break — roughly 44 GB downloaded and several hours compiled.
+This one is treated differently because it is the only artefact whose replacement costs a night rather than a coffee break — roughly 50 GB downloaded and several hours compiled.
 
 - After a successful build, a **health record** (`master_mesh_database.db.health.json`) stores its size, modification time and row count. Later damage is then detectable in seconds instead of by re-scanning eight gigabytes.
 - Before any step that reads it, the pipeline runs a **pre-flight check**: open it, structural `quick_check`, confirm the table has rows, compare against the health record. A corrupt database stops the run *before* it spends hours on work that depends on it; a merely suspect one warns and continues.
@@ -620,7 +641,7 @@ This one is treated differently because it is the only artefact whose replacemen
 
 ---
 
-## The Run Ledger & PRISMA Report
+## The Run Ledger and PRISMA-Style Flow Overview
 
 Every run writes two provenance artefacts into `results/`, without being asked and regardless of which `--step` was run.
 
@@ -656,63 +677,83 @@ The `--step benchmark` module evaluates how well the network's per-article relev
 mesh-pipeline --step benchmark
 ```
 
-### The Bundled OECD Ground Truth
+### Ground Truth
 
-The repository ships a curated positive set derived from the reference bibliography of the **OECD Adverse Outcome Pathway for skin sensitisation (AOP 40)**. It is the default target of `benchmark.ground_truth_csv`.
+The benchmark scores your network against a set of articles you already believe
+are relevant. That set is the ground truth, and everything the benchmark reports
+is relative to it.
 
-**Source document.** The bibliography is taken from:
+**What makes a good one.** A few dozen PMIDs is enough; a hundred is comfortable.
+What matters is that they are:
 
-> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment, No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
+* **Indexed in PubMed with MeSH headings.** An article with no MeSH indexing is
+  unreachable by a MeSH co-occurrence network by construction, so including one
+  depresses every metric for a reason that has nothing to do with ranking
+  quality. Book chapters, guidance documents and unindexed reports belong in a
+  separate exclusions list, not in the positive set.
+* **Chosen independently of this pipeline.** A set assembled by looking at what
+  the network already ranks highly measures nothing.
+* **Within your context window.** Articles outside the Analysis-tab date range
+  are never scored, so they cap achievable recall.
 
-[Direct PDF](https://www.oecd.org/content/dam/oecd/en/publications/reports/2014/09/the-adverse-outcome-pathway-for-skin-sensitisation-initiated-by-covalent-binding-to-proteins_g1g48567/9789264221444-en.pdf) · [DOI landing page](https://doi.org/10.1787/9789264221444-en)
+#### Providing your own
 
-Cite this document, not this repository, as the origin of the ground-truth set: the curated files below are a PMID resolution of its reference list, not an independent literature selection. If you replace the ground truth with your own, cite whatever source your positives came from in its place.
-
-| File | Location | Contents |
-| --- | --- | --- |
-| `oecd_ground_truth_curated.xlsx` | `data/reference_processed/` | **96 curated positives** — primary research articles with resolved PMIDs |
-| `oecd_ground_truth_exclusions.xlsx` | `data/reference_processed/` | **22 excluded citations**, each with an explicit reason (book chapters, OECD guidance documents, and records that are not indexed primary articles) |
-| `oecd_ground_truth.bib` | `data/reference_processed/` | Typed BibTeX of the parsed citations (`@article`, `@incollection`, `@techreport`, `@misc`) |
-| `oecd_resolved_citations.csv` | `data/reference_raw/` | The raw citation → PMID resolution table the curation was built from |
-
-**How it was built.** Citations were parsed from the OECD reference list, resolved to PMIDs via Entrez `esearch` on author + year + volume + first page (rather than free-text matching, which mis-resolves), and then manually adjudicated. Non-article references and records lacking MeSH indexing were moved to the exclusions file rather than silently dropped, so the **96 + 22 = 118** entries fully account for the source bibliography — the exclusions are auditable, not hidden losses.
-
-**Why the exclusions matter.** Anything without MeSH indexing is unreachable by a MeSH co-occurrence network *by construction*. Keeping those citations in the positive set would depress every metric for a reason unrelated to ranking quality, so they are excluded explicitly and counted separately.
-
-### Supplying Your Own Ground Truth
-
-Two steps to benchmark against your own citations:
-
-1. **Enable it.** Set `benchmark.run_ground_truth_analysis = true`. It defaults to *off* for your own data and *on* only for the bundled reference corpus, so this switch is required.
-2. **Provide the file.** Drop a file into **`data/raw/`** using one of these recognized names — it is auto-detected in order, **no config edit needed**:
+1. **Enable it.** Set `benchmark.run_ground_truth_analysis = true` — on the
+   **Benchmark** tab, *Run ground-truth analysis*.
+2. **Provide the file.** Put it in your **raw data folder** (the Folders tab
+   shows where that is) under any of these names, and it is picked up
+   automatically:
 
    ```text
-   ground_truth_pmids.csv
-   ground_truth_pmids.txt
-   ground_truth.csv
-   ground_truth.txt
+   <your project prefix>_ground_truth.csv     (or .txt / .tsv / .xlsx)
+   ground_truth_pmids.csv        ground_truth.csv
+   ground_truth_pmids.txt        ground_truth.txt
+   oecd_resolved_citations.csv
    ```
 
-   Or point `benchmark.ground_truth_csv` at any filename or path. When `Use Reference Data` is on, the bundled OECD set is substituted automatically — your own file and the bundled one never shadow each other.
+   The prefixed name is looked for first, so each project can keep its own set
+   side by side. Any other name works if you type it into *Ground truth file*.
 
-**Required structure.** A ready-to-fill template ships at [`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv) — copy it to one of the names above and replace the example rows. The only hard requirement is a **`PMID` column**:
+**Required structure.** A template ships at
+[`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv).
+The only hard requirement is a **`PMID` column**:
 
 | Column | Required? | Notes |
 |---|---|---|
-| `PMID` | **Yes** | One PubMed ID per row. Aliases `pmids`, `pubmed_id`, `id` are also accepted. Use integer digits only — `19033392`, **not** `19033392.0`. |
-| `Reference` (or any 2nd column) | Optional | Free-text citation string. When present it enables the publication-year sanity check that flags citation→PMID mis-resolution. Quote any value containing a comma. |
+| `PMID` | **Yes** | One PubMed ID per row. `pmids`, `pubmed_id` and `id` are accepted as aliases. Digits only — `19033392`, not `19033392.0`. |
+| `Reference` (or any second column) | Optional | The citation as free text. When present it enables a publication-year check that flags citation-to-PMID mis-resolution. |
 
-**Accepted file shapes** (auto-detected, with delimiter/encoding sniffing):
+**Accepted shapes**, detected automatically: an `.xlsx` workbook with a `PMID`
+column; a CSV or TSV with a `PMID` column and an optional reference column; a
+semicolon-delimited `Raw_Reference;PMID` file; a single column of PMIDs with or
+without a header; or a plain `.txt` list with one PMID per line.
 
-* An **`.xlsx` workbook** with a `PMID` column (the format of the bundled curated set).
-* A **CSV/TSV** with a `PMID` column and an optional reference/citation column.
-* The bundled `Raw_Reference;PMID` **semicolon-delimited** format.
-* A **single column of PMIDs**, with or without a header.
-* A plain **`.txt` list**, one PMID per line (simplest — no delimiter concerns).
+If nothing is found, the run stops and prints every location it searched.
 
-If no ground-truth file is found, the step prints the exact directory it searched, the accepted filenames, and these formats.
+**Negative control (optional).** *Negative control CSV* takes an unrelated set,
+which should score near random, as a specificity check. Same locations, names
+and structure as above. Empty disables it.
 
-**Negative control (optional).** `benchmark.negative_control_csv` takes an *unrelated* ground-truth set (which should score near random) as a specificity check. It uses the **same location, name-or-path resolution, and structure** as the ground truth above — drop it in `data/raw/` (or give a path) and set the config key to its filename; the template applies unchanged. Empty (default) disables it.
+#### The bundled example
+
+The reference corpus ships with a worked example of all of the above: **96
+curated positives** in `oecd_ground_truth_curated.xlsx`, with **22 excluded
+citations** listed separately in `oecd_ground_truth_exclusions.xlsx`, each with
+the reason it was excluded. Looking at those two files together is the quickest
+way to see what a usable ground truth looks like — including what belongs in the
+exclusions rather than the positives.
+
+They were resolved from the reference list of:
+
+> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by
+> Covalent Binding to Proteins*, OECD Series on Testing and Assessment No. 168,
+> OECD Publishing, Paris.
+> <https://doi.org/10.1787/9789264221444-en> ·
+> [AOP 40 on AOP-Wiki](https://aopwiki.org/aops/40)
+
+Cite that document, not this program, as the origin of the set — it is a PMID
+resolution of a published bibliography, not an independent selection. If you
+supply your own positives, cite whatever they came from instead.
 
 ### What It Reports
 

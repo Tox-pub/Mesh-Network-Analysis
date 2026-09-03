@@ -707,17 +707,11 @@ def run_community_detection(network_file_path: str, random_seed: int,
     carried over from network construction, so that centrality *scope* can be
     compared against centrality *type*.
 
-    They are computed unconditionally. They used to be gated on whether the
-    ground-truth analysis was switched on, which put a decision about the
-    BENCHMARK inside the step that builds the network - so turning the benchmark
-    on later meant rebuilding the network, minutes of work, to recover
-    attributes that take 43 milliseconds on a real one. Worse, every consumer
-    reads these keys with a 0.0 default, so a network built without them did not
-    fail the validation step: it produced a complete set of numbers scored
-    against an all-zero weighting, silently.
-
-    compute_subgraph_centrality is kept, defaulting True, so an existing caller
-    that passes it still works.
+    They are computed unconditionally, so every weighting the benchmark and the
+    figures can offer is present on any network this builds. Consumers read
+    these keys with a 0.0 default, which makes an absent attribute score as a
+    constant rather than raise, so leaving one out would corrupt a result
+    quietly.
     """
     print(f"Loading network for community detection from: {network_file_path}")
 
@@ -778,17 +772,12 @@ def run_community_detection(network_file_path: str, random_seed: int,
             print("Calculating centrality on the filtered consensus subgraph...")
             subgraph_pagerank = nx.pagerank(G, alpha=0.85, weight=None)
 
-            # Betweenness is the only one of the three that is ever expensive.
-            # Brandes is O(n*m), and at the density this pipeline produces m
-            # grows with n^2, so the cost grows roughly cubically: measured,
-            # 41ms at 173 nodes, 2.5s at 1,000, 17.6s at 2,000 and 109s at
-            # 4,000. PageRank and eigenvector stay under 150ms even at 4,000.
-            #
-            # So the big network gets SAMPLED sources rather than no attribute
-            # at all. Every consumer reads these keys straight off the node with
-            # a 0.0 default, which turns an absent attribute into a silent
-            # all-zero weighting rather than an error - so the one thing this
-            # must never do is leave the key out.
+            # Betweenness is the only one of the three that is ever expensive:
+            # Brandes is O(n*m), and at this pipeline's density m grows with
+            # n^2, so the cost is roughly cubic in node count. A large network
+            # therefore gets sampled sources rather than no attribute at all -
+            # consumers read these keys with a 0.0 default, so omitting one
+            # would score every node as zero without raising.
             n, m = G.number_of_nodes(), G.number_of_edges()
             if n * m <= EXACT_BETWEENNESS_WORK:
                 subgraph_betweenness = nx.betweenness_centrality(

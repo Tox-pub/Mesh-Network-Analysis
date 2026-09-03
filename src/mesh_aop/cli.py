@@ -334,8 +334,7 @@ def _build_relevance_db_if_missing(config, include_subgraph_weightings=True):
 
     The benchmark needs per-article relevance scores. Against the bundled
     reference corpus there were none and there could not be: the database is two
-    gigabytes, far too large to ship, so the benchmark simply refused to run and
-    the shipped corpus could not be validated by anyone.
+    gigabytes, far too large to ship.
 
     It does not need to be shipped. Everything required to build it is already
     on the machine - the consensus network, which is bundled, and the master
@@ -842,14 +841,8 @@ def main():
     # distribution figures too, and the PRISMA flow is drawn after every step.
     _vp = config.params.get('viz_parameters', {})
     _dpi, _fmts = configure_output(_vp.get('figure_dpi'), _vp.get('figure_formats'))
-    # Announced only by the steps that actually draw something. It used to print
-    # at startup whatever the run was doing, so building a database or
-    # collecting data began by reporting figure settings neither would ever use
-    # - and when the settings were absent it reported the module defaults,
-    # 300 dpi and jpeg/tif, which is why the line looked hardcoded.
-    # Announced by whichever step first draws a figure, not here. On a full run
-    # this was the very first line printed - figure settings reported before the
-    # pipeline had done anything that could produce a figure. See
+    # Announced by whichever step first draws a figure, not here: a run that
+    # builds a database or collects data never produces one. See
     # _announce_figure_output.
 
     # The rebuild instructions live beside the database, refreshed each run so
@@ -1258,11 +1251,10 @@ def main():
             print("\n>>> STARTING: Step 4 - Biological Figure Generation")
 
             # The run annotations are normally written by the network step. When
-            # this step is run on its own - which is the whole point of reference
-            # mode, where the network already exists - there is nothing to have
-            # written them, and the step used to stop dead asking for a file the
-            # user had no way to produce. Rebuild it from the stratum dictionary
-            # instead; both inputs ship with the reference corpus.
+            # this step is run on its own - which is the point of reference
+            # mode, where the network already exists - nothing has written them.
+            # Rebuild from the stratum dictionary instead; both inputs ship
+            # with the reference corpus.
             if not os.path.exists(run_anno_path):
                 if (os.path.exists(config.files['final_network'])
                         and os.path.exists(config.files['annotations'])):
@@ -1311,12 +1303,11 @@ def main():
 
             bench_params = config.params.get('benchmark', {})
 
-            # The naive-query baseline needs one MeSH heading. It used to be
-            # defaulted to this project's outcome, which meant every other
-            # corpus was quietly benchmarked against a heading it might not
-            # even contain. Empty is now the default, so: reference mode
-            # supplies the reference heading, and an own-data run without one
-            # says so and goes on without the baseline rather than inventing it.
+            # The naive-query baseline needs one MeSH heading, and it has to
+            # be the user's own outcome. Reference mode supplies the reference
+            # heading; an own-data run without one says so and continues
+            # without the baseline rather than assuming a heading the corpus
+            # may not contain.
             primary_node = (config.get('benchmark', 'primary_node') or '').strip()
             if not primary_node and config.get('control_flags', 'use_reference_data'):
                 primary_node = 'Dermatitis, Allergic Contact'

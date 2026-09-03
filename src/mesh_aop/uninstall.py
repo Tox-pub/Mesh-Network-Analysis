@@ -262,7 +262,7 @@ def inventory(project_dir, config=None):
         _add(items, base / 'mesh_etl_workspace', CACHE, 'ETL working folder',
              f'A working copy of the master database, left in {where}.')
 
-    # Shards used to be written directly into temp rather than inside the
+    # Shards are written inside the workspace rather than directly into temp,
     # workspace, so a machine that ran an older build can still have them loose.
     orphans = sorted(tmp.glob('shard_*.db'))
     if orphans:

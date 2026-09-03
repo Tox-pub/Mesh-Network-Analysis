@@ -311,12 +311,10 @@ class MeshConfig:
     def _resolve_dynamic_values(self):
         """Handles date interpretation and reference flags.
 
-        Resolution is kept OUT of self.params, in a shadow dict that get() reads
-        through. It used to be written back over the stored value, which meant
-        the first save() after any load replaced "TODAY" with that day's date -
-        permanently. The setting could be chosen once and then silently became a
-        frozen date that never moved again, and nothing said so. self.params is
-        now exactly what the user typed, and save() persists exactly that.
+        Resolution is kept OUT of self.params, in a shadow dict that get()
+        reads through, so self.params holds exactly what the user typed and
+        save() persists exactly that. Writing a resolved value back would turn
+        a moving setting such as TODAY into a fixed date on the first save.
         """
         self.use_reference_data = self.params['control_flags']['use_reference_data']
         self.prefix = "DAC_Mesh" if self.use_reference_data else self.params['control_flags']['custom_file_prefix']
@@ -416,12 +414,10 @@ class MeshConfig:
 
         # THE RAW FOLDER IS ALWAYS THE USER'S, like the databases.
         #
-        # It used to follow the reference checkbox to data/reference_raw, which
-        # is not shipped, does not exist on an installed copy, and is resolved
-        # against the working directory - so with the box ticked, Step 0 would
-        # have downloaded a second 44 GB copy of the PubMed baseline into
-        # whatever folder the program happened to be started in, and Step 1 a
-        # second copy of the MeSH descriptor XML beside it. Nothing in the
+        # It must not follow the reference checkbox: the downloads it holds are
+        # the PubMed baseline and the MeSH descriptor XML, which belong to the
+        # machine rather than to one project, and a per-project raw folder
+        # would fetch a second copy of both. Nothing in the
         # benchmark path touches these, which is the only reason it went
         # unnoticed.
         #
@@ -465,13 +461,10 @@ class MeshConfig:
 
         # THE DATABASES ARE ALWAYS THE USER'S, never the shipped corpus.
         #
-        # "Use bundled reference data" switches the working folder to the corpus
-        # inside the program, and that used to drag the databases with it - so
-        # with the box ticked the pipeline looked for the master annotation
-        # database inside a read-only folder that has never contained one, while
-        # the 8 GB the user had actually built sat in their own data folder,
-        # invisible. That is why the benchmark could not run against the
-        # reference corpus: not a missing file, a wrong folder.
+        # "Use bundled reference data" switches the working folder to the
+        # corpus inside the program, which is read-only and contains no
+        # databases. The master annotation database is the user's, built once
+        # and shared across every project, so it must not follow that switch.
         #
         # Only the networks and the ground-truth files are bundled. Every
         # database is built on this machine, is expensive, and is shared between
@@ -524,12 +517,12 @@ class MeshConfig:
                     or _paths.default_user_data_dir(self.root))
 
     def _user_raw_dir(self):
-        """Where downloads and the master database went before this move."""
+        """Legacy location for downloads and the master database."""
         custom = self.params.get('directories', {}).get('input_dir', '').strip()
         return Path(custom) if custom else self._user_data_root() / 'raw'
 
     def _user_processed_dir(self):
-        """Where the project databases were written flat, before this move."""
+        """Legacy location for the project databases."""
         custom = self.params.get('directories', {}).get('output_dir', '').strip()
         return Path(custom) if custom else self._user_data_root() / 'processed'
 
@@ -555,13 +548,10 @@ class MeshConfig:
     def _settled(self, preferred_dir, name):
         """Where a working file lives: the new subfolder, or where it already is.
 
-        The networks and databases used to be written flat into the processed
-        folder. An existing project has hours of work sitting there - a cleaned
-        citation database, a relevance database - and moving files under someone
-        without asking is not something this should do on their behalf. So a
-        file already present in the old flat location is used from there; only
-        new ones are written to the subfolder. Nothing is orphaned and nothing
-        is silently relocated.
+        Older projects hold their networks and databases flat in the processed
+        folder, and those represent hours of work. A file already present in
+        that flat location is used from there; only new ones are written to the
+        subfolder, so nothing is relocated without being asked for.
 
         Reference mode benefits from the same rule: the bundled corpus is flat
         and read-only, and is found without special-casing it.

@@ -4,7 +4,7 @@ memory.py - how much memory this machine has, so the build can size itself to it
 
 One question, asked once: how many parser processes can the database build
 afford to start. Each is a Python interpreter with an XML parser in it, and the
-build used to start one per core regardless of whether the machine had the room.
+build must not start one per core regardless of whether the machine has room.
 
 This does not monitor or report anything at run time. It answers that question
 and gets out of the way.

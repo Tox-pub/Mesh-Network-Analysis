@@ -30,8 +30,8 @@ centrality it was built from. Consequences of the change:
     convention already applied to MRS) and keeps ars_score on the range
     secondary_analysis assumes when blending it against a citation score.
 
-Two multiplicative adjustments that earlier versions layered on top of this mean were
-both dropped, leaving the mean itself (hence "non-adjusted for context"):
+Two multiplicative adjustments are deliberately NOT applied on top of this
+mean, leaving the mean itself (hence "non-adjusted for context"):
   - an evidence-volume / corpus-frequency factor, log10(|P_i| + 1); and
   - an information-content penalty, -log10(G_t / N_global), applied via a harmonic mean.
 The mean-ARS term is already frequency-neutral by construction (averaging over P_i

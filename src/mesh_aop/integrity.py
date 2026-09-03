@@ -430,9 +430,9 @@ def belongs_to(filename, prefix):
     prefix decides: it has to be the start of an artefact name this pipeline
     actually writes, not the continuation of a longer project name.
 
-    An earlier version accepted any Capitalised word here, which let
-    'DAC_Mesh_...' pass as project 'DAC' with artefact 'Mesh_...'. The heads
-    are enumerable, so they are enumerated.
+    The heads are enumerable, so they are enumerated rather than matched by
+    shape: accepting any capitalised word would let 'DAC_Mesh_...' pass as
+    project 'DAC' with artefact 'Mesh_...'.
     """
     if not prefix:
         return True
