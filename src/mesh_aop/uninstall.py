@@ -291,8 +291,113 @@ def inventory(project_dir, config=None):
     _add(items, root / 'mesh_config.json', CONFIG, 'Saved settings',
          'Your search terms, folders and NCBI credentials.')
 
+    _add_shortcuts(items, root)
+
     items.sort(key=lambda i: i.bytes, reverse=True)
     return items
+
+
+def _shortcut_target(path):
+    """Where a .lnk points, or '' if it cannot be read.
+
+    Read through the shell so a shortcut is resolved the way Explorer resolves
+    it. Without a target there is no way to tell one program's shortcut from
+    another's, and deleting by name alone would take someone else's.
+    """
+    try:
+        import win32com.client                                   # noqa: F401
+    except ImportError:
+        pass
+    else:
+        try:
+            shell = win32com.client.Dispatch('WScript.Shell')
+            return str(shell.CreateShortCut(str(path)).TargetPath or '')
+        except Exception:                                        # noqa: BLE001
+            return ''
+    # No pywin32 in the bundled interpreter, so read the path out of the file.
+    # A .lnk holds its target twice, once UTF-16 and once ANSI; matching a
+    # drive-rooted path ending in an executable finds either. This is enough to
+    # decide ownership and deliberately no more than that.
+    import re
+    try:
+        raw = Path(path).read_bytes()
+    except OSError:
+        return ''
+    pattern = re.compile(r'[A-Za-z]:\\[^<>:"|?*\x00]{2,240}?'
+                         r'(?:pythonw\.exe|python\.exe|\.bat)',
+                         re.IGNORECASE)
+    for encoding in ('utf-16-le', 'latin-1'):
+        try:
+            text = raw.decode(encoding, errors='ignore')
+        except Exception:                                        # noqa: BLE001
+            continue
+        match = pattern.search(text)
+        if match:
+            return match.group(0).strip()
+    return ''
+
+
+def shortcut_locations():
+    """Every folder a Start-menu or Desktop shortcut could have been put in."""
+    if sys.platform != 'win32':
+        return []
+    out = []
+    for var, tail in (
+        ('APPDATA', ('Microsoft', 'Windows', 'Start Menu', 'Programs')),
+        ('ProgramData', ('Microsoft', 'Windows', 'Start Menu', 'Programs')),
+        ('USERPROFILE', ('Desktop',)),
+        ('PUBLIC', ('Desktop',)),
+    ):
+        base = os.environ.get(var)
+        if base:
+            out.append(Path(base).joinpath(*tail))
+    return out
+
+
+def find_shortcuts(project_dir=None):
+    """Shortcuts on this machine that point INTO a MeSH Workbench install.
+
+    Both installers make these, and so does the portable
+    'Create desktop shortcut.bat'. Nothing removed them: an interrupted MSI
+    uninstall leaves them behind pointing at a folder that may no longer
+    exist, and the portable one was never tracked by anything at all.
+
+    Ownership is decided by the target, never by the name, so a shortcut
+    belonging to something else is never touched.
+    """
+    found = []
+    if sys.platform != 'win32':
+        return found
+    root = str(Path(project_dir).resolve()).lower() if project_dir else None
+    for folder in shortcut_locations():
+        try:
+            entries = list(folder.glob('*.lnk'))
+        except OSError:
+            continue
+        for lnk in entries:
+            target = _shortcut_target(lnk).lower()
+            if not target:
+                continue
+            ours = ('mesh workbench' in target
+                    or (root and target.startswith(root)))
+            if ours:
+                found.append(lnk)
+    return found
+
+
+def _add_shortcuts(items, root):
+    """Report Start-menu and Desktop shortcuts as their own entry."""
+    links = find_shortcuts(root)
+    if not links:
+        return
+    where = sorted({('Desktop' if 'desktop' in str(p.parent).lower()
+                     else 'Start menu') for p in links})
+    items.append(Item(
+        links[0], APPLICATION,
+        f'Shortcuts ({", ".join(where)})',
+        f'{len(links)} shortcut(s) pointing at this program. '
+        f'An interrupted uninstall leaves these behind.',
+        targets=links))
 
 
 def _clear_readonly(func, path, _exc):
