@@ -210,6 +210,30 @@ for mod in ('cli.py', 'uninstall_cli.py', 'check_env.py'):
             hits.append(f'{mod}:{n}')
     ck(not hits, f'{mod}: every prompt is guarded', f'unguarded at {hits}')
 
+print('\n=== 7. the WiX source is legal XML ===')
+# A comment explaining the fix above broke the build: XML comments may not
+# contain two dashes in a row, and WiX reports it as "not a valid source file"
+# rather than as a comment problem. Cheap to check, and the failure costs a
+# 47-minute portable build before it is even reached.
+import xml.dom.minidom                                              # noqa: E402
+
+wxs_text = open('packaging/windows_msi.wxs', encoding='utf-8').read()
+bad = []
+for mm in re.finditer(r'<!--(.*?)-->', wxs_text, re.S):
+    body = mm.group(1)
+    ln = wxs_text[:mm.start()].count(chr(10)) + 1
+    if '--' in body:
+        bad.append(f'line {ln}: contains "--"')
+    if body.endswith('-'):
+        bad.append(f'line {ln}: ends with "-"')
+ck(not bad, f'every XML comment is legal ({len(re.findall(r"<!--", wxs_text))} checked)',
+   '; '.join(bad))
+try:
+    xml.dom.minidom.parseString(wxs_text)
+    ck(True, 'the whole document parses as XML')
+except Exception as exc:                                            # noqa: BLE001
+    ck(False, 'the whole document parses as XML', str(exc))
+
 print()
 if FAILS:
     print(f'FAILED ({len(FAILS)}):')

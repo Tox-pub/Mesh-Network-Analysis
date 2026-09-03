@@ -111,13 +111,16 @@
       agree on what "clean" means. Results are never touched.
 
       The "." after [INSTALLFOLDER] is not decoration. That property always
-      ends in a backslash, so &quot;[INSTALLFOLDER]&quot; emits ...\Workbench\"
-      - and Windows reads \" as an ESCAPED QUOTE, so the string never closes.
-      Everything after it became part of --project, --yes was never parsed,
-      and the uninstaller stopped at its "Type REMOVE to continue" prompt with
-      no console to answer it. msiexec sat at "1 minute remaining" forever.
-      The dot terminates the path so the quote closes; normpath resolves it
-      back to the same folder.
+      ends in a backslash, so quoting it directly emitted a path ending in
+      backslash-quote, which Windows reads as an ESCAPED QUOTE. The string
+      never closed: everything after it folded into the project argument, the
+      flags after that were never parsed, and the uninstaller stopped at its
+      "Type REMOVE to continue" prompt with no console able to answer. msiexec
+      then sat at "1 minute remaining" indefinitely. The dot terminates the
+      path so the quote closes, and normpath resolves it to the same folder.
+
+      (Written without dashes on purpose: an XML comment may not contain two
+      in a row, and the first version of this note failed the build.)
 
       python.exe, not pythonw.exe: the uninstaller writes progress to stdout,
       and under pythonw stdout is None, so the first print would kill it
