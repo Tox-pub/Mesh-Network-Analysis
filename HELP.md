@@ -7,7 +7,9 @@ MeSH Workbench is a desktop **application** with a command-line pipeline behind
 it. Everything described here can be done from either. The application is
 validated on **Windows** and **Linux**.
 
-To install it, see [INSTALL.md](INSTALL.md).
+To install it, see [INSTALL.md](INSTALL.md). To drive the pipeline from a shell
+instead, or to work on the source, see
+[COMMAND-LINE.md](COMMAND-LINE.md).
 
 
 ## Overview
@@ -32,6 +34,45 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
 | **Consensus network** | The edges GLF and SA both kept, reduced to the largest connected component. |
 | **Subgraph centrality** | A centrality recomputed on the consensus network rather than the whole corpus graph, so it measures importance within the curated concept space. |
 
+### How articles and terms are scored
+
+Two numbers do most of the work. Both come out of the same bipartite structure:
+articles on one side, MeSH terms on the other, an edge wherever an article is
+indexed with a term.
+
+**ARS — Article Relevance Score.** Per article. The network's node weights are
+projected down onto articles across that bipartite graph:
+
+```
+ARS(a) = (1/sqrt(k_a)) * SUM over terms t in a and in the network of
+                          w(t) / sqrt(df(t))
+```
+
+* `w(t)` is the node weight of term `t` — whichever centrality or weighting is
+  being scored.
+* `df(t)` is how many articles in the corpus carry `t`, so a term cannot count
+  for more simply by being common. This is the same intuition as IDF.
+* `k_a` is how many network terms the article carries, so a long, broadly
+  indexed article cannot outrank a focused one on breadth alone.
+
+Both damping terms are square roots, which is the symmetric normalisation of a
+bipartite projection: divide each side by the square root of its own degree.
+One `score_*` column is written per weighting, so the alternatives can be
+compared rather than assumed.
+
+**MRS — Mean Relevancy Score.** Per term, and computed from ARS: the mean ARS
+of the articles that carry that term. Where the node weight asks "how central is
+this term in the graph", MRS asks "how strongly does the literature mentioning
+it support the network built around it". Averaging over a term's articles is
+what makes it frequency-neutral — a common term is diluted by its own many
+low-scoring articles — which is why no further frequency correction is applied
+on top. Written back onto each node as `MRS_*`.
+
+**Which one is better** is not assumed. The benchmark scores all of them against
+your ground truth and reports the comparison, so the answer comes from your own
+data rather than from this document. See
+[Validation & Benchmarking](#validation--benchmarking).
+
 **On GLF specifically.** The filter this pipeline runs is the Global Likelihood Filter of:
 
 > Dianati, N. (2016). *Unwinding the hairball graph: Pruning algorithms for weighted complex networks.* Physical Review E, **93**, 012304. <https://doi.org/10.1103/PhysRevE.93.012304>
@@ -39,111 +80,58 @@ The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Repository Structure](#repository-structure)
 - [Data Acquisition & Prerequisites](#data-acquisition--prerequisites)
-  - [The MeSH XML File (automatic)](#1-the-mesh-xml-file-automatic)
-  - [Internet Connectivity & Disk Budget](#2-internet-connectivity--disk-budget)
-- [User-Provided Files — Quick Reference](#user-provided-files--quick-reference)
-- [Setting up a development environment](#setting-up-a-development-environment)
-  - [Requirements](#requirements)
-  - [Install from source](#install-from-source)
-- [Execution Guide](#execution-guide)
-  - [CLI Flags](#cli-flags)
-  - [Running the Complete Pipeline](#running-the-complete-pipeline)
-  - [Running Individual Modules](#running-individual-modules)
-- [Configuration Wizard Parameter Glossary](#configuration-wizard-parameter-glossary)
+  - [1. The MeSH XML File (automatic)](#1-the-mesh-xml-file-automatic)
+  - [2. Internet Connectivity & Disk Budget](#2-internet-connectivity--disk-budget)
+- [The Workbench Window](#the-workbench-window)
+  - [Data setup](#data-setup)
+  - [Settings](#settings)
+  - [Before a run starts](#before-a-run-starts)
+  - [Results](#results)
+  - [Menus](#menus)
+- [Controlling a Run](#controlling-a-run)
+  - [Pause](#pause)
+  - [Abort](#abort)
+- [Settings Reference](#settings-reference)
   - [1. Control Flags & Directories](#1-control-flags--directories)
-  - [2. Master Database Status](#2-master-database-status-step-0-etl)
+  - [2. Master Database Status (Step 0 ETL)](#2-master-database-status-step-0-etl)
   - [3. NCBI Credentials](#3-ncbi-credentials)
   - [4. Search Parameters](#4-search-parameters)
   - [5. Analysis Parameters](#5-analysis-parameters)
   - [6. Network & Simulation Parameters](#6-network--simulation-parameters)
   - [7. Secondary Analysis Parameters](#7-secondary-analysis-parameters)
   - [8. Benchmark Parameters](#8-benchmark-parameters)
-- [The AOP Annotation Workflow](#the-aop-annotation-workflow-biological-strata)
-  - [How to Annotate Your Network](#how-to-annotate-your-network)
-  - [Syncing to the Master Dictionary](#what-syncing-to-the-master-dictionary-does)
+- [The AOP Annotation Workflow (Biological Strata)](#the-aop-annotation-workflow-biological-strata)
+  - [How to Annotate Your Network:](#how-to-annotate-your-network)
+  - [What "syncing to the Master Dictionary" does](#what-syncing-to-the-master-dictionary-does)
 - [Output Artifacts](#output-artifacts)
-- [The Workbench Window](#the-workbench-window)
-- [Controlling a Run](#controlling-a-run)
+  - [Data & Network Artifacts (`data/processed/`)](#data--network-artifacts-dataprocessed)
+  - [Analytical Exports (`results/`)](#analytical-exports-results)
 - [When Files Go Wrong](#when-files-go-wrong)
+  - [Tools → Check and repair files](#tools--check-and-repair-files)
+  - [The master annotation database](#the-master-annotation-database)
 - [The Run Ledger and PRISMA-Style Flow Overview](#the-run-ledger-and-prisma-style-flow-overview)
+  - [`*_run_ledger.csv` — the counts](#runledgercsv--the-counts)
+  - [`*_prisma_flow_report.txt` and `figures/*_prisma_flow.*` — the overview](#prismaflowreporttxt-and-figuresprismaflow--the-overview)
 - [Validation & Benchmarking](#validation--benchmarking)
   - [Ground Truth](#ground-truth)
   - [What It Reports](#what-it-reports)
+  - [Outputs](#outputs)
   - [Node/Edge Convergent Validation](#nodeedge-convergent-validation)
-- [Jupyter Notebook Interface](#jupyter-notebook-interface)
-- [Programmatic API Usage](#programmatic-api-usage)
+- [User-Provided Files — Quick Reference](#user-provided-files--quick-reference)
 - [Troubleshooting](#troubleshooting)
+  - [Python 3.13: NumPy tries to compile and fails](#python-313-numpy-tries-to-compile-and-fails)
+  - [Windows `MAX_PATH` / "No such file or directory" during install](#windows-maxpath--no-such-file-or-directory-during-install)
+  - ["Activate.ps1 cannot be loaded ... running scripts is disabled"](#activateps1-cannot-be-loaded--running-scripts-is-disabled)
+  - ["Access is denied" running `mesh-pipeline` / `mesh-check-env`](#access-is-denied-running-mesh-pipeline--mesh-check-env)
+  - [`community` / `python-louvain` Namespace Collision](#community--python-louvain-namespace-collision)
+  - [RAM Exhaustion on Large Networks](#ram-exhaustion-on-large-networks)
+  - [SQLite Lock Errors on Network-Attached Storage](#sqlite-lock-errors-on-network-attached-storage)
+  - [Convergence Warnings for Eigenvector Centrality](#convergence-warnings-for-eigenvector-centrality)
+- [Repository Structure](#repository-structure)
 - [Citation](#citation)
+  - [Also cite the methods this rests on](#also-cite-the-methods-this-rests-on)
 - [License](#license)
-
----
-
-## Repository Structure
-
-The package assumes and enforces the following directory architecture.
-
-```text
-Mesh-Network-Analysis/
-│
-├── data/                               # Data storage
-│   ├── raw/                            # Inputs for a run
-│   │   ├── aop_annotations_master.csv  # Ships w/ repo: AOP strata dictionary (pre-seeded; grows each run)
-│   │   ├── desc2025.xml                # Auto-downloaded from NLM if missing (or place manually); not in repo
-│   │   ├── ground_truth_pmids.template.csv # Ships w/ repo: copy+fill for your own benchmark set
-│   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Ground Truth")
-│   │   ├── master_mesh_database.db     # Auto-generated: offline PubMed corpus (Step 0)
-│   │   ├── pubmed_baseline/            # Auto-downloaded: NLM Baseline XMLs (~40GB, Step 0)
-│   │   └── pubmed_updates/             # Auto-downloaded: NLM Daily Update XMLs (optional)
-│   ├── processed/                      # Auto-generated: pipeline databases and JSONs (starts empty)
-│   ├── reference_raw/                  # Ships w/ repo: bundled reference inputs
-│   │   └── oecd_resolved_citations.csv # OECD AOP-40 citation->PMID table (the bundled ground-truth source)
-│   └── reference_processed/            # Ships w/ repo: curated OECD ground-truth set + bundled reference network
-│
-├── results/                            # Output artifacts (auto-generated)
-│   ├── figures/                        # High-resolution pipeline plots (.png, .tif, .html)
-│   ├── benchmark/                      # All --step benchmark outputs (ranking + ground-truth)
-│   │   └── validation/                 # Node-weighting + projection report
-│   ├── logs/                           # System logs and failed fetch records
-│   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
-│   ├── *_Top_Network_Articles.csv      # Secondary analysis exports
-│   └── *_export.xlsx                   # Exported full network tables
-│
-├── src/
-│   ├── mesh_aop/                       # Core Python package modules
-│   │   ├── __init__.py
-│   │   ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
-│   │   ├── benchmark.py                # Ground-truth validation & performance benchmarking
-│   │   ├── check_env.py                # System environment & dependency verification
-│   │   ├── cli.py                      # Orchestrator and CLI entry point
-│   │   ├── config_parser.py            # Two-tier configuration engine
-│   │   ├── data_ops.py                 # SQLite and NCBI Entrez querying
-│   │   ├── gt_network_validation.py    # Node/edge convergent ground-truth validation
-│   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
-│   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
-│   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
-│   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
-│   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
-│   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
-│   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
-│   │   ├── validation_report.py        # Consolidated node-weighting + projection evaluation
-│   │   ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
-│   │   └── wizard.py                   # Interactive configuration module
-│   └── mesh_aop_notebooks/             # Jupyter notebook equivalents of each module
-│       └── *.ipynb                     # One notebook per module for interactive exploration
-│
-├── environment.yml                     # Mamba/Conda cross-platform dependency resolution
-├── pyproject.toml                      # Modern Python package specification
-├── mesh_config.json                    # Runtime user config (auto-generated; git-ignored, not in repo)
-├── LICENSE                             # MIT License
-└── README.md                           # This document
-
-
-```
-
----
 
 ## Data Acquisition & Prerequisites
 
@@ -174,120 +162,75 @@ These baseline and daily-update archives are the official NLM/NCBI PubMed releas
 
 ---
 
-## User-Provided Files — Quick Reference
+## The Workbench Window
 
-Everything a user supplies, where it goes, and how the pipeline picks it up. Most inputs are automatic or optional: only the MeSH XML (auto-downloaded) is **always** needed, plus a ground-truth list **only if** you benchmark your own data.
+### Data setup
 
-| File | Where it goes | How it's picked up | Format / structure |
-|---|---|---|---|
-| **MeSH descriptor XML** | `data/raw/descYYYY.xml` | Auto-downloaded from NLM if missing (§1); or place manually | Unmodified NLM MeSH descriptor XML |
-| **Ground-truth PMIDs** (benchmark) | `data/raw/` (own data), or a path | Auto-detected by name, or `benchmark.ground_truth_csv`; requires `run_ground_truth_analysis = true` | `PMID` column required — see **Ground Truth** below |
-| **Negative-control PMIDs** (optional) | `data/raw/`, or a path | `benchmark.negative_control_csv` (filename or path) | Same structure as ground truth |
-| **Comparison networks** (optional) | `data/processed/`, or a path | `comparison_networks` list when `compare_networks` is on | Pipeline network JSON (Cytoscape) or a networkx-readable graph — **reuse `*_consensus_lcc_network.json` outputs; do not hand-author** |
-| **AOP strata annotations** | `results/*_run_annotations.csv` (generated) | You edit the generated template during the Step-3 pause | Semicolon-delimited; assign one of the 7 strata |
-| **Entrez credentials** | wizard, or environment variables | `MESH_ENTREZ_EMAIL` / `MESH_ENTREZ_API_KEY`, or the wizard | Email + NCBI API key |
+Lists what is on disk **at the paths the pipeline actually uses** — the configured data folder, and the current project prefix. Each row shows Present/Missing, its size, and the actions available:
 
-**Templates** for the files you create yourself ship next to where they belong (e.g. [`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv)) — copy, rename, and fill. Everything else in `data/processed/`, the network JSONs, the relevance databases, and all figures is **generated** — never hand-authored.
+| Row | What it is |
+| :--- | :--- |
+| Master annotation database | Built from the archive. Required for every run. Hours to rebuild. |
+| PubMed baseline archive | The yearly snapshot, ~50 GB. Only needed to build the database. |
+| PubMed daily updates | Records published since the baseline snapshot. |
+| MeSH descriptor file | Defines the stop-word vocabulary. Fetched automatically. |
+| Retrieved PMIDs / Citation database / Relevance database | Per-project, named with your prefix. |
 
----
+**Also fetch the daily update files when building** is a checkbox on this screen, so you can see whether it is on without committing to a build first.
 
-## Setting up a development environment
+Every Build, Rebuild, Download and Delete here asks you to **type `REBUILD` or `DELETE`** before it proceeds. These actions either destroy something that took hours to produce or start something that will take hours to finish, and a yes/no box is one mis-aimed click. Deleting a database also removes its `-wal`, `-shm` and health sidecars — a stale write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
 
-Installing the **application** is covered in [INSTALL.md](INSTALL.md) — that is
-the right document for anyone who simply wants to run it, and none of the below
-is needed. What follows is for working on the source.
+### Settings
 
-### Requirements
+Nine tabs: **Search**, **Folders**, **Credentials**, **Analysis**, **Network**, **Consensus**, **Secondary**, **Benchmark** and **Figures**.
 
-* **Python 3.11–3.13** (`requires-python = ">=3.11,<3.14"`). 3.13 is supported:
-  the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the
-  `node2vec` package — which pinned `numpy<2.0` and had no 3.13 wheel — is no
-  longer a dependency.
-* **Memory** — 16 GB is the ideal minimum; 32 GB or more for the database
-  build and for networks past one citation generation. It will run on less.
-* **Storage** — 100 GB+ free. The NLM baseline archives are about 50 GB and
-  the SQLite master database it builds is about 10 GB. Once that database is
-  built and verified you can delete `data/raw/pubmed_baseline/` and reclaim
-  the 50 GB, provided you do not intend to apply daily updates later — those
-  re-read the archives.
+Click any control and the description pane at the foot of the window shows what it does, its default, and anything worth knowing before changing it. The Search, Secondary and Benchmark tabs each carry a standing note above that pane covering the tab as a whole.
 
-### Install from source
+The **Run** button beside the step list runs whichever step is selected. On the Secondary, Benchmark and Figures tabs it reads **Run secondary analysis**, **Run benchmark** and **Run figures**, and selecting one of those tabs sets the step list to match.
 
-This installs the **command-line pipeline** from source. To install the
-application instead, see [INSTALL.md](INSTALL.md); the application is described
-under [The Workbench Window](#the-workbench-window) below.
+### Before a run starts
 
-The commands assume **PowerShell** on Windows or **bash** on Linux and macOS.
-Adjust the paths and the activation command for another shell.
+Pressing **Run** checks whether this prefix has already produced output for the steps about to execute. If it has, you are shown exactly what would be replaced, with sizes, and offered the chance to change the prefix instead. **If the prefix has not been used for those steps, nothing is asked** — a fresh project never meets a dialog it has no reason to read.
 
-```bash
-git clone https://github.com/Tox-pub/Mesh-Network-Analysis.git
-cd Mesh-Network-Analysis
-python -m venv ~/mesh_env
-~/mesh_env/bin/python -m pip install -e .
-```
+### Results
 
-On **Windows**, create the environment at a short path such as
-`C:\Users\<you>\mesh_env` — not inside a deeply nested or cloud-synced folder.
-Several dependencies ship very long filenames that overflow the 260-character
-`MAX_PATH` limit and abort the install part-way through. See **Troubleshooting**.
+Opens on the **run overview**: the PRISMA-style account of the whole search, in a scrollable, selectable box — records retrieved per citation generation, what the MeSH screen excluded and why, what each optimiser kept, what the consensus and the largest connected component discarded, and what was finally included. Buttons open the full report and the flow diagram; the file listing sits underneath.
 
-Verify the entry points resolve:
+### Menus
 
-```bash
-mesh-pipeline --version
-mesh-check-env
-```
-
-`mesh-check-env` also reports missing OS-level rendering libraries.
+- **Run** — any single step.
+- **Database** — the Data setup screen.
+- **Results** — the run overview.
+- **Tools** — Annotate AOP levels, Show the annotation guide (both greyed until a run has produced something to annotate), Check and repair files, Uninstall.
+- **Help** — this manual, the installation notes, the read-me, the reference-figure provenance, and the annotation instructions.
 
 ---
 
-## Execution Guide
+## Controlling a Run
 
-The pipeline is entirely modular and controlled via a terminal interface. Configuration is handled by an interactive command-line wizard, allowing users to modify runtime parameters safely without touching source code.
+### Pause
 
-> **Invocation by platform.** The examples below use the `mesh-pipeline` command, which works on **macOS/Linux** (and on Windows after activating the venv). On **Windows**, if activation or the `.exe` launcher is blocked, use the equivalent module form with the venv's Python by full path — it behaves identically:
-> ```powershell
-> & "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.cli --step all --interactive
-> ```
-> i.e. replace `mesh-pipeline` with `& "$env:USERPROFILE\mesh_env\Scripts\python.exe" -m mesh_aop.cli` in any command. Always run from the project root so it finds `mesh_config.json` and the `data/` folders.
+**Pause** asks the run to stop at its next safe point — between pipeline stages, and between batches inside the long retrieval loops. It is not instant, and the window says so: on a long step it can take a few minutes, and the status line reads *Pausing* until the run actually reports back, at which point it changes to *Paused at a safe point*. **Resume** lets it continue from exactly where it stopped.
 
-### CLI Flags
+Pausing is cooperative rather than a process suspend, which on a managed
+machine can silently fail and which would in any case freeze the run in the
+middle of a multi-gigabyte database transaction.
 
-| Flag | Description |
-|------|-------------|
-| `--step <name>` | Which pipeline segment to run (`all`, `process`, `data_ops`, `network`, `secondary`, `viz`, `benchmark`). Defaults to `all`. |
-| `--interactive` | Launches the interactive wizard before execution. |
-| `--config <path>` | Path to a custom config JSON. Defaults to `mesh_config.json` in the current directory. |
-| `--readme` | Opens this documentation file in your default OS viewer. |
-| `-v` / `--version` | Prints the installed package version and exits. |
+Time spent paused is excluded from the elapsed clock, so reported durations remain honest.
 
-### Running the Complete Pipeline
+### Abort
 
-To construct a network from the ground up, execute the `all` step. The `--interactive` flag invokes the wizard.
+**Abort run** stops the step for good; its work is lost. The confirmation says how long the run has been going, because that is the fact that changes the decision. Completed steps are kept — a later run resumes from the last one that finished rather than starting over.
 
-```bash
-mesh-pipeline --step all --interactive
+If the run reaches a checkpoint before the process is killed, it exits tidily and reports *Stopped at a safe point*, meaning nothing was left half-written.
 
-```
-
-### Running Individual Modules
-
-If upstream dependencies are already built, specific modules can be executed in isolation.
-
-* **Step 0 & 1:** `mesh-pipeline --step process --interactive` (Database Compilation & MeSH processing)
-* **Step 2:** `mesh-pipeline --step data_ops --interactive` (Entrez API Collection)
-* **Step 3:** `mesh-pipeline --step network --interactive` (Topology & Filtering)
-* **Step 3.5:** `mesh-pipeline --step secondary --interactive` (Targeted Export Analysis)
-* **Step 4:** `mesh-pipeline --step viz --interactive` (Biological Figure Generation)
-* **Step 5:** `mesh-pipeline --step benchmark` (Ground-Truth Validation & Performance Benchmarking)
+From a terminal, the same controls are files: create `pause.flag` in the directory named by `MESH_CONTROL_DIR` to pause, delete it to resume, create `abort.flag` to stop.
 
 ---
 
-## Configuration Wizard Parameter Glossary
+## Settings Reference
 
-The interactive wizard is categorized into discrete blocks. Below is the scientific and computational rationale for each tunable variable.
+Every setting the application shows, tab by tab, with what it does and what changing it costs. The same values are the keys in `mesh_config.json`, so this section serves the command line too.
 
 ### 1. Control Flags & Directories
 
@@ -534,72 +477,6 @@ Each figure has its own switch on the **Figures** tab; unticking one costs nothi
 
 ---
 
-## The Workbench Window
-
-### Data setup
-
-Lists what is on disk **at the paths the pipeline actually uses** — the configured data folder, and the current project prefix. Each row shows Present/Missing, its size, and the actions available:
-
-| Row | What it is |
-| :--- | :--- |
-| Master annotation database | Built from the archive. Required for every run. Hours to rebuild. |
-| PubMed baseline archive | The yearly snapshot, ~50 GB. Only needed to build the database. |
-| PubMed daily updates | Records published since the baseline snapshot. |
-| MeSH descriptor file | Defines the stop-word vocabulary. Fetched automatically. |
-| Retrieved PMIDs / Citation database / Relevance database | Per-project, named with your prefix. |
-
-**Also fetch the daily update files when building** is a checkbox on this screen, so you can see whether it is on without committing to a build first.
-
-Every Build, Rebuild, Download and Delete here asks you to **type `REBUILD` or `DELETE`** before it proceeds. These actions either destroy something that took hours to produce or start something that will take hours to finish, and a yes/no box is one mis-aimed click. Deleting a database also removes its `-wal`, `-shm` and health sidecars — a stale write-ahead log left beside a rebuilt database is worse than useless, because SQLite will try to replay it.
-
-### Settings
-
-Nine tabs: **Search**, **Folders**, **Credentials**, **Analysis**, **Network**, **Consensus**, **Secondary**, **Benchmark** and **Figures**.
-
-Click any control and the description pane at the foot of the window shows what it does, its default, and anything worth knowing before changing it. The Search, Secondary and Benchmark tabs each carry a standing note above that pane covering the tab as a whole.
-
-The **Run** button beside the step list runs whichever step is selected. On the Secondary, Benchmark and Figures tabs it reads **Run secondary analysis**, **Run benchmark** and **Run figures**, and selecting one of those tabs sets the step list to match.
-
-### Before a run starts
-
-Pressing **Run** checks whether this prefix has already produced output for the steps about to execute. If it has, you are shown exactly what would be replaced, with sizes, and offered the chance to change the prefix instead. **If the prefix has not been used for those steps, nothing is asked** — a fresh project never meets a dialog it has no reason to read.
-
-### Results
-
-Opens on the **run overview**: the PRISMA-style account of the whole search, in a scrollable, selectable box — records retrieved per citation generation, what the MeSH screen excluded and why, what each optimiser kept, what the consensus and the largest connected component discarded, and what was finally included. Buttons open the full report and the flow diagram; the file listing sits underneath.
-
-### Menus
-
-- **Run** — any single step.
-- **Database** — the Data setup screen.
-- **Results** — the run overview.
-- **Tools** — Annotate AOP levels, Show the annotation guide (both greyed until a run has produced something to annotate), Check and repair files, Uninstall.
-- **Help** — this manual, the installation notes, the read-me, the reference-figure provenance, and the annotation instructions.
-
----
-
-## Controlling a Run
-
-### Pause
-
-**Pause** asks the run to stop at its next safe point — between pipeline stages, and between batches inside the long retrieval loops. It is not instant, and the window says so: on a long step it can take a few minutes, and the status line reads *Pausing* until the run actually reports back, at which point it changes to *Paused at a safe point*. **Resume** lets it continue from exactly where it stopped.
-
-Pausing is cooperative rather than a process suspend, which on a managed
-machine can silently fail and which would in any case freeze the run in the
-middle of a multi-gigabyte database transaction.
-
-Time spent paused is excluded from the elapsed clock, so reported durations remain honest.
-
-### Abort
-
-**Abort run** stops the step for good; its work is lost. The confirmation says how long the run has been going, because that is the fact that changes the decision. Completed steps are kept — a later run resumes from the last one that finished rather than starting over.
-
-If the run reaches a checkpoint before the process is killed, it exits tidily and reports *Stopped at a safe point*, meaning nothing was left half-written.
-
-From a terminal, the same controls are files: create `pause.flag` in the directory named by `MESH_CONTROL_DIR` to pause, delete it to resume, create `abort.flag` to stop.
-
----
-
 ## When Files Go Wrong
 
 A run that is interrupted — a machine that hibernated, a disk that filled, a sync client caught mid-write — can leave a file that looks complete and is not. It has the right name and a plausible size, and it fails much later, inside a step that had no way to know its input was rubbish.
@@ -759,7 +636,22 @@ supply your own positives, cite whatever they came from instead.
 
 1. **Ground-truth validation.** PMIDs are digit-normalized (fixing the common `19033392.0` float-coercion mismatch), de-duplicated, and split into resolved vs. unresolved (`NOT_FOUND`). Each resolved PMID is sanity-checked for plausibility: an *absolute ceiling* test rejects PMIDs too large to exist yet, and a *chronological* test flags post-1990 papers whose PMID is implausibly large for the cited year (a hallmark of citation→PMID mis-resolution). **Flagged rows are quarantined to a review CSV — never deleted automatically.** When a reference/citation column is present the year check is active; for bare PMID lists only the absolute-ceiling test applies.
 2. **Coverage vs. ranking (kept separate).** *Retrievability ceiling* — how many ground-truth PMIDs are even present in the candidate pool — is reported independently of *ranking quality*, so a low score is correctly attributed to either missing coverage or poor ranking rather than conflated.
-3. **Ranking metrics suited to extreme imbalance & incomplete judgments.** Primary metrics depend only on the positions of known positives and never assume unjudged articles are negatives: **Recall@K, MAP, R-precision, NDCG, Enrichment Factor (top 1 %/5 %)** and **BEDROC** (early recognition). ROC-AUC and PR-AUC are reported but explicitly demoted to secondary diagnostics, because under ~10⁻⁵ prevalence ROC-AUC is over-optimistic and PR-AUC is biased low by treating unjudged articles as negatives.
+3. **Ranking metrics suited to extreme imbalance and incomplete judgments.** The
+   primary metrics depend only on where the known positives rank, and never
+   assume an unjudged article is a negative:
+
+   | Metric | One line |
+   | :--- | :--- |
+   | **Recall@K** | Of your ground truth, the fraction that appears in the top K. |
+   | **MAP** | Mean average precision — rewards putting positives early, not merely somewhere. |
+   | **R-precision** | Precision at K = the number of positives, so it needs no arbitrary cut-off. |
+   | **NDCG** | Discounted gain: a positive at rank 5 counts for more than one at rank 500. |
+   | **Enrichment Factor** | How many times more positives appear in the top 1 % or 5 % than chance would give. |
+   | **BEDROC** | Early recognition, weighted so the very top of the list dominates. The headline number. |
+
+   ROC-AUC and PR-AUC are reported but demoted to secondary diagnostics: at a
+   prevalence near 10⁻⁵, ROC-AUC flatters almost anything, and PR-AUC is biased
+   low because it treats every unjudged article as a negative.
 4. **Uncertainty and baselines.** Every headline metric carries a **bootstrap confidence interval**, and a **permutation null** reports lift-over-random with an empirical p-value. A structural baseline (number of bridged network nodes) and an optional **negative-control** ground-truth set (which should score near random) guard against the network merely surfacing generically popular papers.
 
 ### Outputs
@@ -770,7 +662,18 @@ Written to `results/benchmark/`:
 * `*_benchmark_quarantined_pmids.csv` — ground-truth rows flagged as implausible, for manual adjudication.
 * `*_benchmark_enrichment.png` — cumulative recall (enrichment) curve: ground-truth recovery vs. fraction of the pool screened.
 * `validation/*_validation_report.xlsx` / `.html` + figures — the consolidated **node-weighting** comparison across four framings (corpus / within-query / outside / hybrid) with BEDROC and paired bootstraps (from `run_network_validation`).
-* `validation/*_projection_comparison.csv` + figure — the article-scoring **projection** comparison (normalised ARS vs unnormalised sum vs MRS-weighted vs bipartite vs BM25/baselines) by BEDROC across three frames (from `run_projection_comparison`).
+* `validation/*_projection_comparison.csv` + figure — the article-scoring **projection** comparison, by BEDROC across three frames (from `run_projection_comparison`). It scores the alternative ways of turning node weights into an article score against each other:
+
+  | Projection | What it does |
+  | :--- | :--- |
+  | **Normalised ARS** | The bipartite projection described above — the one the pipeline uses. |
+  | **Unnormalised sum** | The same sum without the degree damping, so breadth is rewarded. |
+  | **MRS-weighted** | Weights terms by MRS rather than by raw node weight. |
+  | **Bipartite-reinforced** | Lets article and term scores reinforce each other over further iterations. |
+  | **BM25** | The standard information-retrieval ranking function, treating an article's MeSH headings as its text and the network's terms as the query. A well-understood external baseline. |
+  | **Uniform** | Every network term weighted 1 — measures how much the weighting is contributing at all. |
+  | **Random** | The floor. |
+  | **Naive query** | Rank by the single primary node, as a plain PubMed search would. |
 
 > **Note on incomplete judgments:** the non-ground-truth articles are *unjudged*, not confirmed negatives. This is why recall- and rank-based metrics (which only need positive positions) are the headline numbers, while precision/PR-AUC are interpreted with caution. For the most rigorous citation→PMID verification, cross-check publication years online via NCBI Entrez (not enabled by default, as it requires network access).
 
@@ -797,65 +700,20 @@ It runs *before* the ranking benchmark (it takes minutes rather than tens of min
 
 ---
 
-## Jupyter Notebook Interface
+## User-Provided Files — Quick Reference
 
-Every module in `src/mesh_aop/` has a corresponding Jupyter notebook in `src/mesh_aop_notebooks/`. These notebooks mirror the source modules cell-by-cell and are intended for:
+Everything a user supplies, where it goes, and how the pipeline picks it up. Most inputs are automatic or optional: only the MeSH XML (auto-downloaded) is **always** needed, plus a ground-truth list **only if** you benchmark your own data.
 
-* **Interactive exploration** — step through the pipeline one cell at a time and inspect intermediate data structures.
-* **Prototyping** — experiment with individual functions (e.g., tweak GLF parameters and re-run only the filtering step) without triggering the full CLI orchestration.
-* **Debugging** — isolate a specific module and inspect its inputs and outputs in a notebook environment.
+| File | Where it goes | How it's picked up | Format / structure |
+|---|---|---|---|
+| **MeSH descriptor XML** | `data/raw/descYYYY.xml` | Auto-downloaded from NLM if missing (§1); or place manually | Unmodified NLM MeSH descriptor XML |
+| **Ground-truth PMIDs** (benchmark) | `data/raw/` (own data), or a path | Auto-detected by name, or `benchmark.ground_truth_csv`; requires `run_ground_truth_analysis = true` | `PMID` column required — see **Ground Truth** below |
+| **Negative-control PMIDs** (optional) | `data/raw/`, or a path | `benchmark.negative_control_csv` (filename or path) | Same structure as ground truth |
+| **Comparison networks** (optional) | `data/processed/`, or a path | `comparison_networks` list when `compare_networks` is on | Pipeline network JSON (Cytoscape) or a networkx-readable graph — **reuse `*_consensus_lcc_network.json` outputs; do not hand-author** |
+| **AOP strata annotations** | `results/*_run_annotations.csv` (generated) | You edit the generated template during the Step-3 pause | Semicolon-delimited; assign one of the 7 strata |
+| **Entrez credentials** | wizard, or environment variables | `MESH_ENTREZ_EMAIL` / `MESH_ENTREZ_API_KEY`, or the wizard | Email + NCBI API key |
 
-Each notebook contains its own `mesh_config.json` and `environment.yml` references so it can be run independently from the `src/mesh_aop_notebooks/` directory if needed.
-
----
-
-## Programmatic API Usage
-
-The package exposes a clean Python API through its `__init__.py`. All pipeline functions can be imported and called directly without using the CLI, which is useful for embedding the analysis within a larger workflow or Jupyter-based research pipeline.
-
-```python
-from mesh_aop import (
-    MeshConfig,
-    process_raw_mesh_data,
-    run_initial_data_collection,
-    run_network_construction,
-    run_consensus_filtering_and_lcc,
-    run_community_detection,
-    run_mean_relevancy_scoring,
-    get_top_network_articles,
-    plot_sankey_alluvial,
-)
-
-# Load config (merges factory defaults with your local mesh_config.json)
-config = MeshConfig(config_path="mesh_config.json")
-
-# Step 1 – Extract MeSH terms from XML
-process_raw_mesh_data(
-    xml_file=config.files['mesh_xml'],
-    output_csv=config.files['mesh_terms_csv'],
-    output_py=config.files['mesh_stopwords_py'],
-)
-
-# Step 2 – Collect articles from NCBI Entrez
-run_initial_data_collection(
-    search_term_param=config.get('search_parameters', 'search_term'),
-    start_date_str=config.get('search_parameters', 'start_date'),
-    end_date_str=config.get('search_parameters', 'end_date'),
-    generations_n_param=config.get('search_parameters', 'generations_n'),
-    db_path=config.files['pmids_db'],
-    entrez_email=config.get('credentials', 'entrez_email'),
-    entrez_api_key=config.get('credentials', 'entrez_api_key'),
-)
-
-# Step 3 – Build and filter the network
-run_network_construction(db_path_param=config.files['cleaned_db'],
-                         output_json_path=config.files['full_network'], ...)
-run_consensus_filtering_and_lcc(...)
-run_community_detection(network_file_path=config.files['consensus_lcc'], ...)
-run_mean_relevancy_scoring(...)
-```
-
-The full list of exported symbols is defined in `src/mesh_aop/__init__.py`.
+**Templates** for the files you create yourself ship next to where they belong (e.g. [`data/raw/ground_truth_pmids.template.csv`](data/raw/ground_truth_pmids.template.csv)) — copy, rename, and fill. Everything else in `data/processed/`, the network JSONs, the relevance databases, and all figures is **generated** — never hand-authored.
 
 ---
 
@@ -944,6 +802,70 @@ The `baseline_manager` uses a verified safe-transfer architecture specifically t
 ### Convergence Warnings for Eigenvector Centrality
 
 On sparse or disconnected graphs, the power-iteration solver may not converge within the default 1000 iterations. Increase `eigenvector_max_iter` in `mesh_config.json` or lower `eigenvector_tol` to relax the stopping criterion.
+
+---
+
+## Repository Structure
+
+The package assumes and enforces the following directory architecture.
+
+```text
+Mesh-Network-Analysis/
+│
+├── data/                               # Data storage
+│   ├── raw/                            # Inputs for a run
+│   │   ├── aop_annotations_master.csv  # Ships w/ repo: AOP strata dictionary (pre-seeded; grows each run)
+│   │   ├── desc2025.xml                # Auto-downloaded from NLM if missing (or place manually); not in repo
+│   │   ├── ground_truth_pmids.template.csv # Ships w/ repo: copy+fill for your own benchmark set
+│   │   ├── ground_truth_pmids.csv      # Optional, you place this: YOUR benchmark set (see "Ground Truth")
+│   │   ├── master_mesh_database.db     # Auto-generated: offline PubMed corpus (Step 0)
+│   │   ├── pubmed_baseline/            # Auto-downloaded: NLM Baseline XMLs (~40GB, Step 0)
+│   │   └── pubmed_updates/             # Auto-downloaded: NLM Daily Update XMLs (optional)
+│   ├── processed/                      # Auto-generated: pipeline databases and JSONs (starts empty)
+│   ├── reference_raw/                  # Ships w/ repo: bundled reference inputs
+│   │   └── oecd_resolved_citations.csv # OECD AOP-40 citation->PMID table (the bundled ground-truth source)
+│   └── reference_processed/            # Ships w/ repo: curated OECD ground-truth set + bundled reference network
+│
+├── results/                            # Output artifacts (auto-generated)
+│   ├── figures/                        # High-resolution pipeline plots (.png, .tif, .html)
+│   ├── benchmark/                      # All --step benchmark outputs (ranking + ground-truth)
+│   │   └── validation/                 # Node-weighting + projection report
+│   ├── logs/                           # System logs and failed fetch records
+│   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
+│   ├── *_Top_Network_Articles.csv      # Secondary analysis exports
+│   └── *_export.xlsx                   # Exported full network tables
+│
+├── src/
+│   ├── mesh_aop/                       # Core Python package modules
+│   │   ├── __init__.py
+│   │   ├── baseline_manager.py         # Multi-core MapReduce ETL for the Master Database
+│   │   ├── benchmark.py                # Ground-truth validation & performance benchmarking
+│   │   ├── check_env.py                # System environment & dependency verification
+│   │   ├── cli.py                      # Orchestrator and CLI entry point
+│   │   ├── config_parser.py            # Two-tier configuration engine
+│   │   ├── data_ops.py                 # SQLite and NCBI Entrez querying
+│   │   ├── gt_network_validation.py    # Node/edge convergent ground-truth validation
+│   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
+│   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
+│   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
+│   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
+│   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
+│   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
+│   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
+│   │   ├── validation_report.py        # Consolidated node-weighting + projection evaluation
+│   │   ├── viz.py                      # Matplotlib, Seaborn, and Plotly graphics
+│   │   └── wizard.py                   # Interactive configuration module
+│   └── mesh_aop_notebooks/             # Jupyter notebook equivalents of each module
+│       └── *.ipynb                     # One notebook per module for interactive exploration
+│
+├── environment.yml                     # Mamba/Conda cross-platform dependency resolution
+├── pyproject.toml                      # Modern Python package specification
+├── mesh_config.json                    # Runtime user config (auto-generated; git-ignored, not in repo)
+├── LICENSE                             # MIT License
+└── README.md                           # This document
+
+
+```
 
 ---
 

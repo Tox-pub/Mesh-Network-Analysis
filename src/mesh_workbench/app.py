@@ -1107,7 +1107,7 @@ class Workbench(tk.Tk):
                  build='Build', rebuild='Rebuild', delete=True, cost='hours'),
             dict(key='baseline', label='PubMed baseline archive',
                  path=str(raw / 'pubmed_baseline'),
-                 note='The yearly snapshot, ~44 GB. Only needed to build the database.',
+                 note='The yearly snapshot, ~50 GB. Only needed to build the database.',
                  build='Download', rebuild='Re-download', delete=True, cost='hours'),
             dict(key='updates', label='PubMed daily updates',
                  path=str(raw / 'pubmed_updates'),
@@ -1182,6 +1182,8 @@ class Workbench(tk.Tk):
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
                 row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
 
+        self._setup_other_projects(cfg, prefix)
+        self._setup_folder_totals(cfg)
         self._setup_services()
 
         self.setup_total.config(
@@ -1193,6 +1195,107 @@ class Workbench(tk.Tk):
         # What the watcher below compares against.
         self._watch_paths = [it['path'] for it in items]
         self._watch_sig = self._disk_signature()
+
+    def _setup_other_projects(self, cfg, prefix):
+        """What earlier projects left in the databases folder.
+
+        Every search builds its own PMID, citation and relevance databases,
+        named for its project prefix, and nothing removes them when the prefix
+        changes. They accumulate quietly and are gigabytes each, so the screen
+        that accounts for disk use has to account for them too.
+        """
+        import collections
+        db_dir = str(cfg.databases_dir)
+        if not os.path.isdir(db_dir):
+            return
+
+        by_prefix = collections.defaultdict(lambda: [0, 0])       # files, bytes
+        for name in sorted(os.listdir(db_dir)):
+            path = os.path.join(db_dir, name)
+            if not os.path.isfile(path) or not name.endswith('.db'):
+                continue
+            if name.startswith('master_mesh'):
+                continue                                          # its own row
+            # Longest suffix first: '_cleaned_pmids.db' also ends with
+            # '_pmids.db', and matching the shorter one would read the prefix
+            # of 'DAC_Mesh_cleaned_pmids.db' as 'DAC_Mesh_cleaned'.
+            owner = None
+            for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
+                           '_mean_relevancy.db', '_pmids.db'):
+                if name.endswith(marker):
+                    owner = name[:-len(marker)]
+                    break
+            if owner is None or owner == prefix:
+                continue                                          # this project's
+            try:
+                by_prefix[owner][0] += 1
+                by_prefix[owner][1] += os.path.getsize(path)
+            except OSError:
+                pass
+
+        if not by_prefix:
+            return
+        files = sum(v[0] for v in by_prefix.values())
+        size = sum(v[1] for v in by_prefix.values())
+        names = ', '.join(sorted(by_prefix)[:3])
+        if len(by_prefix) > 3:
+            names += f' and {len(by_prefix) - 3} more'
+
+        row = tk.Frame(self.setup_rows, bg=FACE)
+        row.pack(fill='x', pady=2, padx=4)
+        self._setup_cols(row)
+        tk.Label(row, text='Databases from other projects', bg=FACE,
+                 font=self.f_bold, anchor='w', wraplength=self.px(285),
+                 justify='left').grid(row=0, column=0, sticky='w')
+        tk.Label(row, text=f'{files} file(s) under {len(by_prefix)} prefix(es): {names}',
+                 bg=FACE, fg=DIM, anchor='w', wraplength=self.px(285),
+                 justify='left').grid(row=1, column=0, sticky='w')
+        tk.Label(row, text='Kept', bg=FACE, fg=DIM, font=self.f_bold,
+                 anchor='w').grid(row=0, column=1, sticky='w')
+        tk.Label(row, text=f'{size / 1e9:,.2f} GB', bg=FACE, anchor='e'
+                 ).grid(row=0, column=2, sticky='e', padx=(0, 8))
+        buttons = tk.Frame(row, bg=FACE)
+        buttons.grid(row=0, column=4, rowspan=2, sticky='e', padx=4)
+        tk.Button(buttons, text='Show folder', width=12,
+                  command=lambda d=db_dir: self._open_path(d)).pack(side='left', padx=2)
+        tk.Frame(row, bg='#b0b0b0', height=1).grid(
+            row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
+
+    def _setup_folder_totals(self, cfg):
+        """How large the two folders actually are.
+
+        The rows above account for the files this screen knows by name. Someone
+        wondering where the disk went needs the totals as well, because logs,
+        figures, exports and older layouts all sit in the same two trees.
+        """
+        for label, path, note in (
+            ('Raw data folder', str(cfg.active_raw_dir),
+             'Everything downloaded: archives and the MeSH descriptor file.'),
+            ('Working files folder', str(cfg.active_source_dir),
+             'Networks, databases and anything built from the downloads.'),
+        ):
+            if not os.path.isdir(path):
+                continue
+            row = tk.Frame(self.setup_rows, bg=FACE)
+            row.pack(fill='x', pady=2, padx=4)
+            self._setup_cols(row)
+            tk.Label(row, text=label, bg=FACE, font=self.f_bold, anchor='w',
+                     wraplength=self.px(285), justify='left'
+                     ).grid(row=0, column=0, sticky='w')
+            tk.Label(row, text=note, bg=FACE, fg=DIM, anchor='w',
+                     wraplength=self.px(285), justify='left'
+                     ).grid(row=1, column=0, sticky='w')
+            tk.Label(row, text='Total', bg=FACE, fg=DIM, font=self.f_bold,
+                     anchor='w').grid(row=0, column=1, sticky='w')
+            gb = _size_gb(path)
+            tk.Label(row, text=(f'{gb:,.2f} GB' if gb is not None else '-'),
+                     bg=FACE, anchor='e').grid(row=0, column=2, sticky='e', padx=(0, 8))
+            buttons = tk.Frame(row, bg=FACE)
+            buttons.grid(row=0, column=4, rowspan=2, sticky='e', padx=4)
+            tk.Button(buttons, text='Show folder', width=12,
+                      command=lambda d=path: self._open_path(d)).pack(side='left', padx=2)
+            tk.Frame(row, bg='#b0b0b0', height=1).grid(
+                row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
 
     # The services a run cannot finish without. Everything on this screen is
     # about whether the run can start; a file being present and the service
@@ -1289,7 +1392,7 @@ class Workbench(tk.Tk):
         """A cheap fingerprint of the tracked files: present, and changed when.
 
         Deliberately stat-only. _size_gb walks a directory tree to total it,
-        which on the 44 GB baseline archive is far too expensive to repeat on a
+        which on the 50 GB baseline archive is far too expensive to repeat on a
         timer - this has to be affordable every few seconds.
         """
         sig = []
@@ -1499,7 +1602,7 @@ class Workbench(tk.Tk):
             if present and not self.confirm_typed(
                     'Download the baseline again', 'REBUILD',
                     'The PubMed baseline archive is already here. Downloading it '
-                    'again fetches roughly 44 GB and takes hours.',
+                    'again fetches roughly 50 GB and takes hours.',
                     'You almost certainly do not need this. To rebuild the '
                     'database from the archive you already have, use Rebuild on '
                     'the master database row instead.'):
@@ -1525,7 +1628,7 @@ class Workbench(tk.Tk):
             extra.append('--rebuild-corrupt')
         elif not have_archive and not self.confirm_typed(
                 'Download and build', 'REBUILD',
-                'No archive is present, so it is downloaded first: roughly 44 GB, '
+                'No archive is present, so it is downloaded first: roughly 50 GB, '
                 'and several hours on a fast connection. Compiling it afterwards '
                 'depends on memory more than on processor - 16 GB or more runs '
                 'comfortably, less than that slows sharply.\n\nThe download '

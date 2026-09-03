@@ -110,11 +110,11 @@ WHAT IT IS
     is built once and then reused by every run.
 
 WHY YOU SHOULD NOT DELETE IT CASUALLY
-    Building it means downloading roughly 44 GB from the NLM and compiling it
+    Building it means downloading roughly 50 GB from the NLM and compiling it
     into a database of about 8 GB. That takes several hours and, on a slow
     connection, most of a day. It is by far the longest thing this program does.
 
-    The 44 GB of downloaded archives, on the other hand, ARE safe to delete once
+    The 50 GB of downloaded archives, on the other hand, ARE safe to delete once
     the database exists. The Data Setup screen has a button for exactly that.
 
 HOW TO REBUILD IT

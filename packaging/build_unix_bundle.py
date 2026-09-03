@@ -603,8 +603,11 @@ def build(target, out_dir, stripped=True):
     # Our own licence travels with the program. Redistributing CPython, Tcl/Tk
     # and forty compiled wheels without stating what any of it is licensed
     # under is not a defensible thing to publish.
+    # COMMAND-LINE.md travels with the notebooks: this bundle carries both, and
+    # someone reading one wants the other. The Windows portable ships neither.
     for f in ('LICENSE', 'THIRD-PARTY-NOTICES.md', 'CITATION.cff',
-                 'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md'):
+                 'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md',
+                 'COMMAND-LINE.md'):
         src = os.path.join(REPO, f)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(app, f))

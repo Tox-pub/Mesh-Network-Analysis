@@ -533,7 +533,7 @@ class MeshConfig:
         database can predate two different moves - the master annotation
         database was written to raw/ for most of this project's life, and the
         project databases were written flat into processed/. Neither is worth
-        making anyone rebuild: the master one is a 44 GB download and several
+        making anyone rebuild: the master one is a 50 GB download and several
         hours of compilation.
         """
         preferred = self.databases_dir / name

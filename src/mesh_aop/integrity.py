@@ -8,7 +8,7 @@ a OneDrive client that dehydrates a file mid-write, and what is left behind look
 complete - right name, plausible size - and fails much later, deep inside a step
 that had no way to know its input was rubbish.
 
-The cost is asymmetric. The master annotation database is 44 GB downloaded and
+The cost is asymmetric. The master annotation database is 50 GB downloaded and
 several hours compiled; everything else is derived from it and takes minutes.
 So the checks here are deliberately unequal: the master database is verified
 structurally and recorded in a health file so damage is caught the moment it
