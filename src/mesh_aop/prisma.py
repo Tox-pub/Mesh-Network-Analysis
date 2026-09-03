@@ -126,7 +126,7 @@ def build_flow(ledger):
     target = g('pruning', 'target_edges')
     if target is not None:
         kept.append(f"Edge budget set for the optimisers: {_fmt(target)}")
-    for key, label in (('glf', 'Graph Likelihood Filtering'), ('sa', 'Simulated Annealing')):
+    for key, label in (('glf', 'Global Likelihood Filter'), ('sa', 'Simulated Annealing')):
         n, e = g('pruning', f'{key}_nodes'), g('pruning', f'{key}_edges')
         if n is not None:
             kept.append(f"{label}: {_fmt(n)} terms, {_fmt(e)} relations")

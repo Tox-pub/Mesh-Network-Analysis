@@ -9,9 +9,30 @@ overview see the [README](README.md).
 
 This repository contains a comprehensive computational pipeline designed to construct, filter, and analyze knowledge graphs representing Adverse Outcome Pathways (**AOPs**) and biological flows. By leveraging the NCBI Entrez API and the complete offline NLM PubMed Baseline, the pipeline extracts primary literature associated with specific Medical Subject Headings (**MeSH**), maps multi-generational citation topologies, and calculates semantic co-occurrence networks.
 
-The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global-Local Filtering (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Mean Relevancy Scoring (MRS) to rank nodes and edges based on their impact within the global corpus of literature.
+The system connects **Stressors** (e.g., chemicals) to **Adverse Outcomes** (e.g., diseases) through biological intermediates. It utilizes Global Likelihood Filter (GLF) and Simulated Annealing (SA) to optimize subgraph density, Louvain heuristics for community detection, and Mean Relevancy Scoring (MRS) to rank nodes and edges based on their impact within the global corpus of literature.
 
 ---
+
+### Terms used throughout
+
+| Term | Means |
+| :--- | :--- |
+| **GLF** — Global Likelihood Filter | One of the two edge filters whose agreement forms the consensus network. An ensemble method that scores an edge against a null model accounting for correlations between edges. From Dianati (2016); the name is his. |
+| **MLF** — Marginal Likelihood Filter | The faster filter from the same paper, scoring each edge against the marginal distribution of edge weights. Used here for the per-edge p-values recorded on the full graph. |
+| **SA** — Simulated Annealing | The second optimiser. It searches the same space as GLF from a different starting point and by a different rule, so agreement between them means more than either alone. |
+| **ARS** — Article Relevance Score | Per **article**. How much network-term weight an article carries, normalised by how many network terms it has and by how common each is. Computed for every weighting, in `*_mean_relevancy.db` as `score_*` columns. |
+| **MRS** — Mean Relevancy Score | Per **term**. The mean ARS of the articles a term appears in — how strongly the literature that mentions a term supports the network built around it. Written back onto each node as `MRS_*`. |
+| **P0** | The article set the initial PubMed query returned, before any citation expansion. |
+| **Gn** | Articles reached after *n* citation hops from P0. |
+| **Consensus network** | The edges GLF and SA both kept, reduced to the largest connected component. |
+| **Subgraph centrality** | A centrality recomputed on the consensus network rather than the whole corpus graph, so it measures importance within the curated concept space. |
+
+**On GLF specifically.** The filter this pipeline runs is the Global Likelihood Filter of:
+
+> Dianati, N. (2016). *Unwinding the hairball graph: Pruning algorithms for weighted complex networks.* Physical Review E, **93**, 012304. <https://doi.org/10.1103/PhysRevE.93.012304>
+
+Cite it if you report a filtered network. Earlier versions of this documentation expanded GLF as "Global-Local Filtering", and parts of the source as "Graph Likelihood Filtering" — both were wrong, and are corrected throughout.
+
 
 ## Table of Contents
 
@@ -267,6 +288,13 @@ The interactive wizard is categorized into discrete blocks. Below is the scienti
 
 #### Using the bundled reference data
 
+> **Cite the ground truth if you use it.** The curated PMID set behind the bundled corpus is a resolution of the bibliography of:
+>
+> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
+>
+> It is AOP 40. The set is a resolution of that bibliography, not an independent selection, so the document is what a methods section should cite.
+
+
 **This is for demonstration, not for research.** A first real run means a long PubMed download and a full rebuild before you see a single figure. Ticking this box instead analyses a network that already exists — the allergic contact dermatitis network published with this software, already built and scored — so the figures, the workflow report and the benchmark come out in minutes. Use it to judge whether the outputs are what you want, and to learn where everything lands on disk, before committing to a retrieval of your own.
 
 What you **cannot** do with it is change the corpus. The articles behind that network are fixed, the retrieval that produced them is not repeated and cannot be varied, and any finding in it is already published — it is not yours. Untick the box and run your own search for that.
@@ -316,7 +344,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 ### 5. Analysis Parameters
 
 * **Calculate Full Centrality (Boolean):** Controls **how betweenness is computed, not whether centrality is computed at all**. If `True`, betweenness is calculated **exactly** over every node pair. If `False` (Default), it is **estimated** from a sample of `betweenness_k_samples` source nodes, which is dramatically faster and bounds memory on large graphs.
-  * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Mean Relevancy Scores (MRS) are produced normally in both modes. The only difference is that betweenness — and therefore the betweenness-weighted ARS/MRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
+  * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Mean Relevancy Scores (MRS) are produced normally in both modes. The only difference is that WHOLE-GRAPH betweenness — and therefore the betweenness-weighted ARS/MRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
 * **Betweenness K-Samples:** Heuristic sampling limit for Centrality calculation. Lower values increase speed but reduce precision.
 * **Context Start / End Date:** Temporal constraints applied exclusively to Step 3 Mean Relevancy Scoring, allowing the simulation of historical network states.
 * **Random Seed:** Integer seed passed to NetworkX and scikit-learn for reproducible t-SNE projections and community detection. Default: `42`.
@@ -393,7 +421,7 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 
   Increasing the count tightens the bootstrap confidence intervals and stabilizes the permutation p-value, but runtime grows proportionally; decreasing it runs faster at the cost of noisier, less reliable estimates. The default (`25`) is a practical balance. Interval precision is ultimately bounded by the number of ground-truth positives rather than by `n_boot`, so values well beyond `200` give diminishing returns.
 * **`run_ground_truth_analysis` (Boolean):** Master switch for the whole step. **If unset it follows `Use Reference Data`** — on when you are running against the bundled reference corpus (which the bundled ground truth describes), off when you are running your own data (where that ground truth would not apply). Set it explicitly to override. The interactive wizard prompts for it first in this section.
-  When enabled, this **also** causes betweenness **and** PageRank to be recomputed on the filtered consensus subgraph, in addition to the whole-corpus versions, and scored as extra benchmark scorers (`betweenness (subgraph)`, `pagerank (subgraph)`). Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space. Computing both for both algorithms makes centrality **scope** and centrality **type** a full 2×2 rather than confounding them. Note the subgraph betweenness is computed **exactly** (the subgraph is small), unlike the whole-graph estimate. The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant — it is the single control for all four. Because this decision changes which centralities are computed, it is read at the **network** step, so the wizard offers the flag during `--step network` as well; the benchmark scores whichever `score_*` columns relevance actually produced.
+  The six subgraph centralities are **no longer tied to this flag**. They are computed whenever a network is built, because they cost about 40 milliseconds on a network of the size this pipeline produces, and gating them meant deciding about the benchmark before building the network — turning it on later forced a network rebuild to recover attributes worth a fraction of a second. Whole-corpus centrality measures importance across the entire literature, where generic high-degree MeSH terms dominate; subgraph centrality measures it within the curated concept space, so having both makes centrality **scope** and centrality **type** a full grid rather than confounding them. Subgraph betweenness is computed **exactly** unless the network is very large, where it falls back to sampled sources and says so in the run log — Brandes is O(n·m) and at this pipeline's density that is roughly cubic in node count (41 ms at 173 nodes, 2.5 s at 1,000, 109 s at 4,000). The `n_seeds` baseline is a uniform weight of 1 per node and therefore scope-invariant, the single control for all of them.
 * **`run_network_validation` (Boolean):** If `True` (default), also runs the node/edge convergent validation described under **Validation & Benchmarking**. Set `False` to run only the article ranking benchmark.
 * **`run_projection_comparison` (Boolean):** If `True` (default), also runs the article-scoring **projection comparison** — with the node seed fixed, it scores the alternative ways of turning node weights into an article score (normalised ARS, unnormalised sum, MRS-weighted, bipartite-reinforced, BM25, uniform, random, naive query) by BEDROC across three frames with positives-only bootstrap CIs, writing `{prefix}_projection_comparison.csv` and a figure to `results/validation/`. Set `False` to skip it.
 * **`network_validation_weight_key`:** Node attribute used as the "network weight" when correlating a node's ground-truth prominence against its importance. Default `MRS_pagerank_centrality`; set to `MRS_betweenness_centrality` to compare against the betweenness weighting instead. The wizard also lets you choose any raw or MRS centrality (betweenness / pagerank / eigenvector, whole-graph or subgraph).
@@ -880,18 +908,38 @@ On sparse or disconnected graphs, the power-iteration solver may not converge wi
 
 ## Citation
 
-If you use this code or methodology, please cite:
+If you use this software, or a network it produced, in published work, please cite it:
 
-> *[To be updated after publication]*
+```
+Sax, J. (2026). MeSH Workbench: MeSH co-occurrence concept networks for Adverse Outcome Pathways (Version 3.2.0) [Computer software]. https://github.com/Tox-pub/Mesh-Network-Analysis
+```
 
 Archived release: [10.5281/zenodo.18662959](https://doi.org/10.5281/zenodo.18662959)
+A machine-readable version ships as `CITATION.cff`, and **Help → Cite this Program** shows the same text with BibTeX.
 
-**If you also use the bundled ground truth**, cite its source document as well — the curated PMID set is a resolution of this bibliography, not an independent selection:
+### Also cite the methods this rests on
 
-> OECD (2014), *The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins*, OECD Series on Testing and Assessment, No. 168, OECD Publishing, Paris. <https://doi.org/10.1787/9789264221444-en>
+These are other people's work, implemented here. A methods section describing the filtering or the ground truth without citing them is incomplete.
 
-See [The Bundled OECD Ground Truth](#the-bundled-oecd-ground-truth) for how the set was derived from it.
+* **Edge filtering (GLF)** — Dianati, N. (2016). Unwinding the hairball graph: Pruning algorithms for weighted complex networks. Physical Review E, 93, 012304. https://doi.org/10.1103/PhysRevE.93.012304
+  The Global Likelihood Filter this pipeline runs as one of its two optimisers. The same paper introduces the Marginal Likelihood Filter (MLF), used here for per-edge p-values.
+
+* **Ground-truth set (reference corpus)** — OECD (2014). The Adverse Outcome Pathway for Skin Sensitisation Initiated by Covalent Binding to Proteins. OECD Series on Testing and Assessment No. 168. OECD Publishing, Paris. https://doi.org/10.1787/9789264221444-en
+  AOP 40. The curated positive set the bundled reference corpus is validated against comes from the references of this document.
+
+* **Community detection** — Blondel, V. D., Guillaume, J.-L., Lambiotte, R., & Lefebvre, E. (2008). Fast unfolding of communities in large networks. Journal of Statistical Mechanics: Theory and Experiment, 2008(10), P10008.
+  The Louvain method, used to partition the consensus network.
+
+* **Early-recognition metric** — Truchon, J.-F., & Bayly, C. I. (2007). Evaluating virtual screening methods: Good and bad metrics for the "early recognition" problem. Journal of Chemical Information and Modeling, 47(2), 488-508.
+  BEDROC, the benchmark's headline ranking metric.
+
+* **Article citation counts** — Hutchins, B. I., Baker, K. L., Davis, M. T., et al. (2019). The NIH Open Citation Collection: A public access, broad coverage resource. PLOS Biology, 17(10), e3000385.
+  The iCite API, which supplies the citation side of the Article Impact Score.
 
 ## License
 
-[MIT License]
+MIT License. Copyright (c) 2026 Tox-pub.
+
+Free to use, modify and redistribute, including commercially, provided the copyright notice and licence text are kept. Provided without warranty of any kind. The full text ships as `LICENSE`, and the bundled CPython, Tcl/Tk and Python libraries carry their own licences, listed in `THIRD-PARTY-NOTICES.md`.
+
+In the application: **Help → License**.

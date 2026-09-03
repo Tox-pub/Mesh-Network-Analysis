@@ -187,11 +187,11 @@ TABS = [
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
-          'Identifies you to Entrez, as NCBI requires. See Help - Manual on details on how to acquire one.', 
+          'Identifies you to Entrez, as NCBI requires. See Help > MeSH Workbench Manual on details on how to acquire one.', 
           'Default: none.',
           'Required for retrieval. NCBI may block requests that do not carry it.'),
         F('credentials.entrez_api_key', 'NCBI API key', 'text', '',
-          'Raises the Entrez rate limit from 3 to 10 requests per second.  See Help - Manual on details on how to acquire one.',
+          'Raises the Entrez rate limit from 3 to 10 requests per second.  See Help > MeSH Workbench Manual on details on how to acquire one.',
           'Default: none.',
           'Optional but strongly recommended - retrieval is several times faster '
           'with one. Stored on this machine only. Removed by emptying the field and clicking SAVE or on uninstall.'),
@@ -262,7 +262,7 @@ TABS = [
     ('Consensus', [
         F('simulation_parameters.target_num_edges', 'Target edge count (per optimiser)', 'int', 500,
           'How many edges EACH optimiser searches for. Not how many you get.',
-          'Default: 500 - so 500 for global likelihood filtering (GLF) and 500 '
+          'Default: 500 - so 500 for Global Likelihood Filter (GLF) and 500 '
           'for simulated annealing (SA), independently.',
           'The network is built by consensus. Two different random-walk algorithms each '
           'pick the set of edges they find to be the least random at explaining the co-occurrence '
@@ -277,8 +277,8 @@ TABS = [
           'both searches and usually widens the consensus too, but never to the '
           'number set here.'),
         F('simulation_parameters.glf_iterations',
-          'Global likelihood filtering (GLF) iterations', 'int', 5000000,
-          'Metropolis proposals for graph likelihood filtering - GLF, the first '
+          'Global Likelihood Filter (GLF) iterations', 'int', 5000000,
+          'Metropolis proposals for Global Likelihood Filter - GLF, the first '
           'of the two optimisers whose consensus forms the network.',
           'Default: 5,000,000.',
           'Below about 1M the search may not converge, the two heuristics agree '
@@ -430,7 +430,7 @@ TABS = [
           'eigenvector, whole-corpus or subgraph. MRS is the score adjusted by '
           'how strongly the literature supports the term; subgraph means '
           'centrality measured within the consensus network rather than the '
-          'whole corpus. See Help - Manual for more details.\n'
+          'whole corpus. See Help > MeSH Workbench Manual for more details.\n'
           '\n'
           'The six subgraph options only exist on full pipeline runs with complete networks.',
           ['MRS_pagerank_centrality',
@@ -507,7 +507,7 @@ TABS = [
           'Colours are viridis, min-max scaled across the terms drawn, so the '
           'full range of the scale is used however narrow the spread is - dark '
           'purple is the lowest value present, yellow the highest. The colour '
-          'bar carries the real numbers. See Help - Manual for further explanation of the metrics.',
+          'bar carries the real numbers. See Help > MeSH Workbench Manual for further explanation of the metrics.',
           ['MRS_pagerank_centrality',
            'MRS_betweenness_centrality',
            'MRS_eigenvector_centrality',
@@ -630,7 +630,7 @@ TAB_NOTES = {
         'secondary analysis and the figures. It does NOT run the benchmark. '
         'That is deliberate: the benchmark scores every weighting against every '
         'article in the corpus, which takes a good while on a full-sized one, '
-        'and most runs do not need it. See Help - Manual for more details.\n'
+        'and most runs do not need it. See Help > MeSH Workbench Manual for more details.\n'
         '\n'
         'To run it, pick "benchmark - ground truth & validation" from the step '
         'list and press Run. Everything it needs is already on disk by then, so '
@@ -651,7 +651,7 @@ TAB_NOTES = {
         'The prefixed one is looked for first, so each project can keep its own '
         'set side by side without renaming anything between runs.\n'
         '\n'
-        'BUILDING YOUR OWN. Press Help for the walkthrough: which columns are '
+        'BUILDING YOUR OWN. See Help > MeSH Workbench Manual for the walkthrough: which columns are '
         'required, what the headers must be called, and how your PMIDs are '
         'matched against the corpus.\n'
         '\n'
@@ -688,10 +688,7 @@ TAB_NOTES = {
         '\n'
         'Nothing here has to be set before the network is built. The subgraph '
         'centralities every weighting needs are computed whenever a network '
-        'is, so the benchmark can be turned on whenever you want it. A '
-        'network built by an older version may lack them, and the step then '
-        'says so and names what it does have rather than scoring every node '
-        'as zero.'),
+        'is, so the benchmark can be turned on whenever you want it.'),
 }
 
 

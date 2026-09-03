@@ -8,7 +8,7 @@ and reduces it to an interpretable consensus subgraph.
 The module builds the full NetworkX graph together with per-node and per-edge
 statistics (generation-decayed weights, citation rank normalizations, MLF edge
 p-values, degree, betweenness and eigenvector centrality), runs two independent
-heuristic optimizers - Graph Likelihood Filtering and Simulated Annealing -
+heuristic optimizers - Global Likelihood Filter and Simulated Annealing -
 keeps the edges they agree on, extracts the largest connected component, and
 assigns Louvain communities. All stochastic steps are seeded for reproducibility.
 """

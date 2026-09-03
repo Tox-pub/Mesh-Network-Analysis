@@ -419,24 +419,19 @@ class Workbench(tk.Tk):
         # steps, the settings, the annotation workflow, the run controls, the
         # repair tool, the ledger and the PRISMA report - so it is first and
         # named for what it is rather than for its filename.
-        h.add_command(label='The manual - everything this package does',
-                      command=self.open_manual)
-        h.add_separator()
-        h.add_command(label='Installing and updating (INSTALL.md)',
-                      command=lambda: self.open_doc('INSTALL.md'))
-        h.add_command(label='Read me first (README.md)',
-                      command=lambda: self.open_doc('README.md'))
-        h.add_separator()
-        h.add_command(label='Reference figures - what they are',
-                      command=lambda: self.open_doc(
-                          os.path.join('results', 'reference_figures',
-                                       'PROVENANCE.md')))
+        # Named for what they are, not for their filenames, and every one opens
+        # in a reader window this program owns - read-only, and never modal, so
+        # the manual can sit open beside the form while values are typed in.
+        h.add_command(label='MeSH Workbench Manual', command=self.open_manual)
         h.add_command(label='How to annotate AOP levels',
                       command=self.open_annotation_guide)
+        h.add_command(label='Installing and Updating',
+                      command=lambda: self.open_doc('INSTALL.md',
+                                                    'Installing and Updating'))
         h.add_separator()
-        h.add_command(label='About', command=lambda: messagebox.showinfo(
-            'About', f'MeSH Workbench {__version__}\n\nDesktop front-end for the '
-                     'mesh_aop pipeline.'))
+        h.add_command(label='License', command=self.open_license)
+        h.add_command(label='Cite this Program', command=self.open_citation)
+        h.add_command(label='About', command=self.open_about)
         bar.add_cascade(label='Help', menu=h)
         self.config(menu=bar)
         self._sync_tools_state()
@@ -520,22 +515,200 @@ class Workbench(tk.Tk):
         self._open_path(guide) if os.path.exists(guide) else self._reveal(anno)
 
     def open_manual(self):
-        self.open_doc('HELP.md')
+        self.open_doc('HELP.md', 'MeSH Workbench Manual')
 
-    def open_doc(self, name):
-        """Open one of the shipped documents, wherever this copy keeps them."""
-        candidates = [
-            os.path.join(self.repo_dir, name),
-            os.path.join(os.path.dirname(self.repo_dir), name),
-            os.path.join(self.repo_dir, 'docs', name),
-        ]
-        for path in candidates:
+    def open_license(self):
+        """The licence, read from LICENSE rather than restated here.
+
+        Restating it would mean two copies that can disagree, and the one that
+        governs is the file.
+        """
+        path = self._find_doc('LICENSE')
+        text = None
+        if path:
+            try:
+                text = open(path, encoding='utf-8', errors='replace').read()
+            except OSError:
+                text = None
+        if not text:
+            text = (f'# MIT License\n\nCopyright (c) 2026 Tox-pub\n\n'
+                    f'The full licence ships with this program as LICENSE. '
+                    f'It could not be read from this copy.\n')
+        notices = self._find_doc('THIRD-PARTY-NOTICES.md')
+        extra = ('\n\n---\n\n## Third-party components\n\n'
+                 'This program bundles CPython, Tcl/Tk and a number of Python '
+                 'libraries, each under its own licence. Those are listed in '
+                 'full in THIRD-PARTY-NOTICES.md, which ships alongside this '
+                 'file.\n') if notices else ''
+        self.show_reader('License', text + extra, source=path)
+
+    def open_citation(self):
+        """A citation the user can copy, plus the works this method rests on."""
+        from mesh_aop import citation
+        self.show_reader('Cite this Program', citation.citation_markdown(),
+                         source=self._find_doc('CITATION.cff'))
+
+    def open_about(self):
+        self.show_reader('About', (
+            f'# MeSH Workbench {__version__}\n\n'
+            'MeSH co-occurrence concept networks for Adverse Outcome '
+            'Pathways, built from the PubMed literature.\n\n'
+            'Copyright (c) 2026 Tox-pub. Released under the MIT License - '
+            'free to use, modify and redistribute, including commercially, '
+            'provided the copyright notice and licence text are kept. It is '
+            'provided without warranty of any kind.\n\n'
+            'See Help > License for the full text and the third-party '
+            'notices, and Help > Cite this Program for how to cite it.\n\n'
+            'https://github.com/Tox-pub/Mesh-Network-Analysis\n'))
+
+    def _find_doc(self, name):
+        """Where this copy keeps a shipped document, or None."""
+        for path in (os.path.join(self.repo_dir, name),
+                     os.path.join(os.path.dirname(self.repo_dir), name),
+                     os.path.join(self.repo_dir, 'docs', name)):
             if os.path.exists(path):
-                self._open_path(path)
-                return
-        messagebox.showinfo(
-            'Not found', f'{name} is not in this copy of the program.\n\n'
-                         f'Looked in:\n' + '\n'.join('  ' + c for c in candidates))
+                return path
+        return None
+
+    def open_doc(self, name, title=None):
+        """Show a shipped document in a reader window of its own.
+
+        Not handed to the system viewer any more. The manual is something to
+        read WHILE filling the form in - which heading a term must match, what
+        a date window changes - and a separate application steals focus, may
+        not be installed at all, and on Linux frequently opens Markdown in a
+        text editor where it can be edited by accident.
+
+        So: a window this program owns, never modal, so the rest of the
+        program keeps working underneath it; read-only, so nothing can be
+        typed into the copy that ships; and rendered rather than shown raw.
+        """
+        path = self._find_doc(name)
+        if path is None:
+            messagebox.showinfo(
+                'Not found',
+                f'{name} is not in this copy of the program.')
+            return
+        try:
+            text = open(path, 'r', encoding='utf-8', errors='replace').read()
+        except OSError as exc:
+            messagebox.showinfo('Could not read it', f'{name}: {exc}')
+            return
+        self.show_reader(title or os.path.splitext(name)[0], text, source=path)
+
+    # One reader per title, so choosing the same menu item twice raises the
+    # window that is already open instead of stacking another copy of it.
+    _readers = {}
+
+    def show_reader(self, title, text, source=None):
+        """A non-modal, read-only window showing rendered Markdown."""
+        existing = self._readers.get(title)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_set()
+            return existing
+
+        win = tk.Toplevel(self)
+        win.title(f'{title} - MeSH Workbench')
+        win.configure(bg=FACE)
+        w = min(self.px(760), max(560, self.winfo_screenwidth() - 120))
+        h = min(self.px(640), max(420, self.winfo_screenheight() - 160))
+        win.geometry(f'{w}x{h}+{self.winfo_rootx() + 40}+{self.winfo_rooty() + 40}')
+        win.minsize(420, 300)
+        self._readers[title] = win
+
+        bar = tk.Frame(win, bg=FACE)
+        bar.pack(side='bottom', fill='x', padx=10, pady=8)
+        tk.Button(bar, text='Close', width=10,
+                  command=win.destroy).pack(side='right')
+        if source:
+            tk.Button(bar, text='Open in system viewer', width=20,
+                      command=lambda: self._open_path(source)).pack(side='right', padx=6)
+            tk.Label(bar, text=os.path.basename(source), bg=FACE, fg=DIM,
+                     anchor='w').pack(side='left')
+
+        box = self._sunken(win)
+        box.pack(fill='both', expand=True, padx=10, pady=(10, 0))
+        sb = tk.Scrollbar(box)
+        sb.pack(side='right', fill='y')
+        body = tk.Text(box, bg=FIELD, relief='flat', wrap='word',
+                       font=self.f_ui, yscrollcommand=sb.set,
+                       padx=12, pady=10, cursor='arrow')
+        sb.config(command=body.yview)
+        body.pack(fill='both', expand=True)
+
+        self._render_markdown(body, text)
+
+        # Read-only, but still selectable and copyable: this is reference
+        # material someone will want to quote into a methods section.
+        body.config(state='disabled')
+        body.bind('<Control-c>', lambda e: None)
+        win.bind('<Escape>', lambda e: win.destroy())
+        return win
+
+    def _render_markdown(self, widget, text):
+        """Enough Markdown to read a document by. Deliberately not a parser.
+
+        Headings, list items, code and rules carry the structure; bold and
+        backticks carry emphasis inside a line. Tables are left as written -
+        they are already aligned in the source and any attempt to lay them out
+        in a proportional font makes them worse.
+        """
+        f = self.f_ui
+        fam = f.actual('family')
+        size = f.actual('size')
+        widget.tag_configure('h1', font=(fam, size + 6, 'bold'), spacing1=14, spacing3=6)
+        widget.tag_configure('h2', font=(fam, size + 3, 'bold'), spacing1=12, spacing3=4)
+        widget.tag_configure('h3', font=(fam, size + 1, 'bold'), spacing1=10, spacing3=3)
+        widget.tag_configure('body', font=f, spacing3=4)
+        widget.tag_configure('bullet', font=f, lmargin1=self.px(18),
+                             lmargin2=self.px(32), spacing3=2)
+        widget.tag_configure('code', font=self.f_mono, background='#eef0f2')
+        widget.tag_configure('block', font=self.f_mono, background='#eef0f2',
+                             lmargin1=self.px(18), lmargin2=self.px(18))
+        widget.tag_configure('rule', foreground=DIM)
+        widget.tag_configure('strong', font=(fam, size, 'bold'))
+
+        in_code = False
+        for raw in text.splitlines():
+            line = raw.rstrip()
+            if line.strip().startswith('```'):
+                in_code = not in_code
+                continue
+            if in_code:
+                widget.insert('end', line + '\n', 'block')
+                continue
+            stripped = line.strip()
+            if not stripped:
+                widget.insert('end', '\n')
+            elif set(stripped) <= {'-', '=', '*'} and len(stripped) >= 3:
+                widget.insert('end', '─' * 60 + '\n', 'rule')
+            elif stripped.startswith('### '):
+                widget.insert('end', stripped[4:] + '\n', 'h3')
+            elif stripped.startswith('## '):
+                widget.insert('end', stripped[3:] + '\n', 'h2')
+            elif stripped.startswith('# '):
+                widget.insert('end', stripped[2:] + '\n', 'h1')
+            elif stripped.startswith(('* ', '- ', '+ ')):
+                self._render_inline(widget, '• ' + stripped[2:] + '\n', 'bullet')
+            else:
+                self._render_inline(widget, line + '\n', 'body')
+
+    def _render_inline(self, widget, line, base):
+        """Bold **like this** and code `like this`, inside one line."""
+        import re
+        pos = 0
+        for m in re.finditer(r'\*\*(.+?)\*\*|`([^`]+)`', line):
+            if m.start() > pos:
+                widget.insert('end', line[pos:m.start()], base)
+            if m.group(1) is not None:
+                widget.insert('end', m.group(1), (base, 'strong'))
+            else:
+                widget.insert('end', m.group(2), (base, 'code'))
+            pos = m.end()
+        if pos < len(line):
+            widget.insert('end', line[pos:], base)
 
     def first_run_locations(self):
         """Ask where results and data should live, the first time only.

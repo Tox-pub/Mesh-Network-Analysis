@@ -6,7 +6,7 @@ Provides the mathematical core used during network filtering and reporting,
 kept separate from the graph-assembly logic in network.py.
 
 It contains the maximum-likelihood edge model and a unified optimizer that runs
-either Graph Likelihood Filtering or Simulated Annealing to select a fixed-size,
+either Global Likelihood Filter or Simulated Annealing to select a fixed-size,
 high-likelihood subgraph, plus helpers that compute node strengths and summarize
 the node and edge counts retained at each stage of the filtering cascade.
 """
@@ -40,7 +40,7 @@ def get_log_likelihood_term(edge_data: dict, node_strengths: dict, denominator: 
     return w_ij * math.log(p_ij) - math.lgamma(w_ij + 1) if p_ij > 0 else 0.0
 
 def run_simulation(method: str, all_edges: dict, node_strengths: dict, total_T: float, target_edges: int, iterations: int, random_seed: int = None, **kwargs) -> tuple:
-    """Unified runner for Graph Likelihood Filtering (GLF) or Simulated Annealing (SA).
+    """Unified runner for Global Likelihood Filter (GLF) or Simulated Annealing (SA).
 
     A local Random instance seeded with `random_seed` makes the stochastic
     search reproducible without mutating the global `random` state.

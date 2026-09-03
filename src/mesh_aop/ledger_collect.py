@@ -247,7 +247,7 @@ def record_pruning(ledger, config, build_stats=None, filter_stats=None):
         ledger.record('pruning', 'full_network_edges', e, 'Every co-occurrence the corpus produced')
 
     for key, path_key in (('glf', 'glf_subgraph'), ('sa', 'sa_subgraph')):
-        label = 'Graph Likelihood Filtering' if key == 'glf' else 'Simulated Annealing'
+        label = 'Global Likelihood Filter' if key == 'glf' else 'Simulated Annealing'
         n, e = _resolve_pair((f'{key}_nodes', f'{key}_edges'), filter_stats, prior,
                              config.files.get(path_key))
         if n is not None:
