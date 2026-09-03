@@ -108,6 +108,18 @@ TABS = [
           'to resume a run: each step checks for its own output first and skips '
           'work already done. Change it to start clean while leaving an earlier '
           'analysis intact - two prefixes never touch the same files.'),
+
+        # On Search because it decides the SHAPE of the run, like everything
+        # else here, rather than where files land. On Folders it sat under a
+        # heading of its own as the only member, which is how a setting ends up
+        # somewhere nobody looks for it.
+        F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', False,
+          'Stop after the network is built so biological strata can be assigned '
+          'by hand before the figures are drawn.', 'Default: off.',
+          'Off, a full run completes unattended and every term stays '
+          'Uncategorized, which drains the biological figures of meaning. Turn '
+          'it on to stop partway and assign the strata first - that is the '
+          'intended workflow for a real analysis, and it needs you present.'),
     ]),
     ('Folders', [
         # Two settings decide everything. The three after them are overrides
@@ -166,16 +178,6 @@ TABS = [
           '- and the system temp folder is on the system drive. If C: is short '
           'of space, point this at a roomier disk or the build can run out '
           'partway through, hours in.'),
-
-        F('_heading.behaviour', 'Run behaviour', 'heading', '', '', '', ''),
-
-        F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', False,
-          'Stop after the network is built so biological strata can be assigned '
-          'by hand before the figures are drawn.', 'Default: off.',
-          'Off, a full run completes unattended and every term stays '
-          'Uncategorized, which drains the biological figures of meaning. Turn '
-          'it on to stop partway and assign the strata first - that is the '
-          'intended workflow for a real analysis, and it needs you present.'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
