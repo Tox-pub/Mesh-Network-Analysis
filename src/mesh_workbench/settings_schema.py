@@ -30,7 +30,7 @@ def F(key, label, kind, default, what, deflt, note=None, choices=None):
 # than saying nothing. "all" excludes the benchmark; that IS worth saying,
 # because otherwise it is discovered by looking for results never produced.
 STEPS = [
-    ('all',       'all - full pipeline (not the benchmark)'),
+    ('all',       'all - full pipeline'),
     ('process',   'process - MeSH ingest + stop words'),
     ('data_ops',  'data_ops - retrieval & citations'),
     ('network',   'network - co-occurrence + consensus'),

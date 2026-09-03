@@ -1350,6 +1350,12 @@ class Workbench(tk.Tk):
         om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12,
                   font=self.f_bold)
         om.pack(side='left', pady=4)
+        # Beside the list it acts on. The bar at the foot of the window is a
+        # long way from the control that decides what Run means, and on a tall
+        # tab it is off the bottom of the screen entirely.
+        tk.Button(top, text='Run', width=8, font=self.f_bold,
+                  command=lambda: self.start_run(self.step_var.get())
+                  ).pack(side='left', padx=(6, 0), pady=4)
         self.step_desc = tk.Label(top, bg=FACE, fg=DIM, anchor='w')
         self.step_desc.pack(side='left', padx=8)
         # No time estimate. It was measured on one machine, is dominated by
@@ -1358,8 +1364,13 @@ class Workbench(tk.Tk):
 
         strip = tk.Frame(root, bg=FACE)
         strip.pack(fill='x', padx=10)
+        # NOT packed yet. The description pane and the button bar are packed
+        # against the bottom first, so they reserve their space before this
+        # takes what is left. Packed in creation order instead, this claimed
+        # the cavity with expand=True and pushed both off the window on every
+        # tab whose content is tall - Folders, Secondary, Benchmark, Figures
+        # had no buttons at all, and nothing indicated they were there.
         self.sheet = self._sunken(root)
-        self.sheet.pack(fill='both', expand=True, padx=10)
         self.panes = {}
         self.tab_btns = {}
         for name, fields in schema.TABS:
@@ -1378,7 +1389,6 @@ class Workbench(tk.Tk):
         # focused and replaces the text you were reading.
         self.help = tk.Frame(root, bg=FACE, relief='sunken', bd=2,
                              height=self._help_height())
-        self.help.pack(fill='x', padx=10, pady=(8, 0))
         self.help.pack_propagate(False)
         self.help_title = tk.Label(self.help, bg=FACE, font=self.f_bold, anchor='w')
         self.help_title.pack(fill='x', padx=8, pady=(5, 0))
@@ -1395,10 +1405,20 @@ class Workbench(tk.Tk):
                    'Click any field to see what it controls, its default, and '
                    'anything worth knowing before changing it.', '', '')
 
+        # Bottom-anchored, and packed BEFORE the sheet so the space is reserved
+        # rather than whatever the tab content leaves over.
         act = tk.Frame(root, bg=FACE)
-        act.pack(fill='x', padx=10, pady=8)
-        tk.Button(act, text='Run', width=12, font=self.f_bold,
-                  command=lambda: self.start_run(self.step_var.get())).pack(side='left')
+        act.pack(side='bottom', fill='x', padx=10, pady=8)
+        self.help.pack(side='bottom', fill='x', padx=10, pady=(8, 0))
+        self.sheet.pack(fill='both', expand=True, padx=10)
+
+        # The Run button follows the tab. On a tab that owns a step, it runs
+        # THAT step and says so - the step list at the top still decides what
+        # "Run" means everywhere else, and picking a tab moves it to match, so
+        # the two controls never disagree about what is about to happen.
+        self.btn_run = tk.Button(act, width=22, font=self.f_bold,
+                                 command=self._run_current_tab)
+        self.btn_run.pack(side='left')
         tk.Button(act, text='Save', width=12, command=self.save_cfg).pack(side='left', padx=4)
         tk.Button(act, text='Defaults', width=12,
                   command=self.restore_defaults).pack(side='left', padx=4)
@@ -1589,12 +1609,34 @@ class Workbench(tk.Tk):
                 pass
             var.set(p)
 
+    # Tabs that ARE a step. None of these runs as part of "all" - the figures
+    # do, but they are also the one step people re-run on their own most often,
+    # to redraw after editing annotations. Opening one of these tabs moves the
+    # step list to match, so the button and the list never disagree.
+    TAB_STEP = {
+        'Secondary': ('secondary', 'Run secondary analysis'),
+        'Benchmark': ('benchmark', 'Run benchmark'),
+        'Figures':   ('viz', 'Run figures'),
+    }
+
     def _tab(self, name):
         for n, p in self.panes.items():
             p.pack_forget()
             self.tab_btns[n].config(font=self.f_ui, relief='raised')
         self.panes[name].pack(fill='both', expand=True)
         self.tab_btns[name].config(font=self.f_bold, relief='sunken')
+        self._current_tab = name
+
+        step, label = self.TAB_STEP.get(name, (None, 'Run'))
+        if step:
+            self.step_var.set(step)
+            self._step_changed()
+        self.btn_run.config(text=label)
+
+    def _run_current_tab(self):
+        """Run whatever the button says. A tab that owns a step runs that one."""
+        step, _label = self.TAB_STEP.get(getattr(self, '_current_tab', ''), (None, None))
+        self.start_run(step or self.step_var.get())
 
     def _help(self, fld, title=None, what=None, deflt=None, note=None):
         self.help_title.config(text=title or (fld.label if fld else ''))
