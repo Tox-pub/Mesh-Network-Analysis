@@ -565,24 +565,10 @@ def _console_answer(prompt, default=''):
     the question about syncing back to the master library was printed, and the
     run was killed by it before they could have answered.
 
-    A question nobody can hear must not stop a run. When stdin is not a
-    terminal the default is taken and said out loud, so the console log shows
-    both the question and what was assumed.
+    The console test lives in console.py because isatty() is not it on Windows.
     """
-    try:
-        interactive = sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, ValueError):
-        interactive = False
-    if not interactive:
-        print(prompt)
-        print(f"      No console is attached, so this cannot be answered here - "
-              f"continuing as '{default or 'skip'}'.")
-        return default
-    try:
-        return input(prompt).strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print(f"\n      No answer - continuing as '{default or 'skip'}'.")
-        return default
+    from .console import ask
+    return ask(prompt, default)
 
 
 def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,

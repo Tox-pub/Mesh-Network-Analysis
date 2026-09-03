@@ -152,7 +152,12 @@ set "U=%TARGET%\Uninstall.bat"
 >>"%U%" echo REM  archives, the databases and the scratch copy left in the temp
 >>"%U%" echo REM  folder - none of which live here, and all of which would
 >>"%U%" echo REM  otherwise survive. Results are kept unless asked for.
->>"%U%" echo if exist "%TARGET%\python\python.exe" "%TARGET%\python\python.exe" -m mesh_aop.uninstall_cli --project "%TARGET%"
+REM  The trailing "\." matters. If TARGET was given on the command line with a
+REM  trailing backslash, "%TARGET%" ends ...\" - and Windows reads \" as an
+REM  escaped quote, so the argument swallows the rest of the line and the
+REM  uninstaller never sees its flags. The dot terminates the path; the folder
+REM  it names is identical.
+>>"%U%" echo if exist "%TARGET%\python\python.exe" "%TARGET%\python\python.exe" -m mesh_aop.uninstall_cli --project "%TARGET%\."
 >>"%U%" echo echo.
 >>"%U%" echo set "V=%%TEMP%%\mw_rmsc.vbs"
 >>"%U%" echo ^> "%%V%%" echo Set oWS = WScript.CreateObject("WScript.Shell")

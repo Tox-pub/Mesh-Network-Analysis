@@ -14,6 +14,9 @@ import sys
 from . import uninstall as U
 
 
+from .console import has_console as _has_console          # noqa: E402
+
+
 def _fmt(n_bytes):
     if n_bytes >= 1e9:
         return f'{n_bytes / 1e9:,.2f} GB'
@@ -103,6 +106,16 @@ def main(argv=None):
         return 0
 
     if not a.yes:
+        # No console means nobody can type REMOVE, so do not ask. This ran as
+        # an MSI custom action under WixQuietExec, which attaches no console:
+        # input() blocked on a stdin that would never produce a line, msiexec
+        # waited on the custom action, and Windows showed "1 minute remaining"
+        # indefinitely. Refusing is the safe answer - it removes nothing - and
+        # it cannot wedge an uninstall.
+        if not _has_console():
+            print('\n  Nothing was removed: this needs confirmation and there is no')
+            print('  console to give it. Pass --yes to remove without being asked.\n')
+            return 1
         print('\n  This cannot be undone.')
         try:
             if input('  Type REMOVE to continue: ').strip() != 'REMOVE':

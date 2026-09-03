@@ -110,18 +110,27 @@
       So on uninstall the application's own uninstaller runs, and both routes
       agree on what "clean" means. Results are never touched.
 
+      The "." after [INSTALLFOLDER] is not decoration. That property always
+      ends in a backslash, so &quot;[INSTALLFOLDER]&quot; emits ...\Workbench\"
+      - and Windows reads \" as an ESCAPED QUOTE, so the string never closes.
+      Everything after it became part of --project, --yes was never parsed,
+      and the uninstaller stopped at its "Type REMOVE to continue" prompt with
+      no console to answer it. msiexec sat at "1 minute remaining" forever.
+      The dot terminates the path so the quote closes; normpath resolves it
+      back to the same folder.
+
       python.exe, not pythonw.exe: the uninstaller writes progress to stdout,
       and under pythonw stdout is None, so the first print would kill it
       silently. WixQuietExec hides the console window instead.
     -->
     <SetProperty Id="CleanUpData"
-                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER]&quot; --yes"
+                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER].&quot; --yes"
                  Before="CleanUpData" Sequence="execute" />
     <CustomAction Id="CleanUpData" DllEntry="WixQuietExec" Execute="deferred"
                   Impersonate="yes" Return="ignore" BinaryRef="Wix4UtilCA_X64" />
 
     <SetProperty Id="CleanUpCacheOnly"
-                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER]&quot; --yes --keep-data"
+                 Value="&quot;[INSTALLFOLDER]python\python.exe&quot; -m mesh_aop.uninstall_cli --project &quot;[INSTALLFOLDER].&quot; --yes --keep-data"
                  Before="CleanUpCacheOnly" Sequence="execute" />
     <CustomAction Id="CleanUpCacheOnly" DllEntry="WixQuietExec" Execute="deferred"
                   Impersonate="yes" Return="ignore" BinaryRef="Wix4UtilCA_X64" />
