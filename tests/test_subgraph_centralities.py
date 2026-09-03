@@ -90,14 +90,46 @@ ck(_gt_wanted(cfg(True, None)), 'reference mode + key absent -> ON')
 ck(_gt_wanted(cfg(False, True)), 'own data + ticked -> ON')
 ck(not _gt_wanted(cfg(False, False)), 'own data + unticked -> off')
 
-print('\n=== the MRS_ pairs are requested whenever the raw ones are ===')
+print('\n=== the MRS_ pairs are scored unconditionally ===')
 src = open('src/mesh_aop/cli.py', encoding='utf-8').read()
 for raw, mrs in zip(RAW3, MRS3):
     ck(f'("{raw}", "{mrs}")' in src, f'{raw} -> {mrs} is in the weightings list')
-ck('if include_subgraph_weightings else []' in src,
-   'the network step gates them on the flag')
-ck('if include_subgraph_weightings:' in src,
-   'and so does the relevance-database rebuild')
+# They used to be gated on the ground-truth flag in both places, which left a
+# relevance database six score columns short whenever the benchmark had been
+# off - and only the file's EXISTENCE was checked before reusing it.
+ck('if include_subgraph_weightings else []' not in src,
+   'the network step no longer gates them')
+ck('if include_subgraph_weightings:' not in src,
+   'nor does the relevance-database rebuild')
+
+print('\n=== an incomplete relevance database is detected, not reused ===')
+import sqlite3                                                     # noqa: E402
+from mesh_aop.cli import _relevance_columns_missing, MRS_SCORE_COLUMNS  # noqa: E402
+
+for cols in MRS_SCORE_COLUMNS:
+    ck(cols.startswith('score_'), f'{cols} is named as relevance.py writes it')
+
+
+def _db(name, cols):
+    p = os.path.join(box, name)
+    c = sqlite3.connect(p)
+    c.execute('CREATE TABLE article_relevance_scores (pmid TEXT, '
+              + ', '.join(f'"{x}" REAL' for x in cols)
+              + ', contributing_seeds TEXT, pub_date TEXT)')
+    c.commit()
+    c.close()
+    return p
+
+
+ck(_relevance_columns_missing(_db('full.db', MRS_SCORE_COLUMNS)) == [],
+   'a complete database is left alone')
+short = _relevance_columns_missing(
+    _db('old.db', [c for c in MRS_SCORE_COLUMNS if 'subgraph' not in c]))
+ck(len(short) == 3, f'one built before the change reports 3 missing: {short}')
+ck(all('subgraph' in c for c in short), 'and they are the subgraph ones')
+open(os.path.join(box, 'junk.db'), 'w').write('not a database')
+ck(_relevance_columns_missing(os.path.join(box, 'junk.db')) == [],
+   'a damaged file is left to the integrity check, not called incomplete')
 
 print()
 print('FAILED' if FAILS else 'ALL SIX ATTRIBUTES ARE PRODUCED BY THE REAL CODE PATH')

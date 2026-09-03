@@ -27,8 +27,8 @@ def F(key, label, kind, default, what, deflt, note=None, choices=None):
 # No time estimates. They were measured on one machine and are dominated by
 # how much memory it has and how fast its disk is - the figure shown was
 # several times the real runtime on hardware with enough RAM, which is worse
-# than saying nothing. "all" excludes the benchmark; that IS worth saying,
-# because otherwise it is discovered by looking for results never produced.
+# than saying nothing. That "all" excludes the benchmark is said on the
+# Benchmark tab itself, where someone is deciding whether to run it.
 STEPS = [
     ('all',       'all - full pipeline'),
     ('process',   'process - MeSH ingest + stop words'),
@@ -48,28 +48,33 @@ TABS = [
         F('control_flags.use_reference_data',
           'Use bundled reference data (demonstration only)', 'bool', False,
           'Demonstration only. Analyses the finished network that ships with '
-          'the program, so you can see what a completed run produces in '
-          'minutes.',
-          'Default: off - the normal case is analysing your own corpus.',
-          'Not a way to do new research: the corpus is fixed and any finding '
-          'in it is already published. Retrieval will not run, and the settings '
-          'describing that corpus grey out. See HELP.md for the full list.'),
+          'the program, so you can see what a completed run produces '
+          'quickly. This still requires databases to be built.',
+          'Default: off - keep setting to off when analysing your own corpus.',
+          'The attached findings are fixed and not independent. Any finding '
+          'in it is already published. Retrieval does not run at all, and the '
+          'settings describing that corpus grey out. See HELP.md for the '
+          'full details.'),
         F('search_parameters.search_term', 'Search term', 'text', '',
-          'The PubMed query that defines the starting article set (P0).',
-          'Default: empty. There is no sensible query for another research '
-          'question, so this has to be filled in before retrieval will run. Use '
-          '[Mesh] to search the indexed heading rather than free text.',
+          'The PubMed query that defines the starting article set (P0). '
+          'This box will take any searchable string a person could enter into Pubmed.',
+          'Default: empty. This has to be filled in before retrieval will run. Use '
+          'e.g. [Mesh] to search the indexed heading rather than free text. '
+          'Do not enter date ranges in this field instead they are input into '
+          'Start date and End date fields below',
           'The bundled reference corpus was built with '
           '"Dermatitis, Allergic Contact [Mesh]" over 1950/01/01 to 2025/01/01. '
           'Enter that to reproduce it. This field, the dates and the generation '
-          'count together define one corpus: change any of them and the run '
-          'produces a different, self-consistent set of results rather than a '
-          'wrong one. Give it its own project prefix and both sets survive '
+          'count together define one corpus query used for later parameterisation: '
+          'change any of them and the run '
+          'produces a different, self-contained set of results '
+          'Give it its own project prefix to have individual search sets survive '
           'side by side.'),
         F('search_parameters.start_date', 'Start date', 'text', '1950/01/01',
-          'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.',
-          'Default: 1950/01/01, which is earlier than PubMed goes - so it takes '
-          'everything. Leave it empty for the same effect.',
+          'Publication window for the initial query. YYYY/MM/DD, YYYY/MM or YYYY.'
+          'This uses Pubmed EDAT, the pubmed entry date, which ensures proper article retrieval.',
+          'Default: 1950/01/01, taking the vast majority of relevant publications. '
+          'Leave it empty for a similar effect.',
           'Keep this identical to the context window on the Analysis tab, or the '
           'query set and the scored corpus describe different periods.'),
         F('search_parameters.end_date', 'End date', 'text', '2025/01/01',
@@ -86,11 +91,11 @@ TABS = [
           'Default: 1. 0 = the query result only; 1 = adds the articles it '
           'cites and those citing it; 2 = adds a second hop outward.',
           'Each hop multiplies retrieval time and disk use, and the growth is '
-          'steep - as an example, moving from generation 1 to generation 2 took '
-          'one project from about 146,000 articles to 7.9 million. Choose this '
+          'steep - as an example, moving from parental generation 0 to generation 1 to generation 2 took '
+          'the reference query from about ~14,000 articles to ~146,000 to ~7.9 million. Choose this '
           'deliberately: for most projects generation 0 or 1 is the appropriate '
           'choice, and 2 is worth it only when the question genuinely needs the '
-          'wider literature.'),
+          'wider literature or starting with a small P0 article pool.'),
         F('search_parameters.update_mesh_support_files', 'Force-refresh MeSH support files',
           'bool', False,
           'Rebuild the MeSH descriptor and stop-word support files instead of '
@@ -131,11 +136,11 @@ TABS = [
           'are created inside: raw (the PubMed archives and the master '
           'annotation database) and processed (networks and score databases).',
           'Default: empty, meaning a private folder under your user profile. '
-          'ABOUT 52 GB ENDS UP HERE - roughly 44 GB of downloaded archive and '
-          'an 8 GB database built from it.',
+          'ABOUT ~55 GB ENDS UP HERE - roughly 45 GB of downloaded archive and '
+          'a 10 GB database built from it.',
           'Choose this before downloading anything, and choose a drive with '
           '60 GB free. The archive can be deleted afterwards from the Data '
-          'setup screen, which gets most of it back, but moving ~52 GB later '
+          'setup screen, which gets most of it back, but moving ~55 GB later '
           'is far slower than picking the right drive now.'),
         F('directories.results_dir', 'Results folder', 'text', '',
           'Your own outputs: figures, workbooks, the run ledger and the workflow '
@@ -161,7 +166,8 @@ TABS = [
           'This is an override, not an extra folder: setting it PINS the raw '
           'location, so later changing the Data folder will not move it. If the '
           'databases already exist, moving them by hand is your job - the run '
-          'fails at the first step that needs them.'),
+          'fails at the first step that needs them. May be placed on a FAT32 drive ' 
+          'unlike the database build folder.'),
         F('directories.output_dir', 'Override: working files folder', 'text', '',
           'Replaces the processed subfolder of the Data folder - the networks '
           'and score databases the pipeline builds.',
@@ -177,17 +183,18 @@ TABS = [
           'The workspace holds a full working copy of the database - several GB '
           '- and the system temp folder is on the system drive. If C: is short '
           'of space, point this at a roomier disk or the build can run out '
-          'partway through, hours in.'),
+          'partway through a run. Do NOT put on a FAT32-formatted drive, i.e. Flash drives'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
-          'Identifies you to Entrez, as NCBI requires.', 'Default: none.',
+          'Identifies you to Entrez, as NCBI requires. See Help - Manual on details on how to acquire one.', 
+          'Default: none.',
           'Required for retrieval. NCBI may block requests that do not carry it.'),
         F('credentials.entrez_api_key', 'NCBI API key', 'text', '',
-          'Raises the Entrez rate limit from 3 to 10 requests per second.',
+          'Raises the Entrez rate limit from 3 to 10 requests per second.  See Help - Manual on details on how to acquire one.',
           'Default: none.',
           'Optional but strongly recommended - retrieval is several times faster '
-          'with one. Stored on this machine only.'),
+          'with one. Stored on this machine only. Removed by emptying the field and clicking SAVE or on uninstall.'),
     ]),
     ('Analysis', [
         F('analysis_parameters.random_seed', 'Random seed', 'int', 42,
@@ -199,7 +206,8 @@ TABS = [
           'Publication window for scoring and validation. YYYY/MM/DD, YYYY/MM or YYYY.',
           'Default: 1950/01/01. Leave it empty to score every date available.',
           'This defines the corpus everywhere - relevance database, validation and '
-          'benchmark all use it. Articles outside it are never scored or evaluated.'),
+          'benchmark all use it. Articles outside it are never scored or evaluated. '
+          'Typically set this equal to the SEARCH parameterisation but can be changed for narrower context windows.'),
         F('analysis_parameters.context_end_date', 'Context end', 'text', 'TODAY',
           'Publication window for scoring and validation. YYYY/MM/DD, YYYY/MM or YYYY.',
           'Default: TODAY, resolved to the date the run starts. Leave it empty '
@@ -213,15 +221,17 @@ TABS = [
         F('analysis_parameters.betweenness_k_samples', 'Betweenness samples', 'int', 1000,
           'Node sample size for estimating betweenness on the unfiltered graph.',
           'Default: 1000.',
-          'Betweenness on the consensus subgraph is always exact; only the '
-          'whole-graph estimate samples. Lower is faster and noisier.'),
+          'This is the WHOLE-graph estimate. Betweenness on the consensus '
+          'subgraph is exact on any ordinary network, and falls back to '
+          'sampled sources only when that network is very large - it says so '
+          'when it does. Lower is faster and noisier.'),
         F('analysis_parameters.calculate_full_centrality', 'Whole-graph centrality', 'bool', False,
           'Also compute centrality across the entire unfiltered co-occurrence graph.',
-          'Default: off, which is much faster.',
+          'Default: off, for faster analysis.',
           'Centrality on the consensus subgraph is computed either way - this '
-          'adds the whole-graph figures on top, and costs hours on a '
-          '13,558-node graph. Turn it on only to compare (full) against '
-          '(subgraph) scope.'),
+          'adds the whole-graph figures on top, and can cost hours on a '
+          '>10,000-node graph. Turn it on only to compare (full) against '
+          '(subgraph) scope and have enough CPU and RAM overhead.'),
         F('analysis_parameters.eigenvector_max_iter', 'Eigenvector max iterations', 'int', 1000,
           'Iteration cap for the eigenvector centrality solver.', 'Default: 1000.',
           'Raise it only if the solver reports non-convergence.'),
@@ -252,13 +262,13 @@ TABS = [
     ('Consensus', [
         F('simulation_parameters.target_num_edges', 'Target edge count (per optimiser)', 'int', 500,
           'How many edges EACH optimiser searches for. Not how many you get.',
-          'Default: 500 - so 500 for graph likelihood filtering (GLF) and 500 '
+          'Default: 500 - so 500 for global likelihood filtering (GLF) and 500 '
           'for simulated annealing (SA), independently.',
-          'The network is built by consensus. Two different optimisers each '
-          'pick the set of edges they think best explains the co-occurrence '
+          'The network is built by consensus. Two different random-walk algorithms each '
+          'pick the set of edges they find to be the least random at explaining the co-occurrence '
           'counts, starting from different places and searching differently, '
-          'and only the edges BOTH chose are kept. An edge one optimiser liked '
-          'and the other did not is discarded, which is what makes the result a '
+          'and only the final edges BOTH chose are kept. Edges not found in both '
+          'models are discarded, making the resulting graph a '
           'consensus rather than one heuristic\'s opinion.\n'
           '\n'
           'So the number you get is always smaller than the number you ask for, '
@@ -267,7 +277,7 @@ TABS = [
           'both searches and usually widens the consensus too, but never to the '
           'number set here.'),
         F('simulation_parameters.glf_iterations',
-          'Graph likelihood filtering (GLF) iterations', 'int', 5000000,
+          'Global likelihood filtering (GLF) iterations', 'int', 5000000,
           'Metropolis proposals for graph likelihood filtering - GLF, the first '
           'of the two optimisers whose consensus forms the network.',
           'Default: 5,000,000.',
@@ -390,19 +400,19 @@ TABS = [
           'Default: off. Turning on "Use bundled reference data" forces it on '
           'regardless, because the published reference run cannot be '
           'reproduced without it.',
-          'This also decides whether subgraph PageRank is computed, and the '
-          'network step reads it - so set it before building the network, not '
-          'afterwards.'),
+          'This decides whether the benchmark scores the network against '
+          'your curated set. It no longer reaches back into the network '
+          'step - the subgraph centralities are computed whenever a network '
+          'is built, so this can be turned on at any point afterwards.'),
         F('benchmark.n_boot', 'Benchmark bootstrap resamples', 'int', 25,
           "Resamples for the benchmark's own confidence intervals.",
           'Default: 25.',
           'Separate from "Bootstrap replicates" above, which belongs to the '
-          'validation report. n = 200 takes roughly two hours.'),
+          'validation report. n = 200 may take several hours.'),
         F('benchmark.n_perm', 'Permutation iterations', 'int', 25,
           'Null-model iterations behind the node and edge enrichment tests.',
           'Default: 25.',
-          'Sets the floor on reportable p-values. The published run used 1000 '
-          'node and 500 edge permutations.'),
+          'Sets the floor on reportable p-values. Recommended: 25 for fast, 100 for reliable, +500 for publishable'),
         F('benchmark.network_validation_weight_key', 'Node validation weight key',
           'choice', 'MRS_pagerank_centrality',
           'Which node score is tested against the ground truth.',
@@ -420,12 +430,9 @@ TABS = [
           'eigenvector, whole-corpus or subgraph. MRS is the score adjusted by '
           'how strongly the literature supports the term; subgraph means '
           'centrality measured within the consensus network rather than the '
-          'whole corpus.\n'
+          'whole corpus. See Help - Manual for more details.\n'
           '\n'
-          'All twelve are available on any network this version builds - the '
-          'subgraph centralities cost about 40ms and are always computed. On an '
-          'older network they may be absent, and the step then stops and names '
-          'what it does have; re-run the network step once to add them.',
+          'The six subgraph options only exist on full pipeline runs with complete networks.',
           ['MRS_pagerank_centrality',
            'MRS_betweenness_centrality',
            'MRS_eigenvector_centrality',
@@ -452,7 +459,7 @@ TABS = [
           'signal. Drawn by the network step, not the figures step.'),
         F('viz_parameters.fig_optimisation', 'Figure 2 - Optimisation trajectory',
           'bool', True,
-          'The two optimisers - generalised local filtering and simulated annealing - traced over the search for the consensus subgraph.',
+          'The two optimisers (GLF and SA) - traced over the search for the consensus subgraph.',
           'Default: on.',
           'Only has anything to draw if the optimisation history was written, '
           'which the network step does as it runs.'),
@@ -461,7 +468,7 @@ TABS = [
           'Stacked bars showing which AOP levels make up each Louvain community, so you can see whether the communities follow the pathway.',
           'Default: on.',
           'Needs AOP levels assigned. With everything left Unassigned it draws '
-          'one bar and says nothing.'),
+          'one bar and says nothing. See Help - How to annotate AOP levels'),
         F('viz_parameters.fig_tsne', 'Figure 4 - t-SNE projection',
           'bool', True,
           'A two-dimensional projection of the graph distance matrix, each node coloured by its Louvain community - do the communities separate?',
@@ -475,22 +482,22 @@ TABS = [
           'Default: on.',
           'Writes both a labelled and an unlabelled HTML version, plus the '
           'connection table behind them. The one figure that shows the pathway '
-          'as a pathway.'),
+          'as a pathway. See Help - How to annotate AOP levels'),
         F('viz_parameters.fig_dendrogram', 'Figure 6 - Node2Vec dendrogram',
           'bool', True,
           'Ward clustering of Node2Vec embeddings, leaves coloured by AOP level - terms that sit near each other in the learned space cluster together.',
           'Default: on.',
           'Trains an embedding first, so it is the most expensive figure here. '
           'Reproducible run to run: the walks are seeded and gensim is trained '
-          'single-threaded so the result does not depend on thread timing.'),
+          'single-threaded so the result does not depend on thread timing. See Help - How to annotate AOP levels'),
         F('viz_parameters.fig_network', 'Figure 7 - Network graph',
           'bool', True,
           'The consensus network drawn, with every term labelled and the nodes '
           'coloured by one metric.',
           'Default: on.',
-          'An overview rather than a working view - enough to see where the '
+          'A quick visual overview rather than a working view - enough to see where the '
           'hubs are and how the communities sit against each other. Open the '
-          'network JSON in Cytoscape for anything closer. The layout is '
+          'network JSON in Cytoscape or other network program of your choosing for more detail. The layout is '
           'seeded from the random seed on the Analysis tab, so the same '
           'network draws the same way every time.'),
         F('viz_parameters.network_color_metric', 'Figure 7 - colour by',
@@ -500,9 +507,7 @@ TABS = [
           'Colours are viridis, min-max scaled across the terms drawn, so the '
           'full range of the scale is used however narrow the spread is - dark '
           'purple is the lowest value present, yellow the highest. The colour '
-          'bar carries the real numbers. A metric this network does not carry - '
-          'which now only happens on a network built by an older version - '
-          'falls back to the first one it does, and says so in the run log.',
+          'bar carries the real numbers. See Help - Manual for further explanation of the metrics.',
           ['MRS_pagerank_centrality',
            'MRS_betweenness_centrality',
            'MRS_eigenvector_centrality',
@@ -529,16 +534,15 @@ TABS = [
         F('viz_parameters.figure_dpi', 'Resolution (dpi)', 'int', 300,
           'Dots per inch for every raster figure the run produces.',
           'Default: 300, the usual journal minimum for a raster figure.',
-          '600 is what print production normally asks for, and roughly '
-          'quadruples both the time to write each figure and its file size. '
-          'Values are clamped to 50-1200.'),
+          '600 is print production, but roughly '
+          'quadruples its file size. '
+          'Values are clamped to 50-1200 dpi.'),
         F('viz_parameters.figure_formats', 'File formats', 'text', 'jpeg,tif',
           'Which image files to write for each figure.',
           'Default: jpeg,tif - a preview to look at and a lossless copy to '
           'submit.',
           'Comma-separated, from jpeg, png, tif, pdf and svg. TIFF is written '
-          'with LZW compression because journals ask for lossless and an '
-          'uncompressed 600 dpi panel runs to tens of megabytes. Listing more '
+          'with LZW compression. Listing more '
           'formats writes every figure more than once.'),
     ]),
 ]
@@ -626,7 +630,7 @@ TAB_NOTES = {
         'secondary analysis and the figures. It does NOT run the benchmark. '
         'That is deliberate: the benchmark scores every weighting against every '
         'article in the corpus, which takes a good while on a full-sized one, '
-        'and most runs do not need it.\n'
+        'and most runs do not need it. See Help - Manual for more details.\n'
         '\n'
         'To run it, pick "benchmark - ground truth & validation" from the step '
         'list and press Run. Everything it needs is already on disk by then, so '
@@ -665,7 +669,7 @@ TAB_NOTES = {
         'network JSON in your networks folder. To see the thing being scored - '
         'which nodes and edges survived, and how they connect - open that JSON '
         'in Cytoscape (File > Import > Network from File), or in any tool that '
-        'reads Cytoscape JSON. The "Open network folder" button on the Results '
+        'reads JSON as networks. The "Open network folder" button on the Results '
         'screen takes you to the files. The primary node named below has to be '
         'a heading spelled exactly as it appears there.\n'
         '\n'
@@ -682,12 +686,12 @@ TAB_NOTES = {
         '  network_validation  whether the network\'s own terms and links are\n'
         '                      reproduced by the ground truth\n'
         '\n'
-        'One setting here reaches backwards. "Run ground-truth analysis" also '
-        'decides whether the subgraph centralities are computed, and those are '
-        'written while the NETWORK is built - so it has to be set before the '
-        'network step, not before the benchmark. Turning on "Use bundled '
-        'reference data" forces it on, because the published reference run '
-        'cannot be reproduced without those six node attributes.'),
+        'Nothing here has to be set before the network is built. The subgraph '
+        'centralities every weighting needs are computed whenever a network '
+        'is, so the benchmark can be turned on whenever you want it. A '
+        'network built by an older version may lack them, and the step then '
+        'says so and names what it does have rather than scoring every node '
+        'as zero.'),
 }
 
 

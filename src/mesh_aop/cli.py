@@ -299,7 +299,37 @@ def _warn_unknown_term(name, known, what):
           f"<prefix>_final_network_nodes_and_edges.xlsx.")
 
 
-def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
+MRS_SCORE_COLUMNS = (
+    'score_betweenness_centrality', 'score_pagerank_centrality',
+    'score_eigenvector_centrality',
+    'score_betweenness_subgraph_centrality', 'score_pagerank_subgraph_centrality',
+    'score_eigenvector_subgraph_centrality',
+)
+
+
+def _relevance_columns_missing(db_path):
+    """Which expected score columns a relevance database does not have.
+
+    An unreadable database returns nothing missing: the integrity check owns
+    that problem, and reporting it here as "incomplete" would send a user to
+    rebuild when the real answer is that the file is damaged.
+    """
+    import sqlite3
+    try:
+        con = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=30.0)
+        try:
+            have = {r[1] for r in
+                    con.execute('PRAGMA table_info(article_relevance_scores)')}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
+    if not have:
+        return []
+    return [c for c in MRS_SCORE_COLUMNS if c not in have]
+
+
+def _build_relevance_db_if_missing(config, include_subgraph_weightings=True):
     """Score the corpus into a relevance database when there isn't one yet.
 
     The benchmark needs per-article relevance scores. Against the bundled
@@ -316,7 +346,18 @@ def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
     """
     target = config.files['relevance_db']
     if os.path.exists(target) and os.path.getsize(target) > 0:
-        return
+        # Existing is not the same as complete. A database built before the
+        # subgraph weightings became unconditional has six score columns fewer,
+        # and only its EXISTENCE was checked - so the benchmark went on to look
+        # for columns that were not there. Rebuild once when that is the case.
+        missing = _relevance_columns_missing(target)
+        if not missing:
+            return
+        print(f"\n  [i] The relevance database predates the subgraph weightings "
+              f"and is missing {len(missing)} score column(s):")
+        print(f"      {', '.join(missing[:4])}"
+              f"{'...' if len(missing) > 4 else ''}")
+        print("      Rebuilding it once so every weighting can be scored.")
 
     network = config.files['consensus_lcc']
     master = config.files['master_db']
@@ -340,10 +381,9 @@ def _build_relevance_db_if_missing(config, include_subgraph_weightings=False):
     weightings = [("betweenness_centrality", "MRS_betweenness_centrality"),
                   ("pagerank_centrality", "MRS_pagerank_centrality"),
                   ("eigenvector_centrality", "MRS_eigenvector_centrality")]
-    if include_subgraph_weightings:
-        weightings += [("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
-                       ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
-                       ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
+    weightings += [("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
+                   ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
+                   ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
 
     run_mean_relevancy_scoring(
         input_nodes_file=network,
@@ -1033,10 +1073,15 @@ def main():
                         [("betweenness_centrality", "MRS_betweenness_centrality"),
                          ("pagerank_centrality", "MRS_pagerank_centrality"),
                          ("eigenvector_centrality", "MRS_eigenvector_centrality")]
-                        + ([("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
-                            ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
-                            ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
-                           if include_subgraph_weightings else [])
+                        # Always. The subgraph attributes now always exist, and
+                        # scoring six more weightings costs well under a minute
+                        # of CPU on an 8M-article corpus - the database scan
+                        # dominates and happens either way. Gating them left the
+                        # relevance database silently missing six score columns
+                        # that the benchmark later looked for.
+                        + [("betweenness_subgraph_centrality", "MRS_betweenness_subgraph_centrality"),
+                           ("pagerank_subgraph_centrality", "MRS_pagerank_subgraph_centrality"),
+                           ("eigenvector_subgraph_centrality", "MRS_eigenvector_subgraph_centrality")]
                     ),
                     start_date_param=config.get('analysis_parameters', 'context_start_date'),
                     end_date_param=config.get('analysis_parameters', 'context_end_date'),
@@ -1086,8 +1131,7 @@ def main():
             print("\n>>> STARTING: Secondary Analysis Operations")
             # The relevance database is what there is to rank; build it if this
             # is the reference corpus, where the network step never ran.
-            _build_relevance_db_if_missing(config,
-                                           include_subgraph_weightings=_gt_wanted(config))
+            _build_relevance_db_if_missing(config)
             # The cleaned citation database is NOT required. A retrieved corpus
             # has one; the reference corpus has none, and the citations for the
             # shortlist are fetched and cached instead.
@@ -1346,7 +1390,7 @@ def main():
                                                  root=config.root, prefix=config.prefix)
                        if nc_filename else None)
 
-            _build_relevance_db_if_missing(config, include_subgraph_weightings=_gt_wanted(config))
+            _build_relevance_db_if_missing(config)
             _ensure_prerequisites({
                 "Relevance Database": config.files['relevance_db']
             }, "Step 5 (Benchmarking)")
