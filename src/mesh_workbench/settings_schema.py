@@ -422,9 +422,10 @@ TABS = [
           'centrality measured within the consensus network rather than the '
           'whole corpus.\n'
           '\n'
-          'The six subgraph options only exist when the ground-truth analysis '
-          'was on at the time the network was BUILT. Picking one the network '
-          'does not carry fails the validation step.',
+          'All twelve are available on any network this version builds - the '
+          'subgraph centralities cost about 40ms and are always computed. On an '
+          'older network they may be absent, and the step then stops and names '
+          'what it does have; re-run the network step once to add them.',
           ['MRS_pagerank_centrality',
            'MRS_betweenness_centrality',
            'MRS_eigenvector_centrality',
@@ -499,9 +500,9 @@ TABS = [
           'Colours are viridis, min-max scaled across the terms drawn, so the '
           'full range of the scale is used however narrow the spread is - dark '
           'purple is the lowest value present, yellow the highest. The colour '
-          'bar carries the real numbers. A metric this network does not have - '
-          'the subgraph centralities, when the ground-truth analysis was off - '
-          'falls back to the first one it does have, and says so.',
+          'bar carries the real numbers. A metric this network does not carry - '
+          'which now only happens on a network built by an older version - '
+          'falls back to the first one it does, and says so in the run log.',
           ['MRS_pagerank_centrality',
            'MRS_betweenness_centrality',
            'MRS_eigenvector_centrality',

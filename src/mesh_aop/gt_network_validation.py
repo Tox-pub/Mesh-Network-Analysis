@@ -87,6 +87,7 @@ def _load_network(final_network_path: str, weight_key: str):
 
     nodes = data.get('elements', {}).get('nodes', [])
     node_ids, weights, extras, node_attrs = set(), {}, {}, {}
+    carried = 0
     for n in nodes:
         d = n.get('data', {})
         nid = d.get('id')
@@ -94,7 +95,27 @@ def _load_network(final_network_path: str, weight_key: str):
             continue
         node_ids.add(nid)
         node_attrs[nid] = d
+        if weight_key in d:
+            carried += 1
         weights[nid] = float(d.get(weight_key, 0.0) or 0.0)
+
+    # A weight key the network does not carry reads as 0.0 for every node, and
+    # the run then completes with a full set of numbers scored against a
+    # constant. That is worse than stopping, because nothing looks wrong. Say
+    # so, loudly, and name what the network does have.
+    if node_ids and carried == 0:
+        available = sorted({k for d in node_attrs.values() for k, v in d.items()
+                            if isinstance(v, (int, float)) and not isinstance(v, bool)})
+        raise ValueError(
+            f"The network carries no '{weight_key}'. Every node would score "
+            f"zero and the validation below would be meaningless.\n"
+            f"  This network offers: {', '.join(available) or '(no numeric attributes)'}\n"
+            f"  Networks built before the subgraph centralities became "
+            f"unconditional lack the six *_subgraph_centrality attributes; "
+            f"rebuild the network step once to add them.")
+    if node_ids and carried < len(node_ids):
+        print(f"  [!] WARNING: only {carried} of {len(node_ids)} nodes carry "
+              f"'{weight_key}'; the rest are scored as zero.")
         extras[nid] = {
             'betweenness_centrality': float(d.get('betweenness_centrality', 0.0) or 0.0),
             'article_count': int(d.get('article_count', 0) or 0),

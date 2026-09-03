@@ -991,9 +991,11 @@ def main():
                         if nodes:
                             data0 = nodes[0].get('data', {})
                             has_communities = data0.get('filtered_louvain_community_id') is not None
-                            # Re-run when subgraph centralities are wanted but absent,
-                            # otherwise a cached network would silently skip them.
-                            needs_subgraph = include_subgraph_weightings and any(
+                            # Re-run when the subgraph centralities are absent.
+                            # They are always wanted now, so a network cached
+                            # from an older run that lacks them is rebuilt once
+                            # rather than carried forward missing six attributes.
+                            needs_subgraph = any(
                                 data0.get(k) is None for k in (
                                     'pagerank_subgraph_centrality',
                                     'betweenness_subgraph_centrality',
@@ -1006,10 +1008,13 @@ def main():
                     pass
 
             if run_step_6:
+                # Unconditional. Gating these on the benchmark flag meant a
+                # network built with it off silently lacked six attributes that
+                # the benchmark, the validation report and Figure 7 all reach
+                # for later - and recovering them cost a network rebuild.
                 run_community_detection(
                     network_file_path=config.files['consensus_lcc'],
-                    random_seed=config.get('analysis_parameters', 'random_seed'),
-                    compute_subgraph_centrality=include_subgraph_weightings
+                    random_seed=config.get('analysis_parameters', 'random_seed')
                 )
 
             if not os.path.exists(config.files['final_network']):

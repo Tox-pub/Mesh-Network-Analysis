@@ -32,10 +32,15 @@ shutil.copy2(SRC, work)
 
 from mesh_aop.network import run_community_detection
 
-print('=== the flag OFF (an own-data run with the box unticked) ===')
-# Stripped first. The checked-in network already carries these from the run
-# that built it, and nothing removes an attribute that is already there - so
-# testing the OFF case against it would only prove that.
+print('=== they are written whatever the benchmark flag says ===')
+# They used to be gated on the ground-truth analysis, which put a decision
+# about the BENCHMARK inside the step that builds the network: turning the
+# benchmark on later meant rebuilding the network to recover attributes that
+# take 40ms. Worse, every consumer reads them with a 0.0 default, so a network
+# without them did not fail validation - it scored every node zero in silence.
+#
+# Stripped first, because the checked-in network already carries them and
+# nothing removes an attribute that is already there.
 stripped = json.load(open(SRC, encoding='utf-8'))
 for _n in stripped['elements']['nodes']:
     for _a in RAW3:
@@ -44,8 +49,12 @@ off = os.path.join(box, 'off.json')
 json.dump(stripped, open(off, 'w'))
 run_community_detection(off, random_seed=42, compute_subgraph_centrality=False)
 nodes = json.load(open(off, encoding='utf-8'))['elements']['nodes']
-present = [a for a in RAW3 if a in nodes[0]['data']]
-ck(not present, 'none of the three are written when it is off', str(present))
+missing = [a for a in RAW3 if a not in nodes[0]['data']]
+ck(not missing, 'all three are written even with the old flag passed False',
+   f'missing {missing}')
+for _a in RAW3:
+    vals = [float(n['data'].get(_a, 0) or 0) for n in nodes]
+    ck(any(vals), f'{_a} carries real values ({sum(1 for v in vals if v)} non-zero)')
 
 print('\n=== the flag ON (reference mode, or the box ticked) ===')
 run_community_detection(work, random_seed=42, compute_subgraph_centrality=True)
