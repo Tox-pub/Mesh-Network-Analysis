@@ -752,7 +752,23 @@ def run_benchmark(resolved_csv_path: str, relevance_db_path: str,
         nc_labels = scores_df["pmid"].isin(nc_target).to_numpy().astype(int)
 
         if 0 < nc_labels.sum() < len(nc_labels):
-            s = scores_df["score_betweenness_centrality"].to_numpy(dtype=float)
+            # Score the control with the SAME weighting the run reports on, not
+            # a fixed one. A control run against a different scorer does not
+            # control for the result being read, and naming a column that the
+            # relevance database may not contain raises KeyError in the middle
+            # of a benchmark that had otherwise finished.
+            nc_col = next(
+                (c for c in ("score_pagerank_centrality",
+                             "score_betweenness_centrality",
+                             "score_eigenvector_centrality")
+                 if c in scores_df.columns),
+                next((c for c in scores_df.columns if c.startswith("score_")), None))
+            if nc_col is None:
+                print("  [!] No scored column to test the negative control against; skipped.")
+                nc_labels = nc_labels[:0]
+        if 0 < nc_labels.sum() < len(nc_labels):
+            print(f"  Scored with {scorer_label(nc_col)}")
+            s = scores_df[nc_col].to_numpy(dtype=float)
             nc_map = average_precision(_sorted_labels(s, nc_labels, rng), int(nc_labels.sum()))
 
             def _nc_map_ranked(l):

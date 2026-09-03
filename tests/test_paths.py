@@ -34,9 +34,11 @@ box = tempfile.mkdtemp()
 c = make(box)
 
 print('=== 1. every file the pipeline names resolves under a folder it owns ===')
+# Per-project files live under this project's own folder; only the master
+# annotation database is shared, because it is built once and read by all of them.
 OWNED = {
-    'master_db':        'databases',
-    'pmids_db':         'databases',
+    'master_db':        'shared_databases',
+    'pmids_db':         'project_databases',
     'mesh_marc':        'raw',
     'mesh_ascii':       'raw',
     'full_network':     'networks',
@@ -44,8 +46,8 @@ OWNED = {
     'sa_subgraph':      'networks',
     'consensus_lcc':    'networks',
     'final_network':    'networks',
-    'cleaned_db':       'databases',
-    'relevance_db':     'databases',
+    'cleaned_db':       'project_databases',
+    'relevance_db':     'project_databases',
     'mesh_terms_csv':   'processed',
     'failed_mesh':      'logs',
     'empty_mesh':       'logs',
@@ -54,8 +56,9 @@ OWNED = {
 where = {
     'raw':        c.active_raw_dir,
     'processed':  c.active_source_dir,
-    'networks':   c.networks_dir,
-    'databases':  c.databases_dir,
+    'networks':          c.networks_dir,
+    'shared_databases':  c.databases_dir,
+    'project_databases': c.project_db_dir,
     'logs':       c.log_dir,
 }
 for key, folder in OWNED.items():
@@ -89,7 +92,11 @@ print('\n=== 4. the results tree ===')
 ck(c.figures_dir.parent == c.results_dir, 'figures/ is under results')
 ck(c.secondary_dir.parent == c.results_dir, 'secondary_analysis/ is under results')
 ck(c.benchmark_dir.parent == c.results_dir, 'benchmark/ is under results')
-ck(c.networks_dir.parent == c.active_source_dir, 'networks/ is under processed, NOT results')
+ck(c.networks_dir.parent == c.project_dir, "networks/ is inside this project's folder")
+ck(c.project_db_dir.parent == c.project_dir, "databases/ is inside it too")
+ck(c.project_dir.parent.name == 'projects', 'projects are grouped under processed/projects')
+ck(str(c.project_dir).startswith(str(c.active_source_dir)),
+   'and the whole project folder is under processed, NOT results')
 ck(c.databases_dir.parent == c.active_source_dir, 'databases/ is under processed')
 ck(not str(c.results_dir).startswith(str(c.active_raw_dir)),
    'results are not inside the data folder')
@@ -106,8 +113,9 @@ _ref = _MC(config_path=_p)
 # change is that they stay in the user's databases folder rather than following
 # the corpus into the read-only program directory.
 for _k in ('master_db', 'pmids_db', 'cleaned_db', 'relevance_db'):
-    ck(_ref.files[_k].parent == c.databases_dir,
-       f'{_k} still lives in the user databases folder with the checkbox on',
+    _home = (_ref.databases_dir if _k == 'master_db' else _ref.project_db_dir)
+    ck(_ref.files[_k].parent == _home,
+       f'{_k} still lives under the user data folder with the checkbox on',
        str(_ref.files[_k]))
 ck(_ref.files['master_db'] == c.files['master_db'],
    'and the master database is the very same file (it carries no prefix)')

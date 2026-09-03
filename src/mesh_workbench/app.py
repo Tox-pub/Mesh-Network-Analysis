@@ -846,8 +846,10 @@ class Workbench(tk.Tk):
             return [
                 ('Downloaded archives and databases', str(cfg.active_raw_dir)),
                 ('Working files', str(cfg.active_source_dir)),
-                ('  ... networks', str(cfg.networks_dir)),
-                ('  ... project databases', str(cfg.databases_dir)),
+                ('  ... this project', str(cfg.project_dir)),
+                ('      ... networks', str(cfg.networks_dir)),
+                ('      ... databases', str(cfg.project_db_dir)),
+                ('  ... shared databases', str(cfg.databases_dir)),
                 ('Results', str(cfg.results_dir)),
                 ('  ... figures', str(cfg.figures_dir)),
                 ('  ... secondary analysis', str(cfg.secondary_dir)),
@@ -1205,33 +1207,43 @@ class Workbench(tk.Tk):
         that accounts for disk use has to account for them too.
         """
         import collections
+        # Two places to look. Each project now keeps its own folder, and a
+        # project from before that lives flat in the shared databases folder;
+        # both are the user's and both take up the same disk.
+        projects_root = os.path.join(str(cfg._user_processed_dir()), 'projects')
         db_dir = str(cfg.databases_dir)
-        if not os.path.isdir(db_dir):
+        folders = [db_dir]
+        if os.path.isdir(projects_root):
+            folders += [os.path.join(projects_root, d, 'databases')
+                        for d in sorted(os.listdir(projects_root))]
+        folders = [f for f in folders if os.path.isdir(f)]
+        if not folders:
             return
 
         by_prefix = collections.defaultdict(lambda: [0, 0])       # files, bytes
-        for name in sorted(os.listdir(db_dir)):
-            path = os.path.join(db_dir, name)
-            if not os.path.isfile(path) or not name.endswith('.db'):
-                continue
-            if name.startswith('master_mesh'):
-                continue                                          # its own row
-            # Longest suffix first: '_cleaned_pmids.db' also ends with
-            # '_pmids.db', and matching the shorter one would read the prefix
-            # of 'DAC_Mesh_cleaned_pmids.db' as 'DAC_Mesh_cleaned'.
-            owner = None
-            for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
-                           '_mean_relevancy.db', '_pmids.db'):
-                if name.endswith(marker):
-                    owner = name[:-len(marker)]
-                    break
-            if owner is None or owner == prefix:
-                continue                                          # this project's
-            try:
-                by_prefix[owner][0] += 1
-                by_prefix[owner][1] += os.path.getsize(path)
-            except OSError:
-                pass
+        for folder in folders:
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if not os.path.isfile(path) or not name.endswith('.db'):
+                    continue
+                if name.startswith('master_mesh'):
+                    continue                                      # its own row
+                # Longest suffix first: '_cleaned_pmids.db' also ends with
+                # '_pmids.db', and matching the shorter one would read the
+                # prefix of 'DAC_Mesh_cleaned_pmids.db' as 'DAC_Mesh_cleaned'.
+                owner = None
+                for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
+                               '_mean_relevancy.db', '_pmids.db'):
+                    if name.endswith(marker):
+                        owner = name[:-len(marker)]
+                        break
+                if owner is None or owner == prefix:
+                    continue                                      # this project's
+                try:
+                    by_prefix[owner][0] += 1
+                    by_prefix[owner][1] += os.path.getsize(path)
+                except OSError:
+                    pass
 
         if not by_prefix:
             return
@@ -1266,6 +1278,18 @@ class Workbench(tk.Tk):
                   command=lambda d=db_dir: self._open_path(d)).pack(side='left', padx=2)
         tk.Frame(row, bg='#b0b0b0', height=1).grid(
             row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
+
+    def _project_db_folders(self, shared_dir):
+        """Every folder that can hold a project's databases.
+
+        A project now keeps its own; one from before that keeps them flat in
+        the shared folder. Both are the user's disk.
+        """
+        out = [shared_dir]
+        root = os.path.join(os.path.dirname(shared_dir), 'projects')
+        if os.path.isdir(root):
+            out += [os.path.join(root, d, 'databases') for d in sorted(os.listdir(root))]
+        return [f for f in out if os.path.isdir(f)]
 
     def _delete_other_projects(self, by_prefix, db_dir):
         """Remove the databases belonging to projects other than this one.
@@ -1305,31 +1329,32 @@ class Workbench(tk.Tk):
             return
 
         removed, freed, failures = 0, 0, []
-        for name in sorted(os.listdir(db_dir)):
-            path = os.path.join(db_dir, name)
-            if not os.path.isfile(path) or name.startswith('master_mesh'):
-                continue
-            owner = None
-            for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
-                           '_mean_relevancy.db', '_pmids.db'):
-                if name.endswith(marker):
-                    owner = name[:-len(marker)]
-                    break
-            if owner not in by_prefix:
-                continue
-            try:
-                freed += os.path.getsize(path)
-                os.remove(path)
-                removed += 1
-                # A stale write-ahead log or health record describes a database
-                # that is gone; SQLite would try to replay the log into
-                # whatever is built next.
-                for suffix in ('-wal', '-shm', '-journal', '.health.json'):
-                    side = path + suffix
-                    if os.path.exists(side):
-                        os.remove(side)
-            except OSError as exc:
-                failures.append((name, exc))
+        for folder in self._project_db_folders(db_dir):
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if not os.path.isfile(path) or name.startswith('master_mesh'):
+                    continue
+                owner = None
+                for marker in ('_scored_for_benchmark.db', '_cleaned_pmids.db',
+                               '_mean_relevancy.db', '_pmids.db'):
+                    if name.endswith(marker):
+                        owner = name[:-len(marker)]
+                        break
+                if owner not in by_prefix:
+                    continue
+                try:
+                    freed += os.path.getsize(path)
+                    os.remove(path)
+                    removed += 1
+                    # A stale write-ahead log or health record describes a
+                    # database that is gone; SQLite would try to replay the log
+                    # into whatever is built next.
+                    for suffix in ('-wal', '-shm', '-journal', '.health.json'):
+                        side = path + suffix
+                        if os.path.exists(side):
+                            os.remove(side)
+                except OSError as exc:
+                    failures.append((name, exc))
 
         msg = f'Removed {removed} file(s), freeing {freed / 1e9:,.2f} GB.'
         if failures:

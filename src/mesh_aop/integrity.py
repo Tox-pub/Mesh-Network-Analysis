@@ -324,6 +324,7 @@ def scan(config, deep=False):
     out.extend(_orphans([config.active_raw_dir, config.active_source_dir,
                          getattr(config, 'networks_dir', None),
                          getattr(config, 'databases_dir', None),
+                         getattr(config, 'project_db_dir', None),
                          config.results_dir,
                          getattr(config, 'figures_dir', None),
                          getattr(config, 'secondary_dir', None),

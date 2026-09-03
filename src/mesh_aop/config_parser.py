@@ -457,7 +457,13 @@ class MeshConfig:
         # networks folder is not empty and confusing after a reference run; and
         # it means the copy can be opened, edited and experimented on, while the
         # shipped original stays exactly as published.
-        self.networks_dir = self._user_processed_dir() / 'networks'
+        # ONE FOLDER PER PROJECT. A search produces networks and three
+        # databases, all named for its prefix, and they belong together: found
+        # in one place, carried to another machine in one piece, and deleted in
+        # one piece when the project is finished with.
+        self.project_dir = self._user_processed_dir() / 'projects' / (self.prefix or '_unnamed')
+        self.networks_dir = self.project_dir / 'networks'
+        self.project_db_dir = self.project_dir / 'databases'
 
         # THE DATABASES ARE ALWAYS THE USER'S, never the shipped corpus.
         #
@@ -470,6 +476,9 @@ class MeshConfig:
         # database is built on this machine, is expensive, and is shared between
         # projects, so all of them live together under the user's data folder
         # whatever the checkbox says.
+        # Shared across every project: the master annotation database is built
+        # once, takes hours, and is read by all of them. Per-project databases
+        # live under project_dir instead.
         self.databases_dir = self._user_processed_dir() / 'databases'
 
         self.figures_dir = self.results_dir / 'figures'
@@ -496,6 +505,7 @@ class MeshConfig:
         # that is read-only, never written to, and copied into the installers,
         # so creating it there would only ship an empty directory to everyone.
         wanted = [self.active_raw_dir, self.active_source_dir, self.databases_dir,
+                  self.project_db_dir,
                   self.figures_dir, self.secondary_dir, self.benchmark_dir,
                   self.log_dir]
         if not self.use_reference_data:
@@ -526,17 +536,16 @@ class MeshConfig:
         custom = self.params.get('directories', {}).get('output_dir', '').strip()
         return Path(custom) if custom else self._user_data_root() / 'processed'
 
-    def _settled_db(self, name, *legacy_dirs):
-        """Where a database lives: the databases folder, or where it already is.
+    def _settled_db(self, name, *legacy_dirs, preferred_dir=None):
+        """Where a database lives: its own folder, or where it already is.
 
-        Same rule as _settled, but the fallbacks are given explicitly because a
-        database can predate two different moves - the master annotation
-        database was written to raw/ for most of this project's life, and the
-        project databases were written flat into processed/. Neither is worth
-        making anyone rebuild: the master one is a 50 GB download and several
-        hours of compilation.
+        A database can predate several moves - the master annotation database
+        was written to raw/ for most of this project's life, the project
+        databases were written flat into processed/, and then into a shared
+        processed/databases/. None of that is worth making anyone rebuild: the
+        master one is a 50 GB download and several hours of compilation.
         """
-        preferred = self.databases_dir / name
+        preferred = (preferred_dir or self.databases_dir) / name
         if preferred.exists():
             return preferred
         for old in legacy_dirs:
@@ -556,9 +565,12 @@ class MeshConfig:
         Reference mode benefits from the same rule: the bundled corpus is flat
         and read-only, and is found without special-casing it.
         """
-        legacy = self.active_source_dir / name
-        if not (preferred_dir / name).exists() and legacy.exists():
-            return legacy
+        if (preferred_dir / name).exists():
+            return preferred_dir / name
+        for legacy in (self._user_processed_dir() / 'networks',
+                       self.active_source_dir):
+            if (legacy / name).exists():
+                return legacy / name
         return preferred_dir / name
 
     def _map_files(self):
@@ -572,8 +584,11 @@ class MeshConfig:
                                           self.active_raw_dir,
                                           self._user_raw_dir()),
             "pmids_db": self._settled_db(f"{self.db_prefix}_pmids.db",
+                                         self.databases_dir,
+                                         self.active_source_dir,
                                          self.active_raw_dir,
-                                         self._user_raw_dir()),
+                                         self._user_raw_dir(),
+                                         preferred_dir=self.project_db_dir),
 
             "full_network": self._settled(self.networks_dir, f"{self.prefix}_full_network_data.json"),
             "glf_subgraph": self._settled(self.networks_dir, f"{self.prefix}_glf_optimal_subgraph.json"),
@@ -582,11 +597,15 @@ class MeshConfig:
             "final_network": self._settled(self.networks_dir, f"{self.prefix}_final_network_with_relevance.json"),
 
             "cleaned_db": self._settled_db(f"{self.db_prefix}_cleaned_pmids.db",
+                                           self.databases_dir,
                                            self.active_source_dir,
-                                           self._user_processed_dir()),
+                                           self._user_processed_dir(),
+                                           preferred_dir=self.project_db_dir),
             "relevance_db": self._settled_db(f"{self.db_prefix}_mean_relevancy.db",
+                                             self.databases_dir,
                                              self.active_source_dir,
-                                             self._user_processed_dir()),
+                                             self._user_processed_dir(),
+                                             preferred_dir=self.project_db_dir),
 
             "failed_mesh": self.log_dir / f"{self.prefix}_failed_mesh_fetches.tsv",
             "empty_mesh": self.log_dir / f"{self.prefix}_empty_mesh_pmids.tsv",

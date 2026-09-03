@@ -375,7 +375,7 @@ def _build_relevance_db_if_missing(config, include_subgraph_weightings=True):
     # The rescored network goes beside the databases rather than over the input.
     # In reference mode the input IS the shipped corpus, which is read-only and
     # must stay exactly as published.
-    scored = Path(config.databases_dir) / f"{config.db_prefix}_scored_for_benchmark.json"
+    scored = Path(config.project_db_dir) / f"{config.db_prefix}_scored_for_benchmark.json"
 
     weightings = [("betweenness_centrality", "MRS_betweenness_centrality"),
                   ("pagerank_centrality", "MRS_pagerank_centrality"),
@@ -1206,7 +1206,9 @@ def main():
                 # their own folder has them there, one built before it has them
                 # flat in the processed folder, and a user comparing across two
                 # projects may well have one of each.
-                search_dir=[str(config.networks_dir), str(config.active_source_dir)],
+                search_dir=[str(config.networks_dir),
+                            str(config._user_processed_dir() / 'networks'),
+                            str(config.active_source_dir)],
                 results_dir=str(config.secondary_dir),
                 file_prefix=config.prefix,
                 random_seed=config.get('analysis_parameters', 'random_seed') or 42
