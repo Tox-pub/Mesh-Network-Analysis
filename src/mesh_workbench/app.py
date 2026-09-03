@@ -764,10 +764,20 @@ class Workbench(tk.Tk):
         and ran into the next one, which is most of what "overlapping text"
         looked like on Linux.
         """
-        frame.columnconfigure(0, minsize=self.px(330), weight=1)
-        frame.columnconfigure(1, minsize=self.px(80))
-        frame.columnconfigure(2, minsize=self.px(80))
-        frame.columnconfigure(3, minsize=self.px(130))
+        # The button column has to be wide enough for the BUSIEST row, not the
+        # typical one. Column 0 carries the weight, so a row whose buttons
+        # overflow their column takes the space from column 0 - and only in
+        # that row, because every row is its own grid. One row with two buttons
+        # therefore sat 26px left of all the others and of the headings.
+        # Measured in the real font: at 130px flat, "Re-download" plus "Delete"
+        # overflowed by exactly that much.
+        buttons = (self.f_ui.measure('Re-download') + self.f_ui.measure('Delete')
+                   + self.px(70))
+        frame.columnconfigure(0, minsize=self.px(290), weight=1)   # Source
+        frame.columnconfigure(1, minsize=self.px(70))               # Status
+        frame.columnconfigure(2, minsize=self.px(80))               # Size
+        frame.columnconfigure(3, minsize=self.px(90))               # Built
+        frame.columnconfigure(4, minsize=buttons)                   # buttons
 
     # ------------------------------------------------------------- screen: setup
     # ------------------------------------------------------------ screen: setup
@@ -839,7 +849,8 @@ class Workbench(tk.Tk):
         hdr.pack(fill='x', padx=4, pady=(3, 0))
         self._setup_cols(hdr)
         for c, (text, anchor) in enumerate((('Source', 'w'), ('Status', 'w'),
-                                            ('Size', 'e'), ('', 'e'))):
+                                            ('Size', 'e'), ('Built', 'w'),
+                                            ('', 'e'))):
             tk.Label(hdr, text=text, bg=FACE, font=self.f_bold, anchor=anchor
                      ).grid(row=0, column=c, sticky='we',
                             padx=(0, 8) if c == 2 else 0)
@@ -861,9 +872,16 @@ class Workbench(tk.Tk):
         rule.pack_configure(padx=(4, 4 + gutter))
         canvas.pack(side='left', fill='both', expand=True)
         self.setup_rows = tk.Frame(canvas, bg=FACE)
-        canvas.create_window((0, 0), window=self.setup_rows, anchor='nw')
+        win = canvas.create_window((0, 0), window=self.setup_rows, anchor='nw')
         self.setup_rows.bind('<Configure>',
                              lambda e: canvas.config(scrollregion=canvas.bbox('all')))
+        # Stretch the row frame to the canvas. A window item takes its child's
+        # NATURAL width otherwise, so the rows were laid out in a frame narrower
+        # than the header - column 0 carries weight=1 and had no slack to
+        # absorb, so Status, Size and Built all sat left of the headings above
+        # them, by over a hundred pixels. Matching the widths makes both grids
+        # solve the same problem and land in the same places.
+        canvas.bind('<Configure>', lambda e: canvas.itemconfigure(win, width=e.width))
 
         foot = tk.Frame(root, bg=FACE)
         foot.pack(fill='x', padx=10, pady=9)
@@ -956,18 +974,29 @@ class Workbench(tk.Tk):
             row = tk.Frame(self.setup_rows, bg=FACE)
             row.pack(fill='x', pady=2, padx=4)
             self._setup_cols(row)
-            tk.Label(row, text=it['label'], bg=FACE, font=self.f_bold, anchor='w'
+            # Wrapped, not just anchored. A label wider than column 0 makes that
+            # column grow, and since every row is its own grid only THAT row
+            # grows - so one long description pushed Status, Size and Built
+            # right and the table looked ragged on a single line. Wrapping keeps
+            # the column the width the header assumed.
+            tk.Label(row, text=it['label'], bg=FACE, font=self.f_bold, anchor='w',
+                     wraplength=self.px(285), justify='left'
                      ).grid(row=0, column=0, sticky='w')
-            tk.Label(row, text=it['note'], bg=FACE, fg=DIM, anchor='w'
+            tk.Label(row, text=it['note'], bg=FACE, fg=DIM, anchor='w',
+                     wraplength=self.px(285), justify='left'
                      ).grid(row=1, column=0, sticky='w')
             tk.Label(row, text=('Present' if present else 'Missing'), bg=FACE,
                      fg=(OK if present else ERR), font=self.f_bold, anchor='w'
                      ).grid(row=0, column=1, sticky='w')
             tk.Label(row, text=(f'{gb:,.2f} GB' if present else '-'), bg=FACE,
                      anchor='e').grid(row=0, column=2, sticky='e', padx=(0, 8))
+            built = _built_when(it['path']) if present else None
+            tk.Label(row, text=(built or '-'), bg=FACE,
+                     fg=(INK if built else DIM), anchor='w'
+                     ).grid(row=0, column=3, sticky='w')
 
             buttons = tk.Frame(row, bg=FACE)
-            buttons.grid(row=0, column=3, rowspan=2, sticky='e', padx=4)
+            buttons.grid(row=0, column=4, rowspan=2, sticky='e', padx=4)
             label = it.get('rebuild' if present else 'build')
             if label:
                 tk.Button(buttons, text=label, width=12,
@@ -978,7 +1007,7 @@ class Workbench(tk.Tk):
                           command=lambda i=it, g=gb: self._setup_delete(i, g)
                           ).pack(side='left', padx=2)
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
-                row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
+                row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
 
         self._setup_services()
 
@@ -1027,9 +1056,11 @@ class Workbench(tk.Tk):
             row = tk.Frame(self.setup_rows, bg=FACE)
             row.pack(fill='x', pady=2, padx=4)
             self._setup_cols(row)
-            tk.Label(row, text=name, bg=FACE, font=self.f_bold, anchor='w'
+            tk.Label(row, text=name, bg=FACE, font=self.f_bold, anchor='w',
+                     wraplength=self.px(285), justify='left'
                      ).grid(row=0, column=0, sticky='w')
-            tk.Label(row, text=note, bg=FACE, fg=DIM, anchor='w'
+            tk.Label(row, text=note, bg=FACE, fg=DIM, anchor='w',
+                     wraplength=self.px(285), justify='left'
                      ).grid(row=1, column=0, sticky='w')
             status = tk.Label(row, text='checking...', bg=FACE, fg=DIM,
                               font=self.f_bold, anchor='w')
@@ -1037,7 +1068,7 @@ class Workbench(tk.Tk):
             latency = tk.Label(row, text='', bg=FACE, anchor='e')
             latency.grid(row=0, column=2, sticky='e', padx=(0, 8))
             tk.Frame(row, bg='#b0b0b0', height=1).grid(
-                row=2, column=0, columnspan=4, sticky='we', pady=(3, 0))
+                row=2, column=0, columnspan=5, sticky='we', pady=(3, 0))
             self._ping_async(url, status, latency)
 
     def _ping_async(self, url, status_label, latency_label):
@@ -2843,6 +2874,39 @@ def _size_gb(path):
             except OSError:
                 pass
     return tot / 1e9
+
+
+def _built_when(path):
+    """When this was last written, as a short date, or None.
+
+    Worth a column of its own. A master database is built once and reused
+    across every project for months, so "how old is it" decides whether a
+    result reflects current MeSH - and nothing on screen answered that.
+
+    A directory takes the newest thing directly inside it: the archive folders
+    hold their files flat, and walking tens of thousands of them again to find
+    one timestamp would cost more than the answer is worth.
+    """
+    try:
+        if os.path.isfile(path):
+            newest = os.path.getmtime(path)
+        elif os.path.isdir(path):
+            stamps = []
+            with os.scandir(path) as entries:
+                for e in entries:
+                    try:
+                        stamps.append(e.stat().st_mtime)
+                    except OSError:
+                        pass
+            if not stamps:
+                return None
+            newest = max(stamps)
+        else:
+            return None
+    except OSError:
+        return None
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(newest).strftime('%Y-%m-%d')
 
 
 def _hms(s):
