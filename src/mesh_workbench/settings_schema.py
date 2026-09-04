@@ -225,6 +225,12 @@ TABS = [
           'the scores and the benchmark alike. Changing it changes the '
           'results, so two runs to be compared must use the same trees.'),
 
+        F('_heading.checktags', 'Check tags - outside the trees entirely',
+          'heading', '',
+          'Male and Female are check tags, not descriptors: they appear in no '
+          'MeSH tree, so no box above can reach them and this switch is the '
+          'only control over them.', '', ''),
+
         F('stop_words.keep_sexes', 'Keep Male and Female', 'bool', False,
           'Keeps the two sex terms in the analysis.',
           'Default: off - both are excluded.',

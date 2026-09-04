@@ -664,18 +664,32 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,
         print("  [+] AFK Mode: Skipping Master Annotation Sync prompt to prevent pipeline pause.")
         return
 
+    # Counted apart, because they mean different things to whoever annotated
+    # the file: untouched rows say the job is unfinished, deliberately unplaced
+    # rows say it is finished. Neither is merged, but only one is a warning.
+    untouched = placed_nowhere = 0
     try:
         run_df = _read_annotations(run_anno_path)
-        unassigned_count = int(
-            run_df[strata.COLUMN].map(strata.is_unplaced).sum())
+        col = run_df[strata.COLUMN]
+        untouched = int(col.map(
+            lambda v: str(v).strip().lower() in ('', 'nan', strata.PLACEHOLDER.lower())
+            or v is None).sum())
+        placed_nowhere = int(col.map(
+            lambda v: str(v).strip().lower() == strata.UNASSIGNED.lower()).sum())
     except Exception:
-        unassigned_count = 0
+        pass
 
     print("\n<<< Master Annotation Sync >>>")
     print("  [!] WARNING: This action will permanently update your Master Annotations Library.")
-    if unassigned_count > 0:
-        print(f"  [!] CAUTION: Your run-specific file contains {unassigned_count} 'Unassigned' term(s).")
-        print("      (Note: 'Unassigned' terms are safely ignored and will NOT overwrite existing Master assignments).")
+    if untouched:
+        print(f"  [!] CAUTION: {untouched} term(s) are still '{strata.PLACEHOLDER}' - "
+              f"nobody has looked at them yet.")
+    if placed_nowhere:
+        print(f"      {placed_nowhere} term(s) are '{strata.UNASSIGNED}' - looked at, "
+              f"and in none of your groups.")
+    if untouched or placed_nowhere:
+        print("      Neither is merged: they cannot overwrite assignments already "
+              "in the Master Library.")
 
     # Skip is the safe default: this permanently rewrites a library the user
     # has curated across every project they have ever run, and doing that
@@ -957,9 +971,22 @@ def main():
             # so users never have to fetch it by hand. Otherwise extraction is
             # skipped and the path is a harmless placeholder.
             forced = bool(args.refresh_mesh_support)
+            # A terms CSV written before the tree column existed cannot answer
+            # "which trees does this descriptor belong to", so every choice on
+            # the Stop words tab would silently fall back to the built-in
+            # four-tree list. That is a setting that appears to do nothing, so
+            # the file is rebuilt once instead. It is the only way the tree
+            # selection can ever take effect on an existing install.
+            stale_terms = vocabulary.needs_tree_column(config.files['mesh_terms_csv'])
+            if stale_terms:
+                print("\n  [i] Your MeSH terms file predates the tree record, so the")
+                print("      Stop words tab could not take effect. Rebuilding it once")
+                print("      from the descriptor XML; this happens only this time.")
             needs_support_build = (
                 forced
+                or stale_terms
                 or config.get('search_parameters', 'update_mesh_support_files')
+                or config.params.get('stop_words', {}).get('rebuild', False)
                 or not os.path.exists(config.files['mesh_terms_csv'])
                 or not os.path.exists(config.files['mesh_stopwords_py'])
             )
@@ -974,6 +1001,7 @@ def main():
                     output_csv=config.files['mesh_terms_csv'],
                     output_py=config.files['mesh_stopwords_py'],
                     force_update=(forced
+                                  or stale_terms
                                   or config.get('search_parameters',
                                                 'update_mesh_support_files')
                                   or config.params.get('stop_words', {}).get('rebuild', False))

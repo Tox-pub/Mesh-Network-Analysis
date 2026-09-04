@@ -451,7 +451,16 @@ Annotation files are **semicolon-delimited**. MeSH headings contain commas as a 
 
    Any name you write is valid. A name not listed in **Strata order** is still plotted — it is placed at the end of the order and reported in the run log, never dropped. Spelling and capitalisation are taken literally, so `Molecular` and `molecular` are two strata, which is usually a typo.
 
-   `Uncategorized` means a term you deliberately did not place. It stays in the network and in every topological figure and is left out of the ones that show the strata.
+   Two values mean "no stratum", and they are not the same thing:
+
+   | Value | What it means |
+   | :--- | :--- |
+   | `Unassigned` | Nobody has looked at this term yet. Every row starts here. |
+   | `Uncategorized` | You looked, and it belongs to none of your groups. |
+
+   The difference is for you, not for the program: it separates a term you have finished with from one you have not reached, which is the only practical way to work through a long file across several sittings. Both are counted separately when you are asked about merging.
+
+   **The figures treat the two as one.** Both stay in the network and in every topological figure, and both are left out of the figures that show the strata — a stratum is a group to draw, and neither of these is one. So an unfinished file draws the same picture as a finished one where those terms did not belong; check the counts before reading much into a sparse figure.
 
 5. **Save the file**, keeping it semicolon-delimited.
 6. **Resume.** Run the figures step. You will be asked whether to merge your annotations into the master library, and then the remaining figures are drawn.

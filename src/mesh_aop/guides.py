@@ -22,8 +22,8 @@ call from the GUI, the CLI, or a bare interpreter.
 
 import os
 
-from .strata import (COLUMN, DEFAULT_ORDER, DEFAULT_ORDER_TEXT, UNASSIGNED,
-                     parse_order)
+from .strata import (COLUMN, DEFAULT_ORDER, DEFAULT_ORDER_TEXT, PLACEHOLDER,
+                     UNASSIGNED, parse_order)
 
 ANNOTATION_GUIDE_NAME = 'HOW TO ANNOTATE - read me.html'
 ANNOTATION_GUIDE_NAME_FALLBACK = 'HOW TO ANNOTATE - read me.txt'
@@ -91,10 +91,25 @@ an intention.
 To fix the order the figures use, set **Strata order** in Settings. That
 setting is only about order: it never restricts what you may write here.
 
-`{UNASSIGNED}` means a term you deliberately did not place. It stays in the
-network and in every topological figure, and is left out of the ones that show
-the scheme. Use it for a term that genuinely does not belong to any of your
-groups.
+### Terms you do not place
+
+Two words appear in this column for a term that has no stratum, and they do not
+mean the same thing:
+
+| Value | What it means |
+| :--- | :--- |
+| `{PLACEHOLDER}` | Nobody has looked at this term yet. Every row starts here. |
+| `{UNASSIGNED}` | You looked, and it belongs to none of your groups. |
+
+The difference is for you, not for the program: it is how you tell a term you
+have finished with from one you have not reached. Keeping them apart is the
+only way to work through a long file across several sittings.
+
+**The figures treat them as one.** Both stay in the network and in every
+topological figure, and both are left out of the figures that show the strata.
+So a file you never finished draws the same picture as one where you decided
+those terms did not belong — check the count in the log before reading too much
+into a sparse figure.
 
 ## Before you start, if you have annotated another project
 

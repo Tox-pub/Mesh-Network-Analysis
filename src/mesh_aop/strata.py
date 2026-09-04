@@ -36,15 +36,26 @@ __all__ = ['COLUMN', 'LEGACY_COLUMN', 'UNASSIGNED', 'PLACEHOLDER',
 COLUMN = 'stratum'
 LEGACY_COLUMN = 'aop_level'
 
-# A term nobody placed. It stays in the network and in every topological
-# figure, and is left out of the ones that show the scheme.
+# Two words for a term with no stratum, and they do NOT mean the same thing to
+# the person doing the annotating:
+#
+#   PLACEHOLDER  nobody has looked at this term yet - every row starts here
+#   UNASSIGNED   somebody looked, and it belongs to none of their groups
+#
+# The distinction is what lets a long file be worked through over several
+# sittings: it separates "not reached" from "finished with". It is preserved in
+# the file, and the count of each is reported.
+#
+# The FIGURES cannot use it. A stratum is a group to draw, and neither of these
+# is one, so both are drawn the same way - kept in the network and in every
+# topological figure, left out of the ones that show the scheme. normalise() is
+# where that collapse happens, and it happens at plotting time only.
+#
+# They were already collapsed before this was written down, but by accident:
+# the template wrote PLACEHOLDER, the figures' categorical only listed
+# UNASSIGNED, so every untouched row fell out as NaN and was filled back in.
+# Right answer, wrong reason, and nothing said so.
 UNASSIGNED = 'Uncategorized'
-
-# What the template is filled with before anyone edits it. It has always been a
-# different word from UNASSIGNED, and the figures only ever knew the latter -
-# so every untouched row fell out of the categorical as NaN and was filled back
-# in, arriving at the right answer by an accident worth not relying on. Both
-# words mean the same thing here, and normalise() is where that is decided.
 PLACEHOLDER = 'Unassigned'
 
 # The adverse outcome pathway, which is where this program started and is still

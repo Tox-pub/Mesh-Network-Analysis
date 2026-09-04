@@ -141,6 +141,16 @@ def _read_terms_csv(path):
         return None
 
 
+def needs_tree_column(path):
+    """True when this terms CSV exists but predates the tree record.
+
+    That file is what makes the tree selection work, so without the column
+    every choice on the Stop words tab silently falls back to the built-in
+    four-tree list. A missing file is NOT this case - it is rebuilt anyway.
+    """
+    return bool(path) and os.path.exists(path) and _read_terms_csv(path) is None
+
+
 def shipped_stop_words():
     """The four-tree list built into the package."""
     try:

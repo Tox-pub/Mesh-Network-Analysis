@@ -1902,7 +1902,7 @@ class Workbench(tk.Tk):
             self.tab_btns[name] = b
             pane = tk.Frame(self.sheet, bg=FACE)
             self.panes[name] = pane
-            self._build_fields(pane, fields, tab_name=name)
+            self._build_fields(self._scrollable(pane), fields, tab_name=name)
 
         # Tall enough for the longest note in the schema, measured rather than
         # guessed - a caveat cut off mid-sentence is worse than absent, because
@@ -2126,6 +2126,57 @@ class Workbench(tk.Tk):
             # may well want to copy.
             body.config(state='disabled')
             body.pack(fill='both', expand=True, padx=0, pady=(0, 6))
+
+    def _scrollable(self, parent):
+        """A frame inside `parent` that scrolls when its content is too tall.
+
+        The tabs are generated from the schema, so a tab is however tall the
+        schema makes it, and two of them already ran past the bottom of the
+        sheet: Figures lost the figure-formats box by 23 pixels, and Stop words
+        lost three controls. Those fields were laid out, reported by
+        winfo_ismapped() as mapped, and impossible to see or click - clipping
+        by an ancestor is silent, which is why it went unnoticed.
+
+        The scrollbar appears only when there is something to scroll, so every
+        tab that already fits looks exactly as it did. grid_remove is used
+        rather than pack_forget because it remembers the cell, so showing the
+        bar again cannot put it somewhere else.
+        """
+        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+        canvas = tk.Canvas(parent, bg=FACE, highlightthickness=0)
+        bar = tk.Scrollbar(parent, orient='vertical', command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        canvas.grid(row=0, column=0, sticky='nsew')
+        bar.grid(row=0, column=1, sticky='ns')
+        bar.grid_remove()
+
+        inner = tk.Frame(canvas, bg=FACE)
+        win = canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def sync(_e=None):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+            # The canvas window has no width of its own, so without this the
+            # fields lay out at their requested width instead of the tab's.
+            canvas.itemconfigure(win, width=canvas.winfo_width())
+            if inner.winfo_reqheight() > canvas.winfo_height():
+                bar.grid()
+            else:
+                bar.grid_remove()
+                canvas.yview_moveto(0)
+
+        inner.bind('<Configure>', sync)
+        canvas.bind('<Configure>', sync)
+
+        def wheel(event):
+            if inner.winfo_reqheight() > canvas.winfo_height():
+                canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+
+        # Bound while the pointer is over this tab only, so the wheel does not
+        # scroll a tab the user is not looking at.
+        canvas.bind('<Enter>', lambda _e: canvas.bind_all('<MouseWheel>', wheel))
+        canvas.bind('<Leave>', lambda _e: canvas.unbind_all('<MouseWheel>'))
+        return inner
 
     # Two columns of eight. Sixteen in one column would push everything below
     # them off a short window, which is the fault the button bar already had.

@@ -154,6 +154,46 @@ app.set_step('benchmark')
 ck(app._step_label.get().startswith('benchmark'),
    f'and setting a key updates the label: {app._step_label.get()!r}')
 
+print('\n=== 7b. no tab hides a control by running off the bottom ===')
+# A field clipped by an ancestor still reports winfo_ismapped() == 1, so the
+# checks above cannot see this. Figures lost its figure-formats box by 23px and
+# Stop words lost three controls, and nothing said so: the fields were laid
+# out, reported as mapped, and impossible to see or click. Each tab scrolls
+# now, so the invariants are that the scrollbar appears exactly when the
+# content overflows, and that the scroll region covers all of it.
+for wide, tall in ((980, 430), (1100, 700)):
+    app.geometry(f'{wide}x{tall}')
+    app.update()
+    app.update_idletasks()
+    for name, fields in schema.TABS:
+        app._tab(name)
+        app.update()
+        app.update_idletasks()
+        anchor = next((app.widgets[f.key] for f in fields
+                       if f.key in app.widgets), None)
+        if anchor is None:
+            continue
+        inner, canvas = anchor, anchor.master
+        while canvas is not None and not isinstance(canvas, tk.Canvas):
+            inner, canvas = canvas, canvas.master
+        ck(isinstance(canvas, tk.Canvas), f'{name:<12} sits in a scrollable pane')
+        if not isinstance(canvas, tk.Canvas):
+            continue
+        overflows = inner.winfo_reqheight() > canvas.winfo_height()
+        bars = [w for w in canvas.master.winfo_children()
+                if isinstance(w, tk.Scrollbar)]
+        shown = bool(bars) and bars[0].winfo_ismapped()
+        ck(shown == overflows,
+           f'{name:<12} {wide}x{tall}: bar shown={shown} for overflow={overflows}',
+           f'content {inner.winfo_reqheight()}px in {canvas.winfo_height()}px')
+        region = canvas.cget('scrollregion').split()
+        ck(len(region) == 4 and int(float(region[3])) >= inner.winfo_reqheight(),
+           f'{name:<12} {wide}x{tall}: the scroll region covers the content',
+           f'region={canvas.cget("scrollregion")!r} content={inner.winfo_reqheight()}')
+
+app.geometry('980x430')
+app.update_idletasks()
+
 print('\n=== 8. step order follows the tabs ===')
 keys = [k for k, _lab in schema.STEPS]
 ck(keys.index('secondary') < keys.index('benchmark') < keys.index('viz'),
