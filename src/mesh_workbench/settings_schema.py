@@ -29,14 +29,17 @@ def F(key, label, kind, default, what, deflt, note=None, choices=None):
 # several times the real runtime on hardware with enough RAM, which is worse
 # than saying nothing. That "all" excludes the benchmark is said on the
 # Benchmark tab itself, where someone is deciding whether to run it.
+# Listed in the order of the tabs that configure them, so the two controls
+# read the same way round. The first entry is the whole pipeline; the rest
+# follow Search/Analysis, Network, Secondary, Benchmark, Figures.
 STEPS = [
     ('all',       'all - full pipeline'),
-    ('process',   'process - MeSH ingest + stop words'),
-    ('data_ops',  'data_ops - retrieval & citations'),
-    ('network',   'network - co-occurrence + consensus'),
-    ('secondary', 'secondary - top articles & export'),
+    ('process',   'process - MeSH ingest and stop words'),
+    ('data_ops',  'data_ops - retrieval and citations'),
+    ('network',   'network - co-occurrence and consensus'),
+    ('secondary', 'secondary - top articles and export'),
+    ('benchmark', 'benchmark - ground truth and validation'),
     ('viz',       'figures - plots and network images'),
-    ('benchmark', 'benchmark - ground truth & validation'),
 ]
 
 TABS = [

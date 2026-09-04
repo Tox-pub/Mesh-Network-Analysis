@@ -113,6 +113,52 @@ app._step_changed()
 ck(str(app.step_desc.cget('text')) == 'full pipeline',
    f'and the description beside it: {app.step_desc.cget("text")!r}')
 
+print('\n=== 7. the step menu shows labels, not argument names ===')
+labels = [lab for _k, lab in schema.STEPS]
+ck(all('_' not in lab.split(' - ')[0] or lab.startswith('data_ops')
+       for lab in labels), 'labels are readable')
+ck(not any(lab.strip() == 'viz' for lab in labels), "'viz' is never shown alone")
+ck(any(lab.startswith('figures') for lab in labels),
+   f'the figures step is called figures: {[l for l in labels if l.startswith("figures")]}')
+
+# the menu widget itself must carry the labels, not the keys
+menu = None
+# The STEP menu, not the first OptionMenu found: every 'choice' field builds
+# one too, and the last one in the tree is a weight-key list.
+_want_var = str(app._step_label)
+
+
+def find_menu(w):
+    global menu
+    for c in w.winfo_children():
+        if isinstance(c, tk.OptionMenu) and str(c.cget('textvariable')) == _want_var:
+            menu = c
+        find_menu(c)
+
+
+find_menu(app)
+ck(menu is not None, 'the step menu was found')
+if menu is not None:
+    entries = [menu['menu'].entrycget(i, 'label')
+               for i in range(menu['menu'].index('end') + 1)]
+    ck('viz' not in entries, f'the menu lists no bare keys: {entries[:3]}...')
+    ck(any(e.startswith('figures') for e in entries),
+       'and does list the figures step by name')
+    ck(entries == labels, 'in the order the schema declares')
+
+# selecting by label must set the KEY the pipeline takes
+app._step_picked('figures - plots and network images')
+ck(app.step_var.get() == 'viz',
+   f'picking the figures label sets the viz key: {app.step_var.get()!r}')
+app.set_step('benchmark')
+ck(app._step_label.get().startswith('benchmark'),
+   f'and setting a key updates the label: {app._step_label.get()!r}')
+
+print('\n=== 8. step order follows the tabs ===')
+keys = [k for k, _lab in schema.STEPS]
+ck(keys.index('secondary') < keys.index('benchmark') < keys.index('viz'),
+   f'secondary, then benchmark, then figures: {keys}')
+
 app.destroy()
 print()
 if FAILS:

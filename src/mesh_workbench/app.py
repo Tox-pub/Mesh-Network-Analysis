@@ -1012,7 +1012,9 @@ class Workbench(tk.Tk):
                  anchor='w').pack(fill='x', padx=10, pady=(10, 2))
         tk.Label(root, bg=FACE, anchor='w', justify='left',
                  text='The pipeline runs offline once these are in place. '
-                      'Nothing is downloaded or removed unless you ask.'
+                      'This screen can be used to download, build, regenerate '
+                      'and remove databases, as well as check network '
+                      'connectivity.'
                  ).pack(fill='x', padx=10, pady=(0, 4))
         self.setup_where = tk.Label(root, bg=FACE, anchor='w', fg=DIM,
                                     font=self.f_mono)
@@ -1755,11 +1757,16 @@ class Workbench(tk.Tk):
         # in plain text at the top of a full page of settings it was missed.
         tk.Label(top, text='Pipeline step:', bg=FACE, font=self.f_bold
                  ).pack(side='left', padx=(8, 6), pady=6)
+        # step_var holds the KEY the pipeline is run with; the menu shows the
+        # LABEL. Built from the keys, it displayed 'viz' and 'data_ops' - the
+        # argument names, not anything a reader was meant to see.
         self.step_var = tk.StringVar(value='all')
-        om = tk.OptionMenu(top, self.step_var, *[s for s, _ in schema.STEPS],
-                           command=lambda *_: self._step_changed())
-        om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=12,
-                  font=self.f_bold)
+        self._step_label = tk.StringVar(value=dict(schema.STEPS)['all'])
+        self._label_to_step = {lab: key for key, lab in schema.STEPS}
+        om = tk.OptionMenu(top, self._step_label, *[lab for _k, lab in schema.STEPS],
+                           command=lambda lab: self._step_picked(lab))
+        om.config(bg=FACE, activebackground=FACE, highlightthickness=1, width=34,
+                  anchor='w', font=self.f_bold)
         om.pack(side='left', pady=4)
         # Beside the list it acts on. The bar at the foot of the window is a
         # long way from the control that decides what Run means, and on a tall
@@ -2040,8 +2047,7 @@ class Workbench(tk.Tk):
 
         step, label = self.TAB_STEP.get(name, (None, 'Run'))
         if step:
-            self.step_var.set(step)
-            self._step_changed()
+            self.set_step(step)
         self.btn_run.config(text=label)
 
     def _run_current_tab(self):
@@ -2055,6 +2061,17 @@ class Workbench(tk.Tk):
         self.help_def.config(text=deflt if deflt is not None else (fld.deflt if fld else ''))
         n = note if note is not None else ((fld.note or '') if fld else '')
         self.help_note.config(text=('Note: ' + n) if n else '')
+
+    def _step_picked(self, label):
+        """The menu shows labels; the pipeline takes keys."""
+        self.step_var.set(self._label_to_step.get(label, 'all'))
+        self._step_changed()
+
+    def set_step(self, key):
+        """Select a step from code, keeping the menu's label in step."""
+        self.step_var.set(key)
+        self._step_label.set(dict(schema.STEPS).get(key, key))
+        self._step_changed()
 
     def _step_changed(self):
         s = self.step_var.get()
