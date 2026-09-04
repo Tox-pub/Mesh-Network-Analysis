@@ -6,10 +6,25 @@ the application or the pipeline — these scripts only assemble releases.
 | File | Purpose |
 | --- | --- |
 | `build_portable_windows.py` | Produces the download-and-run Windows zip. Run this first. |
-| `build_installer_windows.py` | Wraps that zip's tree in a conventional `Setup.exe`. |
-| `windows_installer.iss` | The Inno Setup script it compiles. |
+| `build_msi_windows.py` | Wraps that zip's tree in an `.msi`. |
+| `windows_msi.wxs` | The WiX source it compiles. |
+| `build_unix_bundle.py` | The self-contained Linux and macOS tarballs. |
+| `verify_windows_bundle.py`, `verify_unix_bundle.py` | Check a build before it is published. |
 | `launchers/` | The `.bat` files a user double-clicks, copied verbatim into the zip. |
 | `make_icon.py` | Redraws the application icon into `src/mesh_workbench/assets/`. |
+
+### There is no Setup.exe
+
+There was, built with Inno Setup, and it was dropped. It installed the same tree
+as the MSI, from the same portable build, to the same place — the only real
+difference being that a freshly compiled `Setup.exe` is an unsigned binary and
+the MSI is executed by `msiexec`, which Microsoft signs. On a managed machine
+that difference decides whether the install runs at all, and it never favoured
+Setup.exe. Two installers that do the same thing is one more artefact to build,
+verify, hash, upload and support, for no case the other does not cover.
+
+Anyone who installed an older version with it removes it the same way as the
+MSI: **Settings → Apps → MeSH Workbench → Uninstall**.
 
 ## Building the Windows release
 
@@ -43,13 +58,12 @@ MeshWorkbench/
 ## Building the installer
 
 ```bash
-python packaging/build_portable_windows.py     # first - assembles the tree
-python packaging/build_installer_windows.py    # then  - wraps it
+python packaging/build_portable_windows.py   # first - assembles the tree
+python packaging/build_msi_windows.py        # then  - wraps it
 ```
 
-Produces `packaging/dist/MeSH-Workbench-<version>-win64-setup.exe`: a wizard with
-a directory page, Start-menu and desktop shortcuts, and an Add/Remove Programs
-entry.
+Produces `MeSH-Workbench-<version>-win64.msi`: a directory page, Start-menu and
+desktop shortcuts, and an Add/Remove Programs entry.
 
 It installs **the same tree the zip contains**, so the only program that ever
 executes is still the PSF-signed `python.exe`. Shortcuts point at
@@ -57,41 +71,40 @@ executes is still the PSF-signed `python.exe`. Shortcuts point at
 console. The `.bat` files and the portable README are excluded from the install -
 they would be telling an installed copy to use launchers it does not have.
 
-Defaults to a per-user install, so there is no administrator prompt and nothing
-for a managed machine to refuse; the wizard still offers all-users to anyone with
-the rights.
+Installs per-user, so there is no administrator prompt and nothing for a managed
+machine to refuse.
 
-Uninstalling through Windows removes what Setup wrote, then offers to run the
-application's own uninstaller for the downloaded data and the temp-folder
-workspace - which Windows would otherwise leave behind, at tens of gigabytes.
-Results are kept.
+Uninstalling through Windows removes what the installer wrote, then offers to
+run the application's own uninstaller for the downloaded data and the
+temp-folder workspace - which Windows would otherwise leave behind, at tens of
+gigabytes. Results are kept.
 
-**Setup.exe is unsigned.** SmartScreen warns once per machine and the user clicks
-*More info -> Run anyway*. Only a code-signing certificate removes that, and it
-applies to the installer alone, never to the installed application. This is why
-the portable zip stays the fallback for locked-down machines.
+The MSI takes a while on "Computing space requirements": it carries one
+component per file, and there are nearly ten thousand. That is `CostFinalize`
+doing its job, not a hang.
 
 ## Publishing a release
 
-Three artefacts, all built from the same tree:
+Four artefacts, all built from the same source:
 
 | Asset | Size | For |
 | --- | --- | --- |
-| `MeSH-Workbench-<version>-win64.msi` | ~94 MB | Managed machines. `msiexec` performs the install, and that is signed by Microsoft. |
-| `MeSH-Workbench-<version>-win64-setup.exe` | ~68 MB | Ordinary machines. Conventional wizard. |
-| `MeshWorkbench-<version>-win64-portable.zip` | ~117 MB | No install at all, or where both installers are refused. Contains `Install.bat`. |
+| `MeSH-Workbench-<version>-win64.msi` | ~94 MB | Windows. `msiexec` performs the install, and that is signed by Microsoft. |
+| `MeshWorkbench-<version>-win64-portable.zip` | ~117 MB | No install at all, or where the installer is refused. Contains `Install.bat`. |
+| `MeshWorkbench-<version>-linux-x86_64.tar.gz` | ~400 MB | Linux, self-contained: its own CPython, Tk and wheels. |
+| `MeshWorkbench-<version>-macos-<arch>.tar.gz` | ~400 MB | macOS, same shape. **Unvalidated** - assembled on Windows and never run on a Mac. |
 
 ### Repository or release?
 
-**The repository holds source only.** Build scripts, launchers, the WiX and Inno
-sources, the icon generator — everything needed to *produce* an artefact, and
-none of the artefacts themselves. `packaging/portable/` and `packaging/dist/`
-are gitignored precisely so a build cannot land in a commit.
+**The repository holds source only.** Build scripts, launchers, the WiX source,
+the icon generator — everything needed to *produce* an artefact, and none of the
+artefacts themselves. `packaging/portable/` and `packaging/dist/` are gitignored
+precisely so a build cannot land in a commit.
 
 **The release holds the artefacts.** GitHub rejects any file over 100 MB
-committed to a repository; release assets are capped at 2 GB each. The zip
-exceeds the repository limit, and even the two that would fit belong in a
-release, because a binary committed to git history stays there forever and
+committed to a repository; release assets are capped at 2 GB each. Three of the
+four exceed the repository limit, and the one that would fit belongs in a
+release too, because a binary committed to git history stays there forever and
 every clone pays for it.
 
 Releases are free, including the bandwidth to serve them, and they do not count
@@ -102,17 +115,25 @@ against Git LFS quotas.
 1. Confirm the version agrees everywhere. Ten files carry it, and a mismatch
    means an asset whose name disagrees with the tag it hangs under.
 
-2. Build all three, onto an internal disk. Building from removable media took
+2. Build them all, onto an internal disk. Building from removable media took
    roughly three times as long here, and the MSI failed mid-read with "the
    volume for a file has been externally altered".
 
    ```
-   python packaging/build_portable_windows.py   --out <build dir>
-   python packaging/build_installer_windows.py  --portable <build dir>\MeshWorkbench --out <build dir>
-   python packaging/build_msi_windows.py        --portable <build dir>\MeshWorkbench --out <build dir>
+   python packaging/build_portable_windows.py --out <build dir>
+   python packaging/build_msi_windows.py      --portable <build dir>\MeshWorkbench --out <build dir>
+   python packaging/build_unix_bundle.py      --platform linux --out <build dir>
+   python packaging/build_unix_bundle.py      --platform macos --out <build dir>
    ```
 
-3. Hash all three, so a download can be verified:
+   Then verify, before anything is hashed or uploaded:
+
+   ```
+   python packaging/verify_windows_bundle.py <build dir>\MeshWorkbench-3.2.0-win64-portable.zip
+   python packaging/verify_unix_bundle.py    <build dir>\MeshWorkbench-3.2.0-linux-x86_64.tar.gz
+   ```
+
+3. Hash them all, so a download can be verified:
 
    ```
    certutil -hashfile "<build dir>\MeshWorkbench-3.2.0-win64-portable.zip" SHA256
@@ -126,12 +147,12 @@ against Git LFS quotas.
    ```
 
 5. On GitHub: **Releases** → **Draft a new release** → choose the tag → attach
-   the three files → paste the checksums into the notes → publish.
+   the four files → paste the checksums into the notes → publish.
 
    With the `gh` CLI it is one command instead:
 
    ```
-   gh release create v3.2.0 --title "MeSH Workbench 3.2.0" --notes-file notes.md *.msi *.exe *.zip
+   gh release create v3.2.0 --title "MeSH Workbench 3.2.0" --notes-file notes.md *.msi *.zip *.tar.gz
    ```
 
 6. Point the project README's download link at the new release.
@@ -172,13 +193,20 @@ CPython install of the same version.
 
 ## macOS and Linux
 
-Not built here. The embeddable-Python approach is Windows-specific and has no
-equivalent on other platforms, which do not need one: both ship Python, so
-
 ```bash
-pip install mesh_aop_network
-mesh-workbench
+python packaging/build_unix_bundle.py --platform linux
+python packaging/build_unix_bundle.py --platform macos
 ```
 
-is the expected route. A `.command` (macOS) or `.desktop` (Linux) launcher can
-wrap that if a double-clickable file is wanted.
+Self-contained tarballs carrying their own CPython, Tk and every wheel, so the
+first run installs offline (`--no-index`) and needs nothing from the machine.
+The Linux bundle also drops a `.desktop` entry into the applications menu.
+
+`pip install mesh_aop_network` remains the lighter route on either platform for
+anyone who already has Python.
+
+**The macOS bundle is unvalidated.** It is assembled on Windows and has never
+been run on a Mac. `verify_unix_bundle.py` checks what can be checked from the
+outside — the executable bit NTFS cannot store, wheels built for the wrong
+Python or architecture, a launcher written with CRLF — but that is not the same
+as running it, and the README should not imply otherwise until it has been.

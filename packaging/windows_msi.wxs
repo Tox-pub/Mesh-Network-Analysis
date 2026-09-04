@@ -2,12 +2,14 @@
 <!--
   MeSH Workbench - Windows Installer package (WiX v4/v5).
 
-  Why an MSI as well as a Setup.exe: the program that performs an MSI install is
+  Why an MSI and nothing else: the program that performs an MSI install is
   msiexec.exe, which ships with Windows and is signed by Microsoft. No new
   executable is created, so the Defender Exploit Guard rule that blocks binaries
-  without prevalence or a signature has nothing to act on. A freshly built
-  Setup.exe trips exactly that rule on a managed machine and is refused with
-  0x80070005, which is what happens on the machine this was developed on.
+  without prevalence or a signature has nothing to act on. There was an
+  Inno-built installer beside this one; a freshly built Setup.exe trips exactly
+  that rule on a managed machine and is refused with 0x80070005, which is what
+  happened on the machine this was developed on. It installed the same tree to
+  the same place, so it was dropped rather than kept as a second way to fail.
 
   Installs the same tree the portable zip contains, per user, so no elevation is
   required. The .bat launchers and portable.marker are excluded: they belong to

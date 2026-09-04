@@ -124,14 +124,17 @@ for name in ('Uninstall.bat', 'Install.bat'):
            f'{name}: still clean when the path already ends in a backslash',
            f'{a2.project!r}')
 
-print('\n=== 4. Inno Setup ===')
-iss = open('packaging/windows_installer.iss', encoding='utf-8').read()
-for m in re.findall(r"ExpandConstant\('([^']*uninstall_cli[^']*)'\)", iss):
-    cmd = m.replace('{app}', FOLDER)          # Inno's {app} carries no trailing sep
-    a = parsed(split('x ' + cmd)[1:])
-    ck(a.yes, f'--yes survives: {m}')
-    ck(a.project is not None and '"' not in a.project,
-       f'--project is clean: {a.project!r}')
+print('\n=== 4. the Inno installer is gone, and stays gone ===')
+# Setup.exe was dropped: it installed the same tree to the same place as the
+# MSI, but as an unsigned binary, which is the one thing a managed machine
+# refuses. Checked here rather than assumed, because a stray .iss left in the
+# tree would be built by anyone following the old instructions.
+for stale in ('packaging/windows_installer.iss',
+              'packaging/build_installer_windows.py'):
+    ck(not os.path.exists(stale), f'{stale} is not in the tree')
+readme = open('packaging/README.md', encoding='utf-8').read()
+ck('build_installer_windows.py' not in readme,
+   'and the packaging README does not tell anyone to run it')
 
 print('\n=== 5. the safety net: no console means decline, never block ===')
 from mesh_aop import uninstall_cli                                 # noqa: E402

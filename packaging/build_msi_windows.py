@@ -2,12 +2,14 @@
 """
 build_msi_windows.py - wrap a finished portable build in an .msi.
 
-The MSI exists alongside the Setup.exe for a specific reason. An MSI is executed
-by msiexec.exe, which is part of Windows and signed by Microsoft, so no new
-binary is introduced. A freshly compiled Setup.exe has no signature and no
-prevalence, and Defender Exploit Guard refuses it outright on a managed machine
-(0x80070005) - which is what happens on the machine this was developed on. The
-MSI is the route most likely to work where that rule is enforced.
+This is the only installer now. There was an Inno-built Setup.exe beside it,
+and the reason it went is the reason this one stayed: an MSI is executed by
+msiexec.exe, which is part of Windows and signed by Microsoft, so no new binary
+is introduced. A freshly compiled Setup.exe has no signature and no prevalence,
+and Defender Exploit Guard refuses it outright on a managed machine
+(0x80070005) - which is what happened on the machine this was developed on.
+Both installed the same tree to the same place, so the second one bought
+nothing and failed in more places.
 
 Requires the WiX Toolset, which is a .NET tool:
 

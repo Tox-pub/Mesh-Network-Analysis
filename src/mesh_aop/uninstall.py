@@ -655,8 +655,8 @@ def removal_instructions():
             return ('This copy is self-contained - it installed nothing.', [
                 'Everything it needs is inside one folder. To finish, delete it:',
                 f'    {root}',
-                'If it was installed with the .msi or Setup.exe, use',
-                'Settings > Apps > MeSH Workbench > Uninstall instead.'])
+                'If it was installed with an installer instead, use',
+                'Settings > Apps > MeSH Workbench > Uninstall.'])
         return ('This copy is self-contained - it installed nothing.', [
             'Everything it needs is inside one folder, including its own',
             'Python. To finish, delete that folder:',
