@@ -47,10 +47,10 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.colors import LinearSegmentedColormap
 
-from .mesh_stop_words import MESH_STOP_WORDS as _RAW_STOP_WORDS
+from . import vocabulary
 from .benchmark import validate_ground_truth, _open_readonly_resilient
 
-MESH_STOP_WORDS = frozenset(_RAW_STOP_WORDS)
+
 
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -70,7 +70,7 @@ def _eligible_terms(mesh_str: str) -> set:
         base = raw.split('/')[0].lstrip('*').strip()
         if base:
             out.add(base)
-    return out - MESH_STOP_WORDS
+    return out - vocabulary.active()
 
 
 def _raw_terms(mesh_str: str) -> set:
@@ -468,7 +468,7 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
     # <<< 1. Network >>>
     node_ids, weights, extras, G, node_attrs = _load_network(final_network_path, weight_key)
     net_edges = {frozenset((u, v)) for u, v in G.edges()}
-    stopped_nodes = node_ids & MESH_STOP_WORDS
+    stopped_nodes = node_ids & vocabulary.active()
     print(f"  Network ....................... {len(node_ids)} nodes / {len(net_edges)} edges")
     print(f"  Node weight ................... {weight_key}")
     if stopped_nodes:
@@ -500,7 +500,7 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
 
     stop_removed = Counter()
     for raw in gt_docs_raw:
-        for t in (raw & MESH_STOP_WORDS):
+        for t in (raw & vocabulary.active()):
             stop_removed[t] += 1
 
     print(f"  Ground-truth articles ......... {n_gt} (of {len(gt_pmids)} resolved PMIDs)")
@@ -736,7 +736,8 @@ def run_gt_network_validation(ground_truth_path: str, master_db_path: str,
             'ground_truth': os.path.basename(ground_truth_path),
             'gt_articles': n_gt,
             'min_articles_per_node': min_articles_per_node,
-            'stopword_filter': 'mesh_stop_words.MESH_STOP_WORDS (same list used to build the network)',
+            'stopword_filter': f'{len(vocabulary.active()):,} stop words, the '
+                               f'same set used to build the network',
             'node_weight_key': weight_key,
             'node_overlap_z': round(float(z_n), 2),
             'edge_overlap_z': round(float(z_e), 2),

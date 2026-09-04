@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, 'src')
 
-from mesh_workbench import mdhtml                                   # noqa: E402
+from mesh_aop import mdhtml                                           # noqa: E402
 
 FAILS = []
 

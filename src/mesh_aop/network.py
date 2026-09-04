@@ -33,10 +33,11 @@ except ImportError:
     raise ImportError("The 'python-louvain' library is missing. Install via pip.")
 
 # Import utilities, stats, and stop words from our package.
-# The generated stop-word file is a list; coerce to a frozenset once so the
-# per-term membership tests in the article loop are O(1) instead of O(n).
-from .mesh_stop_words import MESH_STOP_WORDS as _RAW_STOP_WORDS
-MESH_STOP_WORDS = frozenset(_RAW_STOP_WORDS)
+# The stop words are chosen per run - which MeSH trees to exclude is a setting -
+# so they are read from vocabulary.active() rather than bound here at import
+# time. A frozenset built when this module was first imported could not be
+# changed afterwards, which is why no setting could previously affect it.
+from . import vocabulary
 from .data_ops import parse_mesh_terms, get_generation_label
 from .stats import calculate_graph_stats, run_simulation
 
@@ -271,7 +272,8 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
 
     print("\n<<< Pre-computation >>>")
     df['generation_weight'] = df['generation'].apply(calculate_generation_weight, lambda_val=lambda_val)
-    df, mesh_stats_df, screening = normalize_cited_by_per_mesh(df, MESH_STOP_WORDS)
+    stop_words = vocabulary.active()
+    df, mesh_stats_df, screening = normalize_cited_by_per_mesh(df, stop_words)
     build_stats.update(screening)
 
     rank_norm_weight_dicts = {}
@@ -311,7 +313,7 @@ def run_network_construction(db_path_param: str, output_json_path: str, lambda_v
 
         main_terms_in_article = []
         for term_name, term_type, is_major_topic in parsed_terms:
-            if term_type == 'mesh_term' and term_name and term_name not in MESH_STOP_WORDS:
+            if term_type == 'mesh_term' and term_name and term_name not in stop_words:
                 main_terms_in_article.append({'name': term_name, 'is_major': is_major_topic})
 
         if not main_terms_in_article:

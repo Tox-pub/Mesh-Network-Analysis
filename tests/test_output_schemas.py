@@ -55,7 +55,9 @@ CONTRACTS = {
                   'edge_betweenness': 'num', 'mlf_p_value': 'num'},
     },
     'final_network': {
-        'nodes': {'id': 'str', 'label': 'str', 'aop_level': None,   # optional
+        # 'stratum' is what is written now; 'aop_level' is what files annotated
+        # before the rename carry, and both are still read.
+        'nodes': {'id': 'str', 'label': 'str', 'stratum': None,     # optional
                   'MRS_betweenness_centrality': 'num',
                   'MRS_pagerank_centrality': 'num',
                   'MRS_eigenvector_centrality': 'num',
@@ -116,7 +118,8 @@ for a in carried:
 
 print('\n=== the figures only read attributes that exist ===')
 src = open('src/mesh_aop/viz.py', encoding='utf-8').read()
-final_attrs = set(fin['nodes'][1]) | set(fin['edges'][1]) | {'aop_level'}
+final_attrs = (set(fin['nodes'][1]) | set(fin['edges'][1])
+               | {'stratum', 'aop_level'})
 import re
 referenced = set(re.findall(r"(?:node_df|edge_df|df|plot_df|top_diff)\[['\"]([A-Za-z_]+)['\"]\]", src))
 unknown = sorted(a for a in referenced

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app.py - the MeSH AOP Workbench window.
+app.py - the MeSH Workbench window.
 
 Four screens in one fixed-size window: Data setup, Settings, Running, Results.
 The settings form is generated from schema.TABS, so the UI never hard-codes a
@@ -91,7 +91,7 @@ class Workbench(tk.Tk):
                                      config_path=self.cfg_path)
         self._elapsed = 0
         self._tick_job = None
-        # Set when a run stops for AOP annotation, so _finish can tell an
+        # Set when a run stops for strata annotation, so _finish can tell an
         # intentional pause apart from an ordinary success - both exit zero.
         self._paused_annotation = None
         # True only while the pause dialog itself is starting the figures, so
@@ -406,7 +406,7 @@ class Workbench(tk.Tk):
         # would fail if clicked is greyed rather than left enabled to raise an
         # error box - which is the difference between a program that tells you
         # where you are and one that lets you find out the hard way.
-        t.add_command(label='Annotate AOP levels...', command=self.open_annotation)
+        t.add_command(label='Annotate strata levels...', command=self.open_annotation)
         t.add_command(label='Show the annotation guide', command=self.open_annotation_guide)
         t.add_separator()
         t.add_command(label='Check and repair files...', command=self.open_integrity)
@@ -425,7 +425,7 @@ class Workbench(tk.Tk):
         # in a reader window this program owns - read-only, and never modal, so
         # the manual can sit open beside the form while values are typed in.
         h.add_command(label='MeSH Workbench Manual', command=self.open_manual)
-        h.add_command(label='How to annotate AOP levels',
+        h.add_command(label='How to annotate strata',
                       command=self.open_annotation_guide)
         h.add_command(label='Installing and Updating',
                       command=lambda: self.open_doc('INSTALL.md',
@@ -488,33 +488,50 @@ class Workbench(tk.Tk):
         self._open_path(anno)
 
     def open_annotation_guide(self):
+        from mesh_aop import guides, strata
+        order = self._strata_order()
         anno = self._annotation_file()
         if not anno:
             # Reachable from the Help menu before any run has produced a file,
             # so show the instructions rather than doing nothing.
-            from mesh_aop import guides
             tmp = os.path.join(self._results_dir(),
                                f'{self._current_prefix()}_run_annotations.csv')
-            path = guides.write_annotation_guide(tmp)
+            path = guides.write_annotation_guide(tmp, strata_order=order)
             if path:
                 self._open_path(path)
             else:
+                expected = strata.parse_order(order) or list(strata.DEFAULT_ORDER)
                 messagebox.showinfo(
                     'How to annotate',
                     'The annotation file is written once the network has been '
                     'built (Step 3). It lists every MeSH term in the network, '
-                    'and you fill in the "aop_level" column with one of:\n\n'
-                    + '\n'.join('    ' + lvl for lvl in guides.AOP_LEVELS)
-                    + '\n\nKeep the file semicolon-delimited - MeSH headings '
-                      'contain commas.')
+                    f'and you fill in the "{strata.COLUMN}" column. This '
+                    'project expects:\n\n'
+                    + '\n'.join('    ' + lvl for lvl in expected)
+                    + '\n\nAny other name is accepted and is added at the end '
+                      'of that order.\n\nKeep the file semicolon-delimited - '
+                      'MeSH headings contain commas.')
             return
-        from mesh_aop import guides
-        guide = os.path.join(os.path.dirname(anno), guides.ANNOTATION_GUIDE_NAME)
-        if not os.path.exists(guide):
+        folder = os.path.dirname(anno)
+        # Either name: a guide written by an older version, or by a run whose
+        # renderer failed, is still the guide - do not write a second one.
+        found = next((os.path.join(folder, n) for n in guides.ANNOTATION_GUIDE_NAMES
+                      if os.path.exists(os.path.join(folder, n))), None)
+        if not found:
             # Written when a run pauses; produce it on demand for a run that did
             # not pause but whose annotations the user wants to edit anyway.
-            guides.write_annotation_guide(anno)
-        self._open_path(guide) if os.path.exists(guide) else self._reveal(anno)
+            found = guides.write_annotation_guide(anno, strata_order=order)
+        self._open_path(found) if found else self._reveal(anno)
+
+    def _strata_order(self):
+        """This project's strata order, from the form or the saved settings."""
+        var = self.vars.get('analysis_parameters.strata_order')
+        if var is not None:
+            return var.get()
+        try:
+            return schema.get(self.cfg, 'analysis_parameters.strata_order', '')
+        except Exception:                                          # noqa: BLE001
+            return ''
 
     def open_manual(self):
         self.open_doc('HELP.md', 'MeSH Workbench Manual')
@@ -625,7 +642,7 @@ class Workbench(tk.Tk):
         those links pointing at a file that is not there. Best effort - the
         page the user actually asked for has already been written.
         """
-        from . import mdhtml
+        from mesh_aop import mdhtml
         for other, other_title in self._DOC_TITLES.items():
             if other == opened:
                 continue
@@ -649,7 +666,7 @@ class Workbench(tk.Tk):
         browser registered is the case this protects.
         """
         try:
-            from . import mdhtml
+            from mesh_aop import mdhtml
             page = mdhtml.render_page(text, f'{title} - MeSH Workbench', source)
         except Exception:                                          # noqa: BLE001
             return False
@@ -2019,6 +2036,13 @@ class Workbench(tk.Tk):
                 w = tk.Checkbutton(grid, text=f.label, variable=var, bg=FACE,
                                    activebackground=FACE, anchor='w')
                 w.grid(row=r, column=0, columnspan=2, sticky='we', pady=3)
+            elif f.kind == 'trees':
+                # Sixteen checkboxes over one setting. They are one setting
+                # because they answer one question - which parts of MeSH this
+                # analysis may see - and sixteen booleans in the config file
+                # would be sixteen things to keep in step for no gain.
+                var, w = self._tree_checkboxes(grid, r, f, cur)
+                r = self._tree_rows_used(r)
             elif f.kind == 'choice':
                 # A fixed set of valid values, so a dropdown rather than a text
                 # box: the names are long and exact, and a typo in one of them
@@ -2102,6 +2126,66 @@ class Workbench(tk.Tk):
             # may well want to copy.
             body.config(state='disabled')
             body.pack(fill='both', expand=True, padx=0, pady=(0, 6))
+
+    # Two columns of eight. Sixteen in one column would push everything below
+    # them off a short window, which is the fault the button bar already had.
+    _TREE_COLUMNS = 2
+
+    @classmethod
+    def _tree_rows_used(cls, first_row):
+        """The last grid row a tree block occupies, given where it starts."""
+        from mesh_aop import vocabulary
+        per_col = -(-len(vocabulary.TREES) // cls._TREE_COLUMNS)
+        return first_row + per_col          # +1 for the label row above them
+
+    def _tree_checkboxes(self, grid, row, fld, current):
+        """The sixteen MeSH trees as checkboxes over one semicolon setting.
+
+        A ticked box EXCLUDES that tree, which is the way round the setting is
+        stored and the way round the label reads. The variable handed back is a
+        StringVar holding the letters, so saving and loading treat this exactly
+        like any other text field and nothing else has to know it is special.
+        """
+        from mesh_aop import vocabulary
+
+        var = tk.StringVar(value=vocabulary.format_letters(current))
+        holder = tk.Frame(grid, bg=FACE)
+        tk.Label(grid, text=fld.label, bg=FACE, anchor='w', font=self.f_bold
+                 ).grid(row=row, column=0, columnspan=3, sticky='w', pady=(6, 2))
+        holder.grid(row=row + 1, column=0, columnspan=3, sticky='we',
+                    rowspan=self._tree_rows_used(row) - row)
+
+        boxes = {}
+
+        def write_back():
+            """Fold the sixteen boxes back into the one stored string."""
+            var.set(vocabulary.format_letters(
+                [letter for letter, v in boxes.items() if v.get()]))
+
+        excluded = set(vocabulary.parse_letters(current))
+        per_col = -(-len(vocabulary.TREES) // self._TREE_COLUMNS)
+        for i, (letter, name) in enumerate(vocabulary.TREES):
+            v = tk.BooleanVar(value=letter in excluded)
+            boxes[letter] = v
+            # The full tree names run to sixty characters; the long ones are
+            # cut so two columns still fit a window the user can resize down.
+            shown = name if len(name) <= 34 else name[:32].rstrip() + '…'
+            cb = tk.Checkbutton(holder, text=f'{letter} - {shown}', variable=v,
+                                bg=FACE, activebackground=FACE, anchor='w',
+                                command=write_back)
+            cb.grid(row=i % per_col, column=i // per_col, sticky='w', padx=(0, 18))
+            cb.bind('<Enter>', lambda _e, fl=fld: self._help(fl))
+
+        # Loading a saved config sets the StringVar directly, so the boxes have
+        # to follow it rather than only drive it.
+        def follow(*_a):
+            now = set(vocabulary.parse_letters(var.get()))
+            for letter, v in boxes.items():
+                if v.get() != (letter in now):
+                    v.set(letter in now)
+
+        var.trace_add('write', follow)
+        return var, holder
 
     def _browse(self, var):
         p = filedialog.askopenfilename(
@@ -2268,7 +2352,7 @@ class Workbench(tk.Tk):
         if not self._confirm_overwrite(step):
             return
         extra = list(extra or [])
-        # Step 4 merges this run's AOP levels into the master annotations
+        # Step 4 merges this run's strata into the master annotations
         # library. The pipeline cannot ask about it: this process gives it no
         # console, so the question is asked here and handed over on the command
         # line.
@@ -2486,10 +2570,12 @@ class Workbench(tk.Tk):
         self._sync_tools_state()
         self.bar_overall.set(100)
         self.lab_spin.config(text='  Waiting for you')
-        self.run_status.config(text='Paused for AOP annotation.', fg=WARN)
+        self.run_status.config(text='Paused for strata annotation.', fg=WARN)
 
-        from mesh_aop.guides import AOP_LEVELS
-        levels = ', '.join(AOP_LEVELS)
+        from mesh_aop import strata
+        expected = (strata.parse_order(self._strata_order())
+                    or list(strata.DEFAULT_ORDER))
+        levels = ', '.join(expected)
         win = tk.Toplevel(self)
         # Here dismissing IS one of the choices - "Later" is on the dialog - so
         # the close box is allowed, and routed to exactly what that button does
@@ -2504,21 +2590,23 @@ class Workbench(tk.Tk):
         tk.Label(
             body, bg=FACE, justify='left', anchor='w', wraplength=self.px(560),
             text=('Nothing has gone wrong. Every MeSH term in the network has to '
-                  'be placed on the adverse outcome pathway, and that is a '
-                  'judgement the pipeline cannot make for you.\n\n'
-                  'Open the file below and fill in the "aop_level" column. It is '
-                  'semicolon-delimited - keep it that way, because MeSH headings '
-                  'contain commas.')
+                  'be assigned to a stratum, and that is a judgement the '
+                  'pipeline cannot make for you.\n\n'
+                  f'Open the file below and fill in the "{strata.COLUMN}" column. '
+                  'It is semicolon-delimited - keep it that way, because MeSH '
+                  'headings contain commas.')
         ).pack(fill='x', pady=(6, 8))
 
-        tk.Label(body, text='Allowed levels, in pathway order:', bg=FACE,
+        tk.Label(body, text='This project expects, in order:', bg=FACE,
                  anchor='w', font=self.f_bold).pack(fill='x')
         tk.Label(body, text='    ' + levels, bg=FACE, anchor='w',
                  wraplength=self.px(560), justify='left').pack(fill='x', pady=(0, 8))
         tk.Label(body, bg=FACE, anchor='w', justify='left', wraplength=self.px(560), fg=DIM,
-                 text=('Leave a term as "Uncategorized" if it genuinely is not on '
-                       'the pathway. It stays in the network and in the '
-                       'topological figures, and is left out of the AOP ones.')
+                 text=('Any other name is accepted and is placed at the end of '
+                       f'that order. Leave a term as "{strata.UNASSIGNED}" if it '
+                       'belongs to none of your groups: it stays in the network '
+                       'and in the topological figures, and is left out of the '
+                       'ones that show the strata.')
                  ).pack(fill='x', pady=(0, 8))
 
         tk.Label(body, text='The file to edit:', bg=FACE, anchor='w',
@@ -2582,13 +2670,18 @@ class Workbench(tk.Tk):
                     f'ignored by the merge - they cannot overwrite levels already '
                     f'in your library.')
         answer = messagebox.askyesnocancel(
-            'Save these AOP levels to your master library?',
-            'Your master annotations library remembers the level you gave every '
-            'MeSH term, so the same term never has to be annotated twice.\n\n'
-            "YES  -  merge this run's levels into it. This permanently changes "
+            'Save these strata to your master library?',
+            'Your master annotations library remembers the stratum you gave '
+            'every MeSH term, so the same term never has to be annotated '
+            'twice.\n\n'
+            "YES  -  merge this run's strata into it. This permanently changes "
             'the library, and every future project starts from the result.\n\n'
-            'NO  -  leave the library alone. These levels stay with this run, '
-            'and the file is kept so you can merge it whenever you like.'
+            'NO  -  leave the library alone. These strata stay with this run, '
+            'and the file is kept so you can merge it whenever you like.\n\n'
+            'The library is shared by every project. If this project uses a '
+            'different scheme from your last one, merging will pre-fill that '
+            "one's names into future projects - say No, or check the file by "
+            'hand first.'
             + note + '\n\nCancel goes back without running anything.',
             icon='question', default='no')
         if answer is None:
@@ -2604,12 +2697,18 @@ class Workbench(tk.Tk):
 
     @staticmethod
     def _unassigned_count(anno_path):
-        """How many terms were left Unassigned, or 0 if that cannot be read."""
+        """How many terms were left unplaced, or 0 if that cannot be read."""
         try:
             import csv
+            from mesh_aop import strata
             with open(anno_path, 'r', encoding='utf-8-sig', newline='') as fh:
-                return sum(1 for r in csv.DictReader(fh, delimiter=';')
-                           if (r.get('aop_level') or '').strip().lower() == 'unassigned')
+                reader = csv.DictReader(fh, delimiter=';')
+                # Either spelling of the column: a file annotated before the
+                # rename still counts correctly rather than reporting zero.
+                col = strata.column_of(reader.fieldnames or ())
+                if not col:
+                    return 0
+                return sum(1 for r in reader if strata.is_unplaced(r.get(col)))
         except (OSError, ValueError, KeyError):
             return 0
 
@@ -2692,7 +2791,7 @@ class Workbench(tk.Tk):
             # The pipeline exits 0 when it pauses on purpose. Reporting that as
             # "completed successfully" would be true of the process and quite
             # wrong about the analysis, which is unfinished and waiting.
-            self._log('--- paused for AOP annotation ---', 'warn')
+            self._log('--- paused for strata annotation ---', 'warn')
             self.run_status.config(text='Paused for annotation - see the dialog.', fg=WARN)
             return
         if rc == 0:

@@ -41,7 +41,7 @@ REQUIRED = (
     'app/mesh_workbench/app.py',
     # Renders the manual for the browser. Listed because losing it is silent:
     # the Help menu would fall back to the in-window reader and say nothing.
-    'app/mesh_workbench/mdhtml.py',
+    'app/mesh_aop/mdhtml.py',
     'app/reference_processed/DAC_Mesh_final_network_with_relevance.json',
     'LICENSE',
     'HELP.md',

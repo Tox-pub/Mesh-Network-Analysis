@@ -95,15 +95,16 @@ data rather than from this document. See
 - [Settings Reference](#settings-reference)
   - [1. Control Flags & Directories](#1-control-flags--directories)
   - [2. Master Database Status (Step 0 ETL)](#2-master-database-status-step-0-etl)
-  - [3. NCBI Credentials](#3-ncbi-credentials)
-  - [4. Search Parameters](#4-search-parameters)
-  - [5. Analysis Parameters](#5-analysis-parameters)
-  - [6. Network & Simulation Parameters](#6-network--simulation-parameters)
-  - [7. Secondary Analysis Parameters](#7-secondary-analysis-parameters)
-  - [8. Benchmark Parameters](#8-benchmark-parameters)
-- [The AOP Annotation Workflow (Biological Strata)](#the-aop-annotation-workflow-biological-strata)
-  - [How to Annotate Your Network:](#how-to-annotate-your-network)
-  - [What "syncing to the Master Dictionary" does](#what-syncing-to-the-master-dictionary-does)
+  - [3. Stop Words — which MeSH terms the analysis may see](#3-stop-words--which-mesh-terms-the-analysis-may-see)
+  - [4. NCBI Credentials](#4-ncbi-credentials)
+  - [5. Search Parameters](#5-search-parameters)
+  - [6. Analysis Parameters](#6-analysis-parameters)
+  - [7. Network & Simulation Parameters](#7-network--simulation-parameters)
+  - [8. Secondary Analysis Parameters](#8-secondary-analysis-parameters)
+  - [9. Benchmark Parameters](#9-benchmark-parameters)
+- [The Annotation Workflow (Strata)](#the-annotation-workflow-strata)
+  - [How to annotate your network](#how-to-annotate-your-network)
+  - [What "syncing to the master library" does](#what-syncing-to-the-master-library-does)
 - [Output Artifacts](#output-artifacts)
   - [Data & Network Artifacts (`data/processed/`)](#data--network-artifacts-dataprocessed)
   - [Analytical Exports (`results/`)](#analytical-exports-results)
@@ -223,7 +224,7 @@ Opens on the **run overview**: the PRISMA-style account of the whole search, in 
 - **Run** — any single step.
 - **Database** — the Data setup screen.
 - **Results** — the run overview.
-- **Tools** — Annotate AOP levels, Show the annotation guide (both greyed until a run has produced something to annotate), Check and repair files, Uninstall.
+- **Tools** — Annotate strata levels, Show the annotation guide (both greyed until a run has produced something to annotate), Check and repair files, Uninstall.
 - **Help** — this manual, the installation notes, the read-me, the reference-figure provenance, and the annotation instructions.
 
 ---
@@ -289,11 +290,34 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 
 * **Compile PubMed Baseline / Daily Updates:** Initiates a multi-core MapReduce extraction of the NLM XMLs into the local cache.
 
-### 3. NCBI Credentials
+### 3. Stop Words — which MeSH terms the analysis may see
+
+MeSH is organised into sixteen top-level trees. By default the pipeline keeps four of them and treats every term in the other twelve as a **stop word** — a term that can never become a node. Geographicals, publication types, occupations and named groups are noise in a mechanistic question, and dropping them is most of what makes the resulting network readable.
+
+They are not noise in every question. Research geography needs Geographicals; a workforce study needs Disciplines and Occupations. So the trees are yours to choose.
+
+**A ticked box excludes that tree.** The four left unticked by default are the ones a biological strata analysis is built from:
+
+| Kept by default | Excluded by default |
+| :--- | :--- |
+| `A` Anatomy | `B` Organisms, `E` Techniques and Equipment, `F` Psychiatry and Psychology, |
+| `C` Diseases | `H` Disciplines and Occupations, `I` Anthropology and Social Phenomena, |
+| `D` Chemicals and Drugs | `J` Technology and Agriculture, `K` Humanities, `L` Information Science, |
+| `G` Phenomena and Processes | `M` Named Groups, `N` Health Care, `V` Publication Characteristics, `Z` Geographicals |
+
+This is not a display filter. A term excluded here is absent from the network, the scores and the benchmark alike, so two runs you intend to compare must use the same trees.
+
+* **Keep Male and Female.** `Male` and `Female` are *check tags*: they belong to no tree, so no choice above can exclude them and this switch is the only way to. They are indexed on a large share of clinical articles, which makes them two of the highest-degree nodes in any network that keeps them — connected to nearly everything, and therefore distinguishing nothing. Off by default; turn it on when sex is part of the question.
+* **Also exclude these terms.** Individual headings to drop on top of the trees, semicolon-delimited: `Humans; Adult; Middle Aged`. Semicolons, not commas — `Dermatitis, Allergic Contact` split on its comma would exclude two headings that do not exist. Spelling must match the MeSH heading exactly; a term matching nothing is ignored, so check the run log's count if in doubt.
+* **Rebuild the stop-word list from the MeSH XML.** Not needed to change the trees: which tree each term belongs to is recorded when the list is first built, so a different selection is applied straight from that record in about a second. Turn it on after moving to a new MeSH release year, or if the run log reports that your term list predates that record. It adds several minutes to the process step.
+
+Every run prints the vocabulary it used — trees kept, trees excluded, how the sexes were treated, and anything entered by hand. A network is only interpretable next to the vocabulary it was built from, and that is not recoverable from the network afterwards.
+
+### 4. NCBI Credentials
 
 * **Entrez Email & API Key:** Registration with NCBI allows for 10 API requests per second. Without a key, requests are hard-limited to 3 per second, roughly tripling Step 2 processing time. Sign in or create a free account at the [NCBI/NLM account portal](https://account.ncbi.nlm.nih.gov/) to obtain a key (found under *Account Settings → API Key Management*).
 
-### 4. Search Parameters
+### 5. Search Parameters
 
 * **MeSH Search Term:** The PubMed query used to retrieve the base (P0) cohort. This string is sent **verbatim** to NCBI as the P0 `esearch` query, so any valid PubMed syntax is accepted — MeSH tags (`[Mesh]`, `[Majr]`), field tags (`[tiab]`, `[au]`), quoted phrases, and the boolean operators `AND` / `OR` / `NOT` with parentheses for grouping. Examples:
   * Single MeSH heading — `Dermatitis, Allergic Contact [Mesh]`
@@ -317,11 +341,11 @@ The wizard actively probes your local Master SQLite Database for corruption, com
   * `2`: P0 articles + all articles they cite + all articles that cite them (G1).
   * `3`: The above + a further citation hop (G2), and so on.
   * *Warning:* Values $\ge 2$ result in exponential data growth.
-* **Update MeSH Support Files:** If `True`, forces re-extraction of the MeSH term list and stop-word set from the XML file even if cached outputs already exist.
+* **Update MeSH Support Files:** If `True`, forces re-extraction of the MeSH term list and stop-word set from the XML file even if cached outputs already exist. Changing which MeSH trees are excluded does *not* need this — see [Stop Words](#3-stop-words--which-mesh-terms-the-analysis-may-see).
 
 
 
-### 5. Analysis Parameters
+### 6. Analysis Parameters
 
 * **Calculate Full Centrality (Boolean):** Controls **how betweenness is computed, not whether centrality is computed at all**. If `True`, betweenness is calculated **exactly** over every node pair. If `False` (Default), it is **estimated** from a sample of `betweenness_k_samples` source nodes, which is dramatically faster and bounds memory on large graphs.
   * Eigenvector and PageRank centrality are computed **either way** and are unaffected by this flag, so Article Relevance Scores (ARS) and Mean Relevancy Scores (MRS) are produced normally in both modes. The only difference is that WHOLE-GRAPH betweenness — and therefore the betweenness-weighted ARS/MRS — is a sampled estimate rather than an exact value. Report this in your methods if you leave it `False`.
@@ -330,7 +354,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 * **Random Seed:** Integer seed passed to NetworkX and scikit-learn for reproducible t-SNE projections and community detection. Default: `42`.
 * **Eigenvector Max Iterations / Tolerance:** Power-iteration convergence controls for Eigenvector centrality. Increase `eigenvector_max_iter` (default `1000`) if convergence warnings appear on very large or sparse graphs.
 
-### 6. Network & Simulation Parameters
+### 7. Network & Simulation Parameters
 
 * **Lambda Value:** The distance-decay factor for generational node weighting: a node's generation weight is $W = e^{-\lambda d}$, where $d$ is the citation-generation distance from the P0 seed set ($d = 0$ for P0, $1$ for G1, …). Larger $\lambda$ penalizes distant generations more steeply.
 * **Node Weight Factors:** A four-component dictionary combined into a single per-node `adjusted_node_weight` attribute recorded on the final network. It is a **user-tunable node-importance metric, not a driver of the GLF/SA filtering** — consensus filtering is driven by edge co-occurrence strength, independent of these factors. The attribute is reported on the final graph (and offered as one of the candidate weightings in the validation step), so it is available as a base metric for your own downstream analysis. The four keys and their defaults are:
@@ -349,7 +373,7 @@ The wizard actively probes your local Master SQLite Database for corruption, com
 * **SA Temperature Start:** The initial thermal energy of the Simulated Annealing system (default `5000.0`). Higher values allow larger disruptive jumps early in the search.
 * **SA Cooling Rate:** The multiplicative decay applied to temperature each iteration (default `0.999995`). Values closer to `1.0` cool more slowly and explore more widely at the cost of run time.
 
-### 7. Secondary Analysis Parameters
+### 8. Secondary Analysis Parameters
 
 Executes highly targeted queries against the finalized network to extract specific publications for manual review.
 
@@ -383,7 +407,7 @@ Executes highly targeted queries against the finalized network to extract specif
 * **ARS Weight (`linear_weight_ars`):** Weight given to the normalized ARS in the `Linear` metric (0–1.0); the remaining `1 − w` weights the normalized **citation rate** (citations per year, which corrects the age bias that otherwise favors older papers purely for having accumulated citations longer). Default `0.5`.
 * **Compare Multiple Networks (`compare_networks`):** Off by default. When enabled, secondary analysis runs a **node-overlap comparison** across a set of saved networks you list in **Networks to Compare** (`comparison_networks`) — a comma-separated, quote-wrapped list such as `"Ex_Graph_1.json","Ex_Graph_2.graphml"`. Bare names are resolved against the processed data folder (or `data/reference_processed/` when `Use Reference Data` is on); explicit paths and non-JSON formats (`.graphml`, `.gml`, `.gexf`, …) are also accepted. Missing files trigger a warning naming where the pipeline looked. It writes a membership matrix, a pairwise intersection/Jaccard table, and an overlap figure to `results/`.
 
-### 8. Benchmark Parameters
+### 9. Benchmark Parameters
 
 Controls the optional `--step benchmark` evaluation (see the **Validation & Benchmarking** section below). Configured under the `benchmark` block of `mesh_config.json`.
 
@@ -410,37 +434,52 @@ Controls the optional `--step benchmark` evaluation (see the **Validation & Benc
 
 ---
 
-## The AOP Annotation Workflow (Biological Strata)
+## The Annotation Workflow (Strata)
 
-**Critical Concept:** The pipeline algorithms can identify the statistical relationships between MeSH terms, but they cannot automatically determine if a term represents a "Molecular", "Cellular", or "Tissue" level event. To generate accurate biological Sankey flows, human context must be provided.
+The pipeline can find the statistical relationships between MeSH terms. It cannot decide what those terms *mean* to your question — whether `Apoptosis` is a cellular event, a mechanism of interest, or beside the point. That judgement is yours, and supplying it is what makes the strata figures worth drawing.
 
-To streamline this, the pipeline utilizes a **Semicolon-Delimited Master Dictionary System**.
-*Note: Because MeSH terms frequently contain commas (e.g., `Dermatitis, Allergic Contact`), standard CSV comma-delimiters will corrupt the data. All annotation files in this pipeline exclusively use semicolons (`;`).*
+A **stratum** is one group in whatever scheme you are using. The program has no opinion about the scheme. It ships with the seven levels of an adverse outcome pathway because that is what it was built for, and they serve as a worked example below, but organ systems, exposure routes, study designs, evidence tiers or anything else are equally valid. Set the names and their order under **Strata order** on the Search tab.
 
-### How to Annotate Your Network:
+Annotation files are **semicolon-delimited**. MeSH headings contain commas as a matter of course — `Dermatitis, Allergic Contact` is one heading — so a comma-delimited CSV corrupts them.
 
-1. **Enable Pausing:** In the Wizard, ensure `Pause for Annotation` is set to `True`.
-2. **Run the Pipeline:** Let the pipeline run. It will execute Steps 0 through 3 (Network Construction), output AOP-independent figures (like distributions and convergence trajectories), and then pause — after the node set is final but before any biological Sankey/alluvial figures are rendered (Step 4).
-3. **Open the Run Template:** Navigate to the `results/` directory and open your run-specific template: `[PREFIX]_run_annotations.csv`.
-4. **Assign Strata:** This file contains every surviving node in your network. It automatically pulls any known assignments from your Master Dictionary. For any term listed as `Unassigned`, replace the text with one of the following 7 strata. *(Unsure how to categorize a term? Look up its official scope note and hierarchy in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/) — the official MeSH description is the best guide for determining the correct AOP stratum.)*
-* `Stressor` - External stimuli that initiate a biological reaction (e.g., `UV Rays`, `Chemicals`)
-* `Molecular` - Gene, protein, or receptor level events (e.g., `Receptors, Antigen`)
-* `Cellular` - Cellular level events (e.g., `Chemotaxis`, `Apoptosis`, `T-Cell`)
-* `Tissue` - Events localized to a subsection of tissue (e.g., `Necrosis`, `Skin Absorption`)
-* `Organ` - Organ level names or events (e.g., `Liver`, `Skin`)
-* `Adverse Outcome` - High-level disease outcomes and disease (e.g., `Drug Hypersensitivity`)
-* `Uncategorized` - Broad biological or non-biological terms that do not fall into a distinct AOP stratum.
+### How to annotate your network
 
+1. **Enable pausing.** Set `Pause for strata annotation` to `True` on the Search tab.
+2. **Run the pipeline.** Steps 0 through 3 run normally and the scheme-independent figures (distributions, convergence trajectories) are drawn. It then pauses: the node set is final, but nothing that depends on your strata has been drawn yet.
+3. **Open the run template.** In `results/`, open `[PREFIX]_run_annotations.csv`. Instructions are written beside it as `HOW TO ANNOTATE - read me.html`, which opens in your browser.
+4. **Assign the strata.** The file lists every surviving node, pre-filled from your master library where it knows the term. Replace each `Unassigned` with a stratum name. *(Unsure about a term? Its scope note and hierarchy in the [NLM MeSH Browser](https://meshb.nlm.nih.gov/) are the best guide.)*
 
-5. **Save the File:** Save the file, ensuring it remains **semicolon-delimited**.
-6. **Resume the Pipeline:** Run `mesh-pipeline --step viz`. The pipeline will ask if you want to sync your new annotations to the Master Dictionary for future runs, and then generate the final biological figures.
+   Any name you write is valid. A name not listed in **Strata order** is still plotted — it is placed at the end of the order and reported in the run log, never dropped. Spelling and capitalisation are taken literally, so `Molecular` and `molecular` are two strata, which is usually a typo.
 
-### What "syncing to the Master Dictionary" does
+   `Uncategorized` means a term you deliberately did not place. It stays in the network and in every topological figure and is left out of the ones that show the strata.
 
-When you resume (`--step viz`), the pipeline offers to write your run's annotations back to the **Master Dictionary** (`data/raw/aop_annotations_master.csv`). Saying yes merges every `term → stratum` assignment from this run into that master file:
+5. **Save the file**, keeping it semicolon-delimited.
+6. **Resume.** Run the figures step. You will be asked whether to merge your annotations into the master library, and then the remaining figures are drawn.
 
-* The assignments become **persistent in your copy of the repository** — every future run pre-fills these terms automatically, so you never re-annotate the same MeSH heading twice, and you can re-export your curated strata at any time from the master file.
-* The Master Dictionary ships **partially pre-seeded**: a subset of terms relevant to the bundled Dermatitis, Allergic Contact (DAC / AOP 40) query are already annotated from prior curation. **Most MeSH terms are not annotated** and will appear as `Unassigned` in your run template — you must assign those yourself for the biological Sankey/alluvial flows to be meaningful. Anything left `Unassigned` (or run in AFK mode) is treated as `Uncategorized`.
+#### The AOP seven, as an example
+
+These are the defaults, and what a toxicology project would use:
+
+| Stratum | What belongs in it | Example |
+| :--- | :--- | :--- |
+| `Stressor` | External stimuli that initiate a biological reaction | `UV Rays` |
+| `Molecular` | Gene, protein or receptor level events | `Receptors, Antigen` |
+| `Cellular` | Cellular level events | `Chemotaxis`, `Apoptosis` |
+| `Tissue` | Events localised to a subsection of tissue | `Necrosis`, `Skin Absorption` |
+| `Organ` | Organ level names or events | `Liver`, `Skin` |
+| `Adverse Outcome` | High-level disease outcomes | `Drug Hypersensitivity` |
+| `Uncategorized` | Terms that sit in none of the above | — |
+
+Their **order** is what makes Figure 5 readable: an alluvial flow drawn left to right from stressor to adverse outcome traces a pathway. Order cannot be inferred from names, which is why it is a setting rather than something the program guesses.
+
+### What "syncing to the master library" does
+
+When you resume, the pipeline offers to write your run's annotations back to the **master library** (`data/raw/aop_annotations_master.csv`). Saying yes merges every `term → stratum` assignment from this run into it:
+
+* The assignments become **persistent**. Every future run pre-fills these terms automatically, so you never annotate the same MeSH heading twice, and you can re-export your curated strata from the master file at any time.
+* The library ships **partially pre-seeded**: terms relevant to the bundled Dermatitis, Allergic Contact (DAC / AOP 40) query are already annotated from prior curation. Most MeSH terms are not, and appear as `Unassigned` in your template. Anything left `Unassigned` — or a run completed unattended — is treated as `Uncategorized`.
+
+> **If your projects use different schemes, check the file by hand.** The library is shared by every project and the merge is permanent. A term you called `Molecular` in an AOP project arrives pre-filled as `Molecular` in a project organised by organ system, where it is wrong. Read the template through after Step 3 rather than trusting what is already in the column, and answer **No** to the merge when the schemes differ.
 
 ---
 
@@ -487,10 +526,10 @@ Upon successful completion of the pipeline, the following critical files are gen
 * **Figures (`results/figures/`)**:
 * **Figure 1 — Edge weight distribution.** How often each pair of MeSH terms appears in the same article, before and after consensus filtering. Shows that filtering removed the long tail rather than the signal.
 * **Figure 2 — Optimisation trajectory.** GLF and SA traced over their search for the consensus subgraph.
-* **Figure 3 — Community composition.** Stacked bars showing which AOP levels make up each Louvain community. Needs AOP levels assigned; with everything left `Unassigned` it draws one bar.
+* **Figure 3 — Community composition.** Stacked bars showing which strata make up each Louvain community, so you can see whether the communities follow your scheme. Needs the strata assigned; with everything left `Unassigned` it draws one bar.
 * **Figure 4 — t-SNE projection.** The graph distance matrix in two dimensions, each node coloured by its Louvain community.
-* **Figure 5 — AOP alluvial flow.** An interactive Sankey tracing flow from stressors through molecular, cellular, tissue and organ levels to adverse outcomes. Written as `.html`, labelled and unlabelled, plus the connection table behind it.
-* **Figure 6 — Node2Vec dendrogram.** Ward clustering of Node2Vec embeddings, leaves coloured by AOP level.
+* **Figure 5 — Alluvial flow between strata.** An interactive Sankey tracing flow between the strata in the order set by **Strata order**. On an AOP project that reads stressor through to adverse outcome. Written as `.html`, labelled and unlabelled, plus the connection table behind it. Needs at least two strata; skipped otherwise.
+* **Figure 6 — Node2Vec dendrogram.** Ward clustering of Node2Vec embeddings, leaves coloured by stratum.
 * **Figure 7 — Network graph.** The consensus network drawn, every term labelled, nodes coloured by a metric you choose on the Figures tab.
 
 Each figure has its own switch on the **Figures** tab; unticking one costs nothing but that figure.
@@ -853,7 +892,7 @@ Mesh-Network-Analysis/
 │   ├── benchmark/                      # All --step benchmark outputs (ranking + ground-truth)
 │   │   └── validation/                 # Node-weighting + projection report
 │   ├── logs/                           # System logs and failed fetch records
-│   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
+│   ├── *_run_annotations.csv           # Run-specific strata annotation templates
 │   ├── *_Top_Network_Articles.csv      # Secondary analysis exports
 │   └── *_export.xlsx                   # Exported full network tables
 │
@@ -869,6 +908,9 @@ Mesh-Network-Analysis/
 │   │   ├── gt_network_validation.py    # Node/edge convergent ground-truth validation
 │   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
 │   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
+│   │   ├── vocabulary.py               # Which MeSH trees an analysis may see
+│   │   ├── strata.py                   # The annotation scheme and its order
+│   │   ├── mdhtml.py                   # Renders the shipped documents as HTML
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
 │   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
 │   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)

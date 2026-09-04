@@ -26,20 +26,16 @@ import requests
 from tqdm import tqdm
 from pathlib import Path
 
-# <<< Constants >>>
-CATEGORIES_TO_KEEP = {'A', 'C', 'D', 'G'}
-CHECK_TAGS_TO_STOP = {'Male', 'Female'}
+from . import vocabulary
 
-TOP_LEVEL_CATEGORY_NAMES = {
-    'A': "Anatomy", 'B': "Organisms", 'C': "Diseases", 'D': "Chemicals and Drugs",
-    'E': "Analytical, Diagnostic and Therapeutic Techniques, and Equipment",
-    'F': "Psychiatry and Psychology", 'G': "Phenomena and Processes",
-    'H': "Disciplines and Occupations",
-    'I': "Anthropology, Education, Sociology, and Social Phenomena",
-    'J': "Technology, Industry, Agriculture", 'K': "Humanities",
-    'L': "Information Science", 'M': "Named Groups", 'N': "Health Care",
-    'V': "Publication Characteristics", 'Z': "Geographicals"
-}
+# <<< Constants >>>
+# The trees and their names live in vocabulary.py, which the settings window
+# also reads and which imports nothing heavier than csv. These are the defaults
+# only: a run passes its own choice in, so that four trees is what the program
+# starts with rather than what it insists on.
+CATEGORIES_TO_KEEP = set(vocabulary.DEFAULT_KEPT)
+CHECK_TAGS_TO_STOP = set(vocabulary.SEXES)
+TOP_LEVEL_CATEGORY_NAMES = dict(vocabulary.TREE_NAMES)
 
 def _get_missing_nlm_file_message(expected_path: str) -> str:
     """Generates a detailed error message for missing NLM XML data."""
@@ -298,11 +294,20 @@ def extract_all_mesh_data_from_xml(xml_file_path: str, output_csv_path: str, out
         df['MeSH_stop_term'] = df['DescriptorName'].astype(str).str.lower().isin(stop_words_lower)
         stop_count = df['MeSH_stop_term'].sum()
 
+        # Which trees each descriptor belongs to, so the stop-word set can be
+        # recomputed for a different choice of trees without coming back to
+        # this 300 MB file. Without it, changing one checkbox would mean
+        # re-parsing the XML, and nobody would change it twice.
+        df[vocabulary.TREE_COLUMN] = df['DescriptorName'].map(
+            lambda n: ''.join(sorted(mesh_term_to_categories.get(n, ()))))
+
         os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
         df.to_csv(output_csv_path, index=False)
 
         print(f"    [+] Successfully extracted {len(df):,} unique terms (from {initial_len:,} raw)")
         print(f"    [+] Tagged {stop_count:,} terms as stop words.")
+        print(f"    [+] Recorded tree membership, so the stop-word trees can be")
+        print(f"        changed later without re-reading the XML.")
         print(f"    [+] Saved CSV to '{output_csv_path}'")
 
         return True

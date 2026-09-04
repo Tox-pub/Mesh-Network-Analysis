@@ -20,6 +20,9 @@ from datetime import date
 from pathlib import Path
 from shutil import copy2
 
+from . import strata as _strata
+from . import vocabulary as _vocabulary
+
 class MeshConfig:
     """Parses user configuration, applies factory defaults, and generates absolute paths."""
 
@@ -57,7 +60,7 @@ class MeshConfig:
                 "custom_file_prefix": "",
                 # Off, matching the documented behaviour: the run completes
                 # unattended with every term left 'Unassigned'. Turn it on to
-                # stop after Step 3 and assign AOP levels by hand first.
+                # stop after Step 3 and assign the strata by hand first.
                 "pause_for_annotation": False
             },
             "directories": {
@@ -110,7 +113,32 @@ class MeshConfig:
                 # displayed value and an applied value come to differ. Seeded
                 # here so there is one answer rather than two.
                 "eigenvector_max_iter": 1000,
-                "eigenvector_tol": 1.0e-6
+                "eigenvector_tol": 1.0e-6,
+                # The groups the network is divided into, in the order the
+                # alluvial flow reads left to right. Seeded with the seven
+                # levels of an adverse outcome pathway because that is what
+                # this program was built for, but it is only a default: any
+                # names may be used, and a stratum written in the annotation
+                # file but missing here is added at the end rather than lost.
+                "strata_order": _strata.DEFAULT_ORDER_TEXT
+            },
+            # Which MeSH terms an analysis is allowed to see. The twelve trees
+            # excluded here are the ones an adverse outcome pathway has no use
+            # for; a different question may well need some of them back. See
+            # vocabulary.py for what each letter is.
+            "stop_words": {
+                "excluded_trees": ';'.join(_vocabulary.DEFAULT_EXCLUDED),
+                # Male and Female are in no tree, so no choice of trees can
+                # exclude them. They are attached to a large share of clinical
+                # articles, which makes them two of the highest-degree nodes in
+                # any network that keeps them. Off unless sex is the subject.
+                "keep_sexes": False,
+                # Semicolon-delimited, because MeSH headings contain commas.
+                "extra_terms": "",
+                # Re-derive the list from the descriptor XML. Only needed after
+                # a MeSH release year changes: a different choice of trees is
+                # applied from the terms CSV without touching the XML.
+                "rebuild": False
             },
             # Figure output. 300 dpi is the usual journal minimum for raster
             # figures and is fast; 600 is what print production asks for and

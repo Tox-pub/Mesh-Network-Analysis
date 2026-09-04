@@ -149,7 +149,7 @@ Mesh-Network-Analysis/
 │   ├── benchmark/                      # All --step benchmark outputs (ranking + ground-truth)
 │   │   └── validation/                 # Node-weighting + projection report
 │   ├── logs/                           # System logs and failed fetch records
-│   ├── *_run_annotations.csv           # Run-specific AOP annotation templates
+│   ├── *_run_annotations.csv           # Run-specific strata annotation templates
 │   ├── *_Top_Network_Articles.csv      # Secondary analysis exports
 │   └── *_export.xlsx                   # Exported full network tables
 │
@@ -165,6 +165,9 @@ Mesh-Network-Analysis/
 │   │   ├── gt_network_validation.py    # Node/edge convergent ground-truth validation
 │   │   ├── mesh_data_processor.py      # Unified XML extraction and stop-word generation
 │   │   ├── mesh_stop_words.py          # Auto-generated MeSH stop-word set
+│   │   ├── vocabulary.py               # Which MeSH trees an analysis may see
+│   │   ├── strata.py                   # The annotation scheme and its order
+│   │   ├── mdhtml.py                   # Renders the shipped documents as HTML
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
 │   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
 │   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
@@ -262,7 +265,7 @@ about what the pipeline does, and what each setting means, is in
 | What every setting does | **Configuration Wizard Parameter Glossary** |
 | How ARS and MRS are calculated | **How articles and terms are scored** |
 | Prerequisites and disk budget | **Data Acquisition & Prerequisites** |
-| Assigning AOP levels | **The AOP Annotation Workflow** |
+| Assigning strata | **The Annotation Workflow (Strata)** |
 | What the run produces | **Output Artifacts** |
 | Ground truth and benchmarking | **Ground Truth**, **Validation & Benchmarking** |
 | Damaged files | **When Files Go Wrong** |

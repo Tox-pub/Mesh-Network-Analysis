@@ -16,6 +16,9 @@ otherwise only reveals by failing, so they belong in front of the user.
 
 from collections import namedtuple
 
+from mesh_aop import strata as _strata
+from mesh_aop import vocabulary as _vocabulary
+
 Field = namedtuple('Field', 'key label kind default what deflt note choices')
 Field.__new__.__defaults__ = (None, None)          # note, choices optional
 
@@ -121,13 +124,27 @@ TABS = [
         # else here, rather than where files land. On Folders it sat under a
         # heading of its own as the only member, which is how a setting ends up
         # somewhere nobody looks for it.
-        F('control_flags.pause_for_annotation', 'Pause for AOP annotation', 'bool', False,
-          'Stop after the network is built so biological strata can be assigned '
-          'by hand before the figures are drawn.', 'Default: off.',
+        F('control_flags.pause_for_annotation', 'Pause for strata annotation',
+          'bool', False,
+          'Stop after the network is built so each term can be assigned to a '
+          'stratum by hand before the figures are drawn.', 'Default: off.',
           'Off, a full run completes unattended and every term stays '
-          'Uncategorized, which drains the biological figures of meaning. Turn '
+          'Uncategorized, which drains the strata figures of meaning. Turn '
           'it on to stop partway and assign the strata first - that is the '
           'intended workflow for a real analysis, and it needs you present.'),
+        F('analysis_parameters.strata_order', 'Strata order', 'text',
+          _strata.DEFAULT_ORDER_TEXT,
+          'The groups this project divides its network into, in the order the '
+          'alluvial flow reads from left to right. Semicolon-delimited.',
+          f'Default: {_strata.DEFAULT_ORDER_TEXT} - the seven levels of an '
+          f'adverse outcome pathway.',
+          'These names are an example, not a rule: use organ systems, exposure '
+          'routes, study designs, or whatever your question groups terms by. '
+          'The setting fixes ORDER only and never restricts what may be '
+          'written in the annotation file - a stratum found there but missing '
+          'here is added at the end and reported in the run log, not dropped. '
+          'Order is what makes the alluvial flow readable, and it cannot be '
+          'guessed from the names, which is why it is asked for here.'),
     ]),
     ('Folders', [
         # Two settings decide everything. The three after them are overrides
@@ -187,6 +204,58 @@ TABS = [
           '- and the system temp folder is on the system drive. If C: is short '
           'of space, point this at a roomier disk or the build can run out '
           'partway through a run. Do NOT put on a FAT32-formatted drive, i.e. Flash drives'),
+    ]),
+    ('Stop words', [
+        F('_heading.vocabulary', 'Which MeSH terms the analysis may see',
+          'heading', '',
+          'MeSH is organised into sixteen trees. A tick below EXCLUDES that '
+          'tree: every term in it becomes a stop word and can never enter the '
+          'network. The four left unticked are the ones a biological strata '
+          'analysis is built from - Anatomy, Diseases, Chemicals and Drugs, '
+          'Phenomena and Processes. A different question needs a different '
+          'four: research geography needs Geographicals, workforce studies '
+          'need Disciplines and Occupations.', '', ''),
+
+        F('stop_words.excluded_trees', 'Trees to exclude', 'trees',
+          ';'.join(_vocabulary.DEFAULT_EXCLUDED),
+          'Ticked trees are excluded from the analysis entirely.',
+          'Default: the twelve ticked below, leaving A, C, D and G in use.',
+          'This decides what the network is able to contain, so it is not a '
+          'display filter - a term excluded here is absent from the network, '
+          'the scores and the benchmark alike. Changing it changes the '
+          'results, so two runs to be compared must use the same trees.'),
+
+        F('stop_words.keep_sexes', 'Keep Male and Female', 'bool', False,
+          'Keeps the two sex terms in the analysis.',
+          'Default: off - both are excluded.',
+          'Male and Female are check tags: they sit in no tree, so no choice '
+          'above can exclude them and this switch is the only way to. They are '
+          'indexed on a large share of clinical articles, which makes them two '
+          'of the highest-degree nodes in any network that keeps them - '
+          'connected to nearly everything and therefore distinguishing '
+          'nothing. Turn this on when sex is part of the question.'),
+
+        F('stop_words.extra_terms', 'Also exclude these terms', 'text', '',
+          'Individual MeSH headings to exclude, on top of the trees above. '
+          'Semicolon-delimited: Humans; Adult; Middle Aged',
+          'Default: empty.',
+          'Semicolons, not commas - MeSH headings contain commas as a matter '
+          'of course, and "Dermatitis, Allergic Contact" split on its comma '
+          'would exclude two headings that do not exist. Spelling must match '
+          'the MeSH heading exactly; a term that matches nothing is ignored '
+          'silently, so check the run log for the count if in doubt.'),
+
+        F('stop_words.rebuild', 'Rebuild the stop-word list from the MeSH XML',
+          'bool', False,
+          'Re-reads the descriptor XML and regenerates the term list from '
+          'scratch.',
+          'Default: off - it is built once and kept.',
+          'Not needed to change the trees above: which tree each term belongs '
+          'to is recorded when the list is first built, so a different '
+          'selection is applied straight from that record in about a second. '
+          'Turn this on after moving to a new MeSH release year, or if the '
+          'run log says the term list predates the tree record. It adds '
+          'several minutes to the process step.'),
     ]),
     ('Credentials', [
         F('credentials.entrez_email', 'NCBI e-mail', 'text', '',
@@ -468,10 +537,10 @@ TABS = [
           'which the network step does as it runs.'),
         F('viz_parameters.fig_communities', 'Figure 3 - Community composition',
           'bool', True,
-          'Stacked bars showing which AOP levels make up each Louvain community, so you can see whether the communities follow the pathway.',
+          'Stacked bars showing which strata make up each Louvain community, so you can see whether the communities follow your scheme.',
           'Default: on.',
-          'Needs AOP levels assigned. With everything left Unassigned it draws '
-          'one bar and says nothing. See Help - How to annotate AOP levels'),
+          'Needs the strata assigned. With everything left Unassigned it draws '
+          'one bar and says nothing. See Help - How to annotate strata'),
         F('viz_parameters.fig_tsne', 'Figure 4 - t-SNE projection',
           'bool', True,
           'A two-dimensional projection of the graph distance matrix, each node coloured by its Louvain community - do the communities separate?',
@@ -479,20 +548,23 @@ TABS = [
           'The slowest of the static figures on a large network, and the '
           'projection is stochastic - it is reproducible only because the '
           'random seed on the Analysis tab fixes it.'),
-        F('viz_parameters.fig_alluvial', 'Figure 5 - AOP alluvial flow',
+        F('viz_parameters.fig_alluvial', 'Figure 5 - Alluvial flow between strata',
           'bool', True,
-          'An interactive Sankey tracing flow from stressors through molecular, cellular, tissue and organ levels to adverse outcomes.',
+          'An interactive Sankey tracing flow between the strata, in the order set by Strata order on the Search tab.',
           'Default: on.',
           'Writes both a labelled and an unlabelled HTML version, plus the '
-          'connection table behind them. The one figure that shows the pathway '
-          'as a pathway. See Help - How to annotate AOP levels'),
+          'connection table behind them. The one figure whose meaning depends '
+          'on the ORDER of the strata rather than only their names - on an AOP '
+          'project that order is stressor through to adverse outcome. Needs at '
+          'least two strata; it is skipped otherwise. See Help - How to '
+          'annotate strata'),
         F('viz_parameters.fig_dendrogram', 'Figure 6 - Node2Vec dendrogram',
           'bool', True,
-          'Ward clustering of Node2Vec embeddings, leaves coloured by AOP level - terms that sit near each other in the learned space cluster together.',
+          'Ward clustering of Node2Vec embeddings, leaves coloured by stratum - terms that sit near each other in the learned space cluster together.',
           'Default: on.',
           'Trains an embedding first, so it is the most expensive figure here. '
           'Reproducible run to run: the walks are seeded and gensim is trained '
-          'single-threaded so the result does not depend on thread timing. See Help - How to annotate AOP levels'),
+          'single-threaded so the result does not depend on thread timing. See Help - How to annotate strata'),
         F('viz_parameters.fig_network', 'Figure 7 - Network graph',
           'bool', True,
           'The consensus network drawn, with every term labelled and the nodes '

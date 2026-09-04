@@ -8,88 +8,130 @@ build. Both are places where the explanation is given once, on a console that is
 closed by the time it matters - the annotation pause can sit for days, and nobody
 reads a build log a month later when the database will not open.
 
-So the instructions are written to disk beside the file they describe, in plain
-text, named so they are the obvious thing to open. This module holds that text
-and nothing else: no imports from the rest of the package, so it stays cheap and
-can be read from the GUI, the CLI, or a bare interpreter.
+So the instructions are written to disk beside the file they describe, named so
+they are the obvious thing to open. The annotation guide is a page - it has a
+list of strata and a table of what to do next, and it opens in a browser where
+that reads as a document rather than as a wall of fixed-width text. The
+database guide stays plain text: it is short, and it is read by someone whose
+program will not start.
+
+This module holds that text and nothing else. Its only imports are strata and
+mdhtml, both of which are standard-library-only, so it stays cheap enough to
+call from the GUI, the CLI, or a bare interpreter.
 """
 
 import os
 
-# The biological strata, in pathway order. Duplicated in viz.AOP_ORDER for
-# plotting; this copy exists so instructions can be produced without importing
-# matplotlib, which the annotation pause has no other reason to load.
-AOP_LEVELS = ('Stressor', 'Molecular', 'Cellular', 'Tissue', 'Organ',
-              'Adverse Outcome', 'Uncategorized')
+from .strata import (COLUMN, DEFAULT_ORDER, DEFAULT_ORDER_TEXT, UNASSIGNED,
+                     parse_order)
 
-ANNOTATION_GUIDE_NAME = 'HOW TO ANNOTATE - read me.txt'
+ANNOTATION_GUIDE_NAME = 'HOW TO ANNOTATE - read me.html'
+ANNOTATION_GUIDE_NAME_FALLBACK = 'HOW TO ANNOTATE - read me.txt'
 MASTER_DB_GUIDE_NAME = 'HOW TO REBUILD THIS DATABASE - read me.txt'
 
+# Both names, so callers looking for an existing guide find one written by an
+# older version - or by a run where the renderer failed - and do not write a
+# second copy alongside it.
+ANNOTATION_GUIDE_NAMES = (ANNOTATION_GUIDE_NAME, ANNOTATION_GUIDE_NAME_FALLBACK)
 
-def _wrap(path):
-    """The path, and a hint when it is long enough to be worth one."""
-    return path
 
+def annotation_guide_markdown(annotation_path, strata_order=''):
+    """What to do with a run-annotations file, for the file's own folder.
 
-def annotation_guide_text(annotation_path, prefix='', results_dir=''):
-    """What to do with a run-annotations file, for the file's own folder."""
-    levels = '\n'.join(f'      {lvl}' for lvl in AOP_LEVELS)
+    Written as Markdown and rendered to HTML beside the file. The document has
+    a structure worth keeping - a list of strata, a table of what each column
+    is - and plain text in a folder is something people skim past.
+    """
+    order = parse_order(strata_order) or list(DEFAULT_ORDER)
+    listed = '\n'.join(f'{i}. {name}' for i, name in enumerate(order, 1))
+    is_default = order == list(DEFAULT_ORDER)
+    example = '' if not is_default else (
+        '\nThese seven are the default because this program began as a tool '
+        'for adverse outcome pathways, and they are the levels of one: a '
+        'stressor acts at the molecular level, which propagates through cell, '
+        'tissue and organ to an adverse outcome. They are an example, not a '
+        'requirement. Replace them with organ systems, exposure routes, study '
+        'designs, or whatever your question actually groups terms by.\n')
+
     return f"""\
-================================================================================
-THE RUN IS PAUSED, WAITING FOR YOU
-MeSH Workbench - AOP level annotation
-================================================================================
+# The run is paused, waiting for you
 
 Nothing has gone wrong. The pipeline built and scored the network, then stopped
 on purpose, because the next step needs a judgement it cannot make.
 
-WHAT IT NEEDS
-    Every MeSH term in the final network has to be placed on the adverse outcome
-    pathway - is it the stressor, an early molecular event, a cellular one, and
-    so on through to the adverse outcome itself. That mapping is the biology,
-    and it is yours to supply.
+## What it needs
 
-THE FILE TO EDIT
-    {annotation_path}
+Every MeSH term in the final network has to be assigned to a **stratum** — a
+group you have chosen to divide the network into. Which groups those are, and
+which term belongs in which, is yours to decide. The program does not check
+your scheme against anything and has no opinion about it.
 
-    It is a semicolon-delimited CSV. Open it in Excel, LibreOffice, or a text
-    editor. There is one row per MeSH term. Fill in the 'aop_level' column.
+## The file to edit
 
-    Keep the semicolons. MeSH headings contain commas as a matter of course
-    ("Dermatitis, Allergic Contact"), which is exactly why this file does not
-    use them as separators. If your spreadsheet offers to save as "CSV
-    (comma delimited)", say no and keep the current format.
+`{annotation_path}`
 
-THE ALLOWED LEVELS, IN PATHWAY ORDER
-{levels}
+One row per MeSH term. Fill in the `{COLUMN}` column. It is a
+semicolon-delimited CSV, so open it in Excel, LibreOffice, or a text editor.
 
-    Spelling and capitalisation have to match. Anything unrecognised is read as
-    Uncategorized.
+**Keep the semicolons.** MeSH headings contain commas as a matter of course —
+"Dermatitis, Allergic Contact" — which is why this file does not use them as
+separators. If your spreadsheet offers to save as "CSV (comma delimited)", say
+no and keep the format it came in.
 
-    Use Uncategorized deliberately, not as a shrug: a term marked that way stays
-    in the network and in every topological figure, and is simply left out of the
-    AOP-specific ones. It is the right answer for a term that genuinely does not
-    sit on the pathway.
+## The strata this project expects
 
-WHEN YOU ARE DONE
-    Save the file, then run the figures step:
+{listed}
+{example}
+Any name you type is valid. A stratum that is not in the list above still
+appears in the figures; it is added at the end, because a name you typed is a
+name you meant. Spelling and capitalisation are taken literally, so `Molecular`
+and `molecular` are two different strata — which is usually a typo rather than
+an intention.
 
-        In the Workbench:   Run  ->  Step 4 - Figures
-        In a terminal:      python -m mesh_aop.cli --step viz
+To fix the order the figures use, set **Strata order** in Settings. That
+setting is only about order: it never restricts what you may write here.
 
-    Nothing before that step is recomputed, so this is quick. You can edit the
-    file and re-run the figures as often as you like.
+`{UNASSIGNED}` means a term you deliberately did not place. It stays in the
+network and in every topological figure, and is left out of the ones that show
+the scheme. Use it for a term that genuinely does not belong to any of your
+groups.
 
-IF YOU WOULD RATHER NOT ANNOTATE AT ALL
-    Turn off "Pause for AOP annotation" on the Folders tab of Settings. The run
-    then completes unattended with every term left Uncategorized. The network,
-    the scores, the benchmark and the topological figures are all still valid -
-    only the AOP-specific figures lose their meaning, because there is no
-    pathway left in them to show.
+## Before you start, if you have annotated another project
 
-================================================================================
+Your master annotations library remembers the stratum you gave every MeSH term,
+so the same term never has to be annotated twice. That is a saving when two
+projects share a scheme and **a trap when they do not**: a term you called
+`Molecular` in an AOP project arrives pre-filled as `Molecular` in a project
+organised by organ system.
+
+The library is shared by every project and merging into it is permanent. So if
+this project uses a different scheme from your last one, read the file through
+by hand before you run the figures, rather than trusting what is already in the
+column.
+
+## When you are done
+
+Save the file, then run the figures step:
+
+| Where | What to do |
+| :--- | :--- |
+| In the Workbench | Run → Step 4 — Figures |
+| In a terminal | `python -m mesh_aop.cli --step viz` |
+
+Nothing before that step is recomputed, so this is quick. Edit the file and
+re-run the figures as often as you like.
+
+## If you would rather not annotate at all
+
+Turn off **Pause for strata annotation** on the Search tab of Settings. The run
+then completes unattended with every term left `{UNASSIGNED}`. The network, the
+scores, the benchmark and the topological figures are all still valid — only
+the figures that show the strata lose their meaning, because there is no
+grouping left in them to show.
+
+---
+
 Written automatically when the run paused. Safe to delete.
-================================================================================
 """
 
 
@@ -175,11 +217,22 @@ def _write(path, text):
         return None
 
 
-def write_annotation_guide(annotation_path, config=None):
-    """Drop the annotation instructions beside the file to be annotated."""
+def write_annotation_guide(annotation_path, config=None, strata_order=''):
+    """Drop the annotation instructions beside the file to be annotated.
+
+    Written as HTML so the browser opens it. If rendering fails for any reason
+    the Markdown goes out under a .txt name instead - it is readable either
+    way, and a guide that does not appear is worse than an unstyled one.
+    """
     folder = os.path.dirname(os.path.abspath(annotation_path))
-    return _write(os.path.join(folder, ANNOTATION_GUIDE_NAME),
-                  annotation_guide_text(os.path.abspath(annotation_path)))
+    body = annotation_guide_markdown(os.path.abspath(annotation_path),
+                                     strata_order=strata_order)
+    try:
+        from . import mdhtml
+        page = mdhtml.render_page(body, 'How to annotate - MeSH Workbench')
+    except Exception:                                              # noqa: BLE001
+        return _write(os.path.join(folder, ANNOTATION_GUIDE_NAME_FALLBACK), body)
+    return _write(os.path.join(folder, ANNOTATION_GUIDE_NAME), page)
 
 
 def write_master_db_guide(db_path, workspace_dir=''):

@@ -43,8 +43,9 @@ from .data_ops import (
 from .network import run_network_construction, run_consensus_filtering_and_lcc, run_community_detection
 from .run_ledger import open_ledger
 from .prisma import write_prisma_report
-from .guides import AOP_LEVELS, write_annotation_guide, write_master_db_guide
+from .guides import write_annotation_guide, write_master_db_guide
 from . import guides
+from . import strata
 from . import ledger_collect
 from . import runcontrol
 from .runcontrol import RunAborted
@@ -55,17 +56,14 @@ from .benchmark import (run_benchmark, resolve_ground_truth_path,
 from .gt_network_validation import run_gt_network_validation
 from .validation_report import run_validation_report, run_projection_comparison
 from .viz import (
-    configure_output,
+    configure_output, configure_strata,
     load_and_prepare_data, load_full_raw_data, analyze_dispersion,
     plot_cooccurrance_distribution, run_optimization_comparison,
     plot_louvain_community_bars, plot_tsne_louvain_overlap,
     plot_sankey_alluvial, plot_dendrogram, plot_network_graph
 )
 
-try:
-    from .mesh_stop_words import MESH_STOP_WORDS
-except ImportError:
-    MESH_STOP_WORDS = set()
+from . import vocabulary
 
 def get_version() -> str:
     """The version of the code that is actually running.
@@ -541,20 +539,66 @@ def _ensure_prerequisites(required_files: dict, step_name: str):
             print(f"  - {label}: {filepath}")
         sys.exit(1)
 
+def _configure_vocabulary(config):
+    """Resolve this run's stop words and put them in force.
+
+    Announced rather than done quietly. Which MeSH trees are excluded decides
+    what the network is able to contain, and a reader looking at a network full
+    of countries - or one missing every chemical - needs the log to say why.
+    """
+    sw = config.params.get('stop_words', {})
+    words, prov = vocabulary.resolve(
+        excluded_trees=sw.get('excluded_trees', vocabulary.DEFAULT_EXCLUDED),
+        keep_sexes=bool(sw.get('keep_sexes', False)),
+        extra_terms=sw.get('extra_terms', ''),
+        mesh_csv_path=config.files.get('mesh_terms_csv'))
+    vocabulary.configure(words)
+
+    print(f"\n    Vocabulary: {prov['total']:,} MeSH terms excluded "
+          f"({prov['source']}).")
+    print(f"      Trees kept    : {prov['kept_trees'] or 'none'}")
+    print(f"      Trees excluded: {prov['excluded_trees'] or 'none'}")
+    print(f"      Male/Female   : {prov['sexes']}")
+    if prov['hand_entered']:
+        print(f"      Also excluded : {'; '.join(prov['hand_entered'])}")
+    if prov.get('warning'):
+        print(f"      [!] {prov['warning']}")
+    return words, prov
+
+
+def _read_annotations(path):
+    """An annotation CSV, with its stratum column under the current name.
+
+    Files written before the rename carry 'aop_level'. They are read as they
+    are and written back as 'stratum', so a project migrates the next time it
+    is annotated instead of needing a conversion step of its own.
+    """
+    df = pd.read_csv(path, sep=';')
+    df.columns = [str(c).lower() for c in df.columns]
+    if strata.COLUMN not in df.columns and strata.LEGACY_COLUMN in df.columns:
+        df = df.rename(columns={strata.LEGACY_COLUMN: strata.COLUMN})
+    if strata.COLUMN not in df.columns:
+        df[strata.COLUMN] = strata.PLACEHOLDER
+    return df
+
+
 def _initialize_master_annotations(mesh_csv_path: str, master_anno_path: str):
     """Pre-populates the Master Annotations Dictionary with all valid MeSH terms from the XML extraction."""
     if os.path.exists(master_anno_path):
         return
-    print("\n<<< Initializing Master AOP Annotations Library >>>")
+    print("\n<<< Initializing Master Annotations Library >>>")
     try:
         df = pd.read_csv(mesh_csv_path)
         term_col = 'mesh_term' if 'mesh_term' in df.columns else df.columns[0]
         all_terms = df[term_col].dropna().astype(str).unique()
 
-        # Filter out stop words so we only have valid biological/chemical terms
-        valid_terms = [t for t in all_terms if t.lower() not in {s.lower() for s in MESH_STOP_WORDS}]
+        # Filter out stop words, so the library holds only terms this project's
+        # vocabulary can actually produce.
+        stopped = {s.lower() for s in vocabulary.active()}
+        valid_terms = [t for t in all_terms if t.lower() not in stopped]
 
-        anno_df = pd.DataFrame({'mesh_term': valid_terms, 'aop_level': ['Unassigned'] * len(valid_terms)})
+        anno_df = pd.DataFrame({'mesh_term': valid_terms,
+                                strata.COLUMN: [strata.PLACEHOLDER] * len(valid_terms)})
         os.makedirs(os.path.dirname(master_anno_path), exist_ok=True)
         anno_df.to_csv(master_anno_path, sep=';', index=False)
         print(f"  [+] Created Master Annotations Dictionary with {len(valid_terms):,} valid MeSH terms.")
@@ -576,17 +620,17 @@ def _generate_run_annotations(json_path: str, master_anno_path: str, run_anno_pa
         master_dict = {}
         if os.path.exists(master_anno_path):
             try:
-                master_df = pd.read_csv(master_anno_path, sep=';')
-                master_df.columns = [c.lower() for c in master_df.columns]
-                master_dict = dict(zip(master_df['mesh_term'], master_df['aop_level']))
+                master_df = _read_annotations(master_anno_path)
+                master_dict = dict(zip(master_df['mesh_term'],
+                                       master_df[strata.COLUMN]))
             except Exception:
                 pass
 
         run_data = []
         for n in nodes:
             # Pull from master if it exists and isn't unassigned, otherwise default to Unassigned
-            lvl = master_dict.get(n, 'Unassigned')
-            run_data.append({'mesh_term': n, 'aop_level': lvl})
+            lvl = master_dict.get(n, strata.PLACEHOLDER)
+            run_data.append({'mesh_term': n, strata.COLUMN: lvl})
 
         run_df = pd.DataFrame(run_data)
         run_df.to_csv(run_anno_path, sep=';', index=False)
@@ -621,8 +665,9 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,
         return
 
     try:
-        run_df = pd.read_csv(run_anno_path, sep=';')
-        unassigned_count = (run_df['aop_level'].str.strip().str.lower() == 'unassigned').sum()
+        run_df = _read_annotations(run_anno_path)
+        unassigned_count = int(
+            run_df[strata.COLUMN].map(strata.is_unplaced).sum())
     except Exception:
         unassigned_count = 0
 
@@ -642,7 +687,7 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,
               f"(answered in the application).")
     else:
         ans = _console_answer(
-            "\n  [?] Do you want to sync the AOP levels from your run-specific file "
+            "\n  [?] Do you want to sync the strata from your run-specific file "
             "back to the Master Library? [y/n/Enter to skip]: ")
     if ans not in ['y', 'yes']:
         print("      The master library was NOT changed. Your run-specific "
@@ -650,17 +695,21 @@ def _sync_run_to_master(run_anno_path: str, master_anno_path: str, is_afk: bool,
         print(f"      you can merge them later from: {run_anno_path}")
     if ans in ['y', 'yes']:
         try:
-            master_df = pd.read_csv(master_anno_path, sep=';')
-            run_dict = dict(zip(run_df['mesh_term'], run_df['aop_level']))
+            master_df = _read_annotations(master_anno_path)
+            run_dict = dict(zip(run_df['mesh_term'], run_df[strata.COLUMN]))
 
             def update_lvl(row):
-                """Prefer this run's AOP level for a term when it was actually assigned (not 'Unassigned')."""
-                term = row['mesh_term']
-                if term in run_dict and run_dict[term].strip().lower() != 'unassigned':
-                    return run_dict[term]
-                return row['aop_level']
+                """Prefer this run's stratum for a term it actually placed.
 
-            master_df['aop_level'] = master_df.apply(update_lvl, axis=1)
+                A term left unplaced in this run must not wipe an assignment
+                the library already holds from another project.
+                """
+                term = row['mesh_term']
+                if term in run_dict and not strata.is_unplaced(run_dict[term]):
+                    return run_dict[term]
+                return row[strata.COLUMN]
+
+            master_df[strata.COLUMN] = master_df.apply(update_lvl, axis=1)
             existing_terms = set(master_df['mesh_term'])
             new_rows = [r for _, r in run_df.iterrows() if r['mesh_term'] not in existing_terms]
             if new_rows:
@@ -749,7 +798,7 @@ def main():
 
     parser.add_argument('--sync-annotations', choices=['ask', 'yes', 'no'], default='ask',
                         help="After a pause for annotation, whether to merge this run's "
-                             "AOP levels back into your master annotations library. "
+                             "strata back into your master annotations library. "
                              "'ask' prompts on the console; the Workbench asks in a "
                              "dialog and passes the answer here, because a subprocess "
                              "with no console cannot be asked anything.")
@@ -841,6 +890,14 @@ def main():
     # distribution figures too, and the PRISMA flow is drawn after every step.
     _vp = config.params.get('viz_parameters', {})
     _dpi, _fmts = configure_output(_vp.get('figure_dpi'), _vp.get('figure_formats'))
+    # The strata order, for the same reason: Step 3 draws figures too, and any
+    # of them may be the first to read the annotation.
+    configure_strata(config.get('analysis_parameters', 'strata_order'))
+
+    # The vocabulary, before anything reads a MeSH term. Which trees are
+    # excluded decides what the network can contain at all, so getting this
+    # after the network is built would be getting it after it mattered.
+    _configure_vocabulary(config)
     # Announced by whichever step first draws a figure, not here: a run that
     # builds a database or collects data never produces one. See
     # _announce_figure_output.
@@ -916,8 +973,15 @@ def main():
                     xml_file=xml_file_path,
                     output_csv=config.files['mesh_terms_csv'],
                     output_py=config.files['mesh_stopwords_py'],
-                    force_update=forced or config.get('search_parameters', 'update_mesh_support_files')
+                    force_update=(forced
+                                  or config.get('search_parameters',
+                                                'update_mesh_support_files')
+                                  or config.params.get('stop_words', {}).get('rebuild', False))
                 )
+                # The terms CSV has just been rewritten, so the vocabulary
+                # resolved before this step was based on the old one - or on
+                # no CSV at all, on a first run. Resolve it again.
+                _configure_vocabulary(config)
             except (PermissionError, OSError) as exc:
                 # The stop-word list lives inside the package, and an installed
                 # copy under Program Files or /opt is read-only. That is not a
@@ -1220,20 +1284,24 @@ def main():
                 # Instructions on screen AND in a file beside the one to edit:
                 # a paused run can sit for days, and the window that explained
                 # what to do is usually long closed by the time anyone returns.
-                guide = write_annotation_guide(anno, config)
+                order = config.get('analysis_parameters', 'strata_order') or ''
+                guide = write_annotation_guide(anno, config, strata_order=order)
+                expected = strata.parse_order(order) or list(strata.DEFAULT_ORDER)
                 print("\n" + "<" * 30 + ">" * 30)
-                print("PIPELINE PAUSED - the network needs AOP levels before figures")
+                print("PIPELINE PAUSED - the network needs strata before figures")
                 print("<" * 30 + ">" * 30)
                 print("\n  The consensus network is built and scored. Each MeSH term in")
-                print("  it now needs a biological level assigned, which is a judgement")
-                print("  the pipeline cannot make for you.")
-                print(f"\n  1. Open this file and fill in the 'aop_level' column:")
+                print("  it now needs a stratum assigned, which is a judgement the")
+                print("  pipeline cannot make for you.")
+                print(f"\n  1. Open this file and fill in the '{strata.COLUMN}' column:")
                 print(f"       {anno}")
-                print(f"\n     Allowed levels, in pathway order:")
-                print(f"       {', '.join(AOP_LEVELS)}")
-                print("     Leave a term as 'Unassigned' if it does not belong to the")
-                print("     pathway; it is kept in the network and omitted from the")
-                print("     AOP-specific figures. Save as CSV, keeping the semicolons.")
+                print(f"\n     This project expects, in order:")
+                print(f"       {', '.join(expected)}")
+                print("     Any other name is accepted and is added at the end of that")
+                print(f"     order. Leave a term as '{strata.UNASSIGNED}' if it belongs to")
+                print("     none of your groups; it is kept in the network and omitted")
+                print("     from the figures that show the strata. Save as CSV, keeping")
+                print("     the semicolons.")
                 print(f"\n  2. Then run the figures step:")
                 print("       Workbench:  Run -> Step 4 (figures)")
                 print("       Terminal :  python -m mesh_aop.cli --step viz")
@@ -1245,7 +1313,7 @@ def main():
                 print(f"\n[PAUSED-FOR-ANNOTATION] {anno}")
                 sys.exit(0)
             else:
-                print(f"AFK Override Active. Proceeding to visualization with 'Unassigned' AOP levels...")
+                print(f"AFK Override Active. Proceeding to visualization with every term unplaced...")
 
         # <<< STEP 4: Visualization (AOP-Dependent) >>>
         if args.step in ['all', 'viz']:

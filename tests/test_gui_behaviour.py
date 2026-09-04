@@ -55,6 +55,8 @@ cfg.refresh_paths()
 anno = str(cfg.results_dir / f'{cfg.prefix}_run_annotations.csv')
 os.makedirs(os.path.dirname(anno), exist_ok=True)
 with open(anno, 'w', encoding='utf-8', newline='') as fh:
+    # Deliberately the OLD column name: a project annotated before the rename
+    # must still count its unplaced terms rather than silently reporting none.
     fh.write('mesh_term;aop_level\nSkin;Key Event\nHaptens;Unassigned\n')
 
 w.vars['control_flags.pause_for_annotation'].set(True)

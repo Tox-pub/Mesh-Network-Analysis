@@ -3,14 +3,21 @@
 viz.py - figure generation and visualization (pipeline Step 4).
 
 Produces the publication-quality figures and interactive exports from the
-finished, AOP-annotated network.
+finished, annotated network.
 
 Outputs include edge-weight and dispersion (zero-truncated negative binomial)
 distributions, the GLF-versus-SA optimization trajectory, Louvain community
 composition bars, centrality correlation and dumbbell plots, a t-SNE community
-projection, a Node2Vec dendrogram, and the Sankey/alluvial flows that connect
-stressors to adverse outcomes. Static images are written as high-resolution
-JPEG/TIFF and interactive figures as self-contained HTML.
+projection, a Node2Vec dendrogram, and the Sankey/alluvial flows between the
+strata. Static images are written as high-resolution JPEG/TIFF and interactive
+figures as self-contained HTML.
+
+Three figures read the annotation: the community composition bars, the alluvial
+flow, and the dendrogram's label colours. None of them assumes what the strata
+are. The names come from the annotation file, their order from the settings,
+and the palette is sized to however many the run turns out to have - so a
+network divided into four organ systems plots exactly as well as one divided
+into the seven levels of an adverse outcome pathway.
 """
 
 import os
@@ -37,6 +44,7 @@ from collections import defaultdict
 # Relative imports from our package
 from .stats import calculate_graph_stats
 from . import paths as _paths
+from . import strata as _strata
 
 # Node2Vec embedding for the dendrogram figure. We use a vendored, dependency-light
 # implementation (node2vec_embedding) instead of the `node2vec` package, so the
@@ -54,15 +62,55 @@ except Exception as e:
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # PLOTTING CONSTANTS & STYLE
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-AOP_ORDER = ['Stressor', 'Molecular', 'Cellular', 'Tissue', 'Organ', 'Adverse Outcome', 'Uncategorized']
 plt.rcParams['pdf.fonttype'] = 42
 plt.rcParams['ps.fonttype'] = 42
 plt.rcParams['font.family'] = 'sans-serif'
 sns.set_context("paper", font_scale=1.2)
 sns.set_style("whitegrid")
-MAGMA_PALETTE = sns.color_palette("magma_r", n_colors=len(AOP_ORDER))
-AOP_COLOR_MAP = dict(zip(AOP_ORDER, MAGMA_PALETTE))
 MARKERS_LIST = ['o', 's', '^', 'D', 'v', 'X', 'P']
+# A fixed sample of the same palette, for the figures that colour by something
+# other than stratum and so must not move when the strata count changes.
+MAGMA_PALETTE = sns.color_palette("magma_r", n_colors=7)
+
+# The strata this run divides the network into, and a colour for each. Neither
+# can be a constant any more: the names come from the annotation file, which
+# may say anything, the order comes from the settings, and the palette has to
+# be sized to however many there turn out to be. configure_strata() takes the
+# configured order before any figure is drawn; _adopt_strata() reconciles it
+# with what the file actually contained. The defaults stand if nothing calls
+# them, so the module still behaves when driven directly from a notebook.
+_CONFIGURED_STRATA = ''
+STRATA_ORDER = list(_strata.DEFAULT_ORDER)
+STRATA_COLOR_MAP = dict(zip(_strata.DEFAULT_ORDER,
+                            sns.color_palette("magma_r",
+                                              n_colors=len(_strata.DEFAULT_ORDER))))
+
+
+def configure_strata(order_text):
+    """The strata order from the settings. Call before drawing anything."""
+    global _CONFIGURED_STRATA
+    _CONFIGURED_STRATA = order_text or ''
+
+
+def _adopt_strata(present):
+    """Fix the order and the palette for the strata this run actually has.
+
+    Anything in the file but not in the setting is appended and reported. A
+    stratum the user typed is one they meant, and a figure that silently
+    dropped it would be a figure that lied about the annotation.
+    """
+    global STRATA_ORDER, STRATA_COLOR_MAP
+    order, appended = _strata.resolve_order(
+        _CONFIGURED_STRATA or list(_strata.DEFAULT_ORDER), present)
+    if not order:
+        order = [_strata.UNASSIGNED]
+    STRATA_ORDER = order
+    STRATA_COLOR_MAP = dict(
+        zip(order, sns.color_palette("magma_r", n_colors=len(order))))
+    if appended:
+        print(f"    [i] Not in the Strata order setting, so placed at the end: "
+              f"{', '.join(appended)}")
+    return order
 
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # DATA IO & HELPER FUNCTIONS
@@ -174,7 +222,7 @@ def export_plotly_figure(fig, filename_base: str, output_dir: str, file_prefix: 
         print(f"    [!] HTML export failed: {e}")
 
 def load_and_prepare_data(json_path: str, annotation_path: str):
-    """Loads final network data and merges AOP annotations via Semicolon CSV."""
+    """Loads the final network and merges the strata annotations (semicolon CSV)."""
     print(f"\n<<< Loading Final Network Data: {os.path.basename(json_path)} >>>")
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"Final network file not found: {json_path}")
@@ -200,33 +248,47 @@ def load_and_prepare_data(json_path: str, annotation_path: str):
     for idx, edge in edge_df.iterrows():
         G.add_edge(edge['source'], edge['target'], **edge)
 
+    col = _strata.COLUMN
     if os.path.exists(annotation_path):
         print(f"Merging annotations from {os.path.basename(annotation_path)}...")
         try:
             # Read explicitly with semicolon
             try:
-                aop_df = pd.read_csv(annotation_path, sep=';')
-                if len(aop_df.columns) == 1 and ',' in aop_df.columns[0]:
-                    aop_df = pd.read_csv(annotation_path, sep=',')
+                anno_df = pd.read_csv(annotation_path, sep=';')
+                if len(anno_df.columns) == 1 and ',' in anno_df.columns[0]:
+                    anno_df = pd.read_csv(annotation_path, sep=',')
             except Exception:
-                aop_df = pd.read_csv(annotation_path, sep=',')
+                anno_df = pd.read_csv(annotation_path, sep=',')
 
-            # Standardize column casing
-            col_map = {c: c.lower() for c in aop_df.columns}
-            aop_df.rename(columns=col_map, inplace=True)
+            # Standardize column casing, then accept either spelling of the
+            # stratum column: a file annotated before the rename says
+            # 'aop_level' and must keep working without being re-annotated.
+            anno_df.rename(columns={c: str(c).lower() for c in anno_df.columns},
+                           inplace=True)
+            if col not in anno_df.columns and _strata.LEGACY_COLUMN in anno_df.columns:
+                anno_df.rename(columns={_strata.LEGACY_COLUMN: col}, inplace=True)
 
-            node_df = node_df.reset_index().merge(aop_df, on='mesh_term', how='left').set_index('mesh_term')
+            node_df = node_df.reset_index().merge(anno_df, on='mesh_term', how='left').set_index('mesh_term')
         except Exception as e:
             print(f"[!] WARNING: Could not read annotation file: {e}")
-            node_df['aop_level'] = 'Uncategorized'
+            node_df[col] = _strata.UNASSIGNED
 
-        node_df['aop_level'] = pd.Categorical(node_df['aop_level'], categories=AOP_ORDER, ordered=True)
-        if 'Uncategorized' in AOP_ORDER:
-            node_df['aop_level'] = node_df['aop_level'].fillna('Uncategorized')
-        nx.set_node_attributes(G, node_df['aop_level'].to_dict(), 'aop_level')
+        if col not in node_df.columns:
+            print(f"[!] WARNING: the annotation file has no '{col}' column. "
+                  f"Proceeding with every term {_strata.UNASSIGNED}.")
+            node_df[col] = _strata.UNASSIGNED
+
+        # Whatever the user wrote is a stratum. Blanks, the template's
+        # placeholder and the word the figures use all mean the same thing.
+        node_df[col] = node_df[col].map(_strata.normalise)
+        order = _adopt_strata(node_df[col].tolist())
+        node_df[col] = pd.Categorical(node_df[col], categories=order, ordered=True)
+        nx.set_node_attributes(G, node_df[col].to_dict(), col)
     else:
-        print(f"[!] WARNING: Annotation file not found at {annotation_path}. Proceeding 'Uncategorized'.")
-        node_df['aop_level'] = 'Uncategorized'
+        print(f"[!] WARNING: Annotation file not found at {annotation_path}. "
+              f"Proceeding {_strata.UNASSIGNED}.")
+        node_df[col] = _strata.UNASSIGNED
+        _adopt_strata([_strata.UNASSIGNED])
 
     print(f"Graph Loaded: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges.")
     return node_df, edge_df, G
@@ -383,19 +445,20 @@ def run_optimization_comparison(history_json_path: str, output_dir: str, file_pr
         plt.close('all')
 
 def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 3: which AOP levels make up each Louvain community."""
-    print("\n<<< Figure 3 of 7: Community composition - AOP levels per community >>>")
+    """Figure 3: which strata make up each Louvain community."""
+    print("\n<<< Figure 3 of 7: Community composition - strata per community >>>")
     try:
         if 'filtered_louvain_community_id' not in node_df.columns:
             print("    [!] Missing 'filtered_louvain_community_id' column. Skipping Figure 3.")
             return
 
-        cross_tab = pd.crosstab(node_df['filtered_louvain_community_id'], node_df['aop_level'])
-        cross_tab = cross_tab.reindex(columns=AOP_ORDER, fill_value=0)
+        cross_tab = pd.crosstab(node_df['filtered_louvain_community_id'],
+                                node_df[_strata.COLUMN])
+        cross_tab = cross_tab.reindex(columns=STRATA_ORDER, fill_value=0)
         sorted_idx = cross_tab.sum(axis=1).sort_values(ascending=False).index
         cross_tab = cross_tab.loc[sorted_idx]
 
-        ax = cross_tab.plot(kind='bar', stacked=True, figsize=(14, 8), color=[AOP_COLOR_MAP[c] for c in cross_tab.columns], alpha=0.7, edgecolor='black', linewidth=0.5, width=0.8)
+        ax = cross_tab.plot(kind='bar', stacked=True, figsize=(14, 8), color=[STRATA_COLOR_MAP[c] for c in cross_tab.columns], alpha=0.7, edgecolor='black', linewidth=0.5, width=0.8)
         ax.yaxis.set_major_locator(ticker.MultipleLocator(5))
         ax.grid(False)
         ax.tick_params(axis='x', length=5)
@@ -404,7 +467,7 @@ def plot_louvain_community_bars(node_df: pd.DataFrame, output_dir: str, file_pre
 
         plt.xlabel('Louvain Community ID', fontsize=12)
         plt.ylabel('Number of Nodes', fontsize=12)
-        plt.legend(title=r"$\bf{AOP\ Level}$", bbox_to_anchor=(0.81, 1), loc='upper left')
+        plt.legend(title=r"$\bf{Stratum}$", bbox_to_anchor=(0.81, 1), loc='upper left')
         plt.subplots_adjust(right=0.75)
         plt.tight_layout(rect=[0, 0, 0.85, 1])
         save_high_res("Louvain_Community_Composition", output_dir, file_prefix)
@@ -458,8 +521,9 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
             subset = df_tsne[df_tsne['filtered_louvain_community_id'] == comm_id]
             if not subset.empty:
                 top_node = max(subset.index.tolist(), key=lambda x: degree_dict.get(x, 0))
-                aop_tag = node_df.loc[top_node, 'aop_level'] if pd.notna(node_df.loc[top_node, 'aop_level']) else "?"
-                community_labels[comm_id] = f"{comm_id}: {top_node} ({aop_tag})"
+                tag = node_df.loc[top_node, _strata.COLUMN] \
+                    if pd.notna(node_df.loc[top_node, _strata.COLUMN]) else "?"
+                community_labels[comm_id] = f"{comm_id}: {top_node} ({tag})"
             else:
                 community_labels[comm_id] = f"{comm_id}: (Empty)"
 
@@ -487,17 +551,27 @@ def plot_tsne_louvain_overlap(node_df: pd.DataFrame, G: nx.Graph, output_dir: st
         plt.close('all')
 
 def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str):
-    """Figure 5: interactive AOP alluvial flow, stressors through to adverse outcomes."""
-    print("\n<<< Figure 5 of 7: AOP alluvial flow - stressor to adverse outcome >>>")
+    """Figure 5: interactive alluvial flow between the strata.
+
+    The order of the strata is the flow: it is what makes the left-to-right
+    reading mean anything. It comes from the Strata order setting, because no
+    order can be inferred from the names alone - only the person who chose them
+    knows which comes first.
+    """
+    print("\n<<< Figure 5 of 7: alluvial flow between strata >>>")
     try:
-        levels = [l for l in AOP_ORDER if l != 'Uncategorized']
+        levels = [l for l in STRATA_ORDER if l != _strata.UNASSIGNED]
+        if len(levels) < 2:
+            print(f"    [!] Only {len(levels)} stratum in this network. An "
+                  f"alluvial flow needs at least two; skipping Figure 5.")
+            return
         lvl_map = {l: i for i, l in enumerate(levels)}
         flows = defaultdict(int)
 
         unassigned_edges = 0
 
         for u, v in G.edges():
-            lu, lv = node_df.loc[u, 'aop_level'], node_df.loc[v, 'aop_level']
+            lu, lv = node_df.loc[u, _strata.COLUMN], node_df.loc[v, _strata.COLUMN]
             if lu in lvl_map and lv in lvl_map:
                 u_i, v_i = lvl_map[lu], lvl_map[lv]
                 flows[(u_i, v_i) if u_i <= v_i else (v_i, u_i)] += 1
@@ -505,7 +579,8 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
                 unassigned_edges += 1
 
         if unassigned_edges > 0:
-            print(f"    [!] Note: {unassigned_edges:,} edge connections involved 'Uncategorized' nodes and were not plotted.")
+            print(f"    [!] Note: {unassigned_edges:,} edge connections involved "
+                  f"'{_strata.UNASSIGNED}' nodes and were not plotted.")
 
         # Ensure we always pass valid arrays to Plotly, even if flows is completely empty
         sources = [k[0] for k in flows] if flows else []
@@ -524,7 +599,7 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
             node=dict(pad=25, thickness=20, line=dict(color="black", width=0.5), label=levels, color=sns.color_palette("magma_r", len(levels)).as_hex()),
             link=dict(source=sources, target=targets, value=values, label=labels)
         ))
-        fig_labels.update_layout(title="AOP Labeled Alluvial Flow")
+        fig_labels.update_layout(title="Labelled Alluvial Flow Between Strata")
         export_plotly_figure(fig_labels, "Alluvial_Labeled", output_dir, file_prefix)
 
         # Unlabeled Plot
@@ -533,7 +608,7 @@ def plot_sankey_alluvial(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, fi
             node=dict(pad=25, thickness=20, line=dict(color="black", width=0.5), label=[""] * len(levels), color=sns.color_palette("magma_r", len(levels)).as_hex()),
             link=dict(source=sources, target=targets, value=values, label=blank_labels)
         ))
-        fig_clean.update_layout(title="AOP Unlabeled Alluvial Flow")
+        fig_clean.update_layout(title="Unlabelled Alluvial Flow Between Strata")
         export_plotly_figure(fig_clean, "Alluvial_Clean", output_dir, file_prefix)
 
     except Exception as e:
@@ -547,7 +622,7 @@ def _reproducible_hash(value):
 
 
 def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_prefix: str, random_seed: int = None):
-    """Ward dendrogram of Node2Vec embeddings, with leaf labels coloured by AOP level (warns clearly if node2vec is unavailable).
+    """Ward dendrogram of Node2Vec embeddings, with leaf labels coloured by stratum (warns clearly if node2vec is unavailable).
 
     When `random_seed` is provided the embedding is fully reproducible run-to-run:
     the biased walks are seeded, gensim trains single-threaded, and a deterministic
@@ -583,16 +658,17 @@ def plot_dendrogram(G: nx.Graph, node_df: pd.DataFrame, output_dir: str, file_pr
         for lbl in ax.get_yticklabels():
             term = lbl.get_text()
             if term in node_df.index:
-                lvl = node_df.loc[term, 'aop_level']
-                if lvl in AOP_COLOR_MAP: lbl.set_color(AOP_COLOR_MAP[lvl])
+                lvl = node_df.loc[term, _strata.COLUMN]
+                if lvl in STRATA_COLOR_MAP: lbl.set_color(STRATA_COLOR_MAP[lvl])
 
-        aop_legend_patches = [mpatches.Patch(color=color, label=level) for level, color in AOP_COLOR_MAP.items()]
-        ax.legend(handles=aop_legend_patches, title='AOP Level (Label Color)', loc='upper left', bbox_to_anchor=(0.82, 1.0))
+        legend_patches = [mpatches.Patch(color=color, label=level)
+                          for level, color in STRATA_COLOR_MAP.items()]
+        ax.legend(handles=legend_patches, title='Stratum (Label Colour)', loc='upper left', bbox_to_anchor=(0.82, 1.0))
         plt.xlabel("Cluster Distance", fontsize=12)
         plt.ylabel("MeSH Terms", fontsize=12)
         plt.grid(axis='x', linestyle='--', alpha=0.5)
 
-        save_high_res("Dendrogram_Node2Vec_AOP", output_dir, file_prefix)
+        save_high_res("Dendrogram_Node2Vec_Strata", output_dir, file_prefix)
     except Exception as e:
         print(f"[!] Error generating Dendrogram: {e}")
     finally:
