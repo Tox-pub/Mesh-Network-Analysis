@@ -111,6 +111,15 @@ for gone in ('.md', 'README', 'Reference figures'):
        f'menu is {labels}')
 
 print('\n=== 5. every reader is a window, read-only, and not modal ===')
+# The Markdown documents now go to a browser, so the reader is their fallback
+# rather than their normal path. It still has to work, and this is where that
+# is checked - with the browser refused, so the suite never launches one. A
+# test that opened the real browser would also be testing the machine.
+import webbrowser                                                   # noqa: E402
+
+_real_open = webbrowser.open
+webbrowser.open = lambda *a, **k: False
+
 for name, fn in (('MeSH Workbench Manual', app.open_manual),
                  ('License', app.open_license),
                  ('Cite this Program', app.open_citation),
@@ -130,6 +139,54 @@ for name, fn in (('MeSH Workbench Manual', app.open_manual),
     again = fn()
     app.update_idletasks()
     ck(app._readers.get(name) is win, f'{name}: opening twice raises the same window')
+
+print('\n=== 5b. when a browser IS available, the documents go to it ===')
+asked = []
+webbrowser.open = lambda url, *a, **k: (asked.append(url), True)[1]
+for name, fn in (('MeSH Workbench Manual', app.open_manual),
+                 ('Installing and Updating',
+                  lambda: app.open_doc('INSTALL.md', 'Installing and Updating'))):
+    app._readers.pop(name, None)
+    fn()
+    app.update_idletasks()
+    ck(bool(asked), f'{name}: a browser was asked', f'asked {asked}')
+    if asked:
+        page = asked[-1]
+        ck(page.startswith('file:') and page.endswith('.html'),
+           f'{name}: for a local page, not a Markdown file', page)
+        ck(name not in app._readers,
+           f'{name}: and no reader window was opened as well')
+    asked.clear()
+
+# Opening one document has to write the others out too. HELP.md links to
+# INSTALL.md and COMMAND-LINE.md; without the siblings on disk those links land
+# on nothing, which is worse than the reader this replaced.
+from pathlib import Path                                            # noqa: E402
+from mesh_aop import paths as _paths                                # noqa: E402
+
+folder = Path(_paths.user_root()) / 'manual'
+app._readers.pop('MeSH Workbench Manual', None)
+app.open_manual()
+app.update_idletasks()
+for stem in ('HELP', 'INSTALL', 'COMMAND-LINE', 'README'):
+    page = folder / f'{stem}.html'
+    ck(page.exists(), f'{stem}.html was written beside the manual', str(page))
+
+manual = (folder / 'HELP.html').read_text(encoding='utf-8')
+for target in ('INSTALL.html', 'COMMAND-LINE.html'):
+    ck(f'href="{target}"' in manual, f'the manual links to {target}')
+    ck((folder / target).exists(), f'and {target} is there to be opened')
+ck('href="INSTALL.md"' not in manual, 'no link still points at the source file')
+
+# License is not Markdown, so it has nothing to convert and stays in the reader.
+asked.clear()
+app._readers.pop('License', None)
+app.open_license()
+app.update_idletasks()
+ck(not asked, 'License is not converted; it stays in the reader', f'asked {asked}')
+ck('License' in app._readers, 'and its window still opens')
+
+webbrowser.open = _real_open
 
 print('\n=== 6. About states the licence ===')
 app.open_about()

@@ -18,9 +18,11 @@ natively on Windows.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
@@ -594,7 +596,92 @@ class Workbench(tk.Tk):
         except OSError as exc:
             messagebox.showinfo('Could not read it', f'{name}: {exc}')
             return
-        self.show_reader(title or os.path.splitext(name)[0], text, source=path)
+        heading = title or os.path.splitext(name)[0]
+
+        # A browser first, for a document of this length: the table of contents
+        # only earns its place if its links work, and Ctrl+F, zoom, print and
+        # back are all things a Text widget would have to reimplement badly.
+        # The objection that kept this in-window was Markdown opening in an
+        # editor on Linux, which does not happen to HTML.
+        if name.lower().endswith('.md') and self._open_as_html(heading, text,
+                                                               path, name):
+            return
+        self.show_reader(heading, text, source=path)
+
+    # What the Help menu calls each document, so a page reached by following a
+    # link is titled the same as one opened from the menu.
+    _DOC_TITLES = {
+        'HELP.md': 'MeSH Workbench Manual',
+        'INSTALL.md': 'Installing and Updating',
+        'COMMAND-LINE.md': 'Command-Line Guide',
+        'README.md': 'About This Program',
+    }
+
+    def _render_siblings(self, folder, opened):
+        """Write the other documents out too, so the links between them work.
+
+        HELP.md links to INSTALL.md and COMMAND-LINE.md, and those link back.
+        Rendering only the page that was asked for would leave every one of
+        those links pointing at a file that is not there. Best effort - the
+        page the user actually asked for has already been written.
+        """
+        from . import mdhtml
+        for other, other_title in self._DOC_TITLES.items():
+            if other == opened:
+                continue
+            try:
+                path = self._find_doc(other)
+                if not path:
+                    continue
+                body = Path(path).read_text(encoding='utf-8', errors='replace')
+                page = mdhtml.render_page(
+                    body, f'{other_title} - MeSH Workbench', path)
+                (folder / f'{Path(other).stem}.html').write_text(
+                    page, encoding='utf-8')
+            except (OSError, UnicodeError):
+                continue
+
+    def _open_as_html(self, title, text, source, name):
+        """Render to a self-contained page and hand it to the browser.
+
+        Returns False on any failure, so the caller falls back to the reader
+        window rather than leaving the user with nothing. A machine with no
+        browser registered is the case this protects.
+        """
+        try:
+            from . import mdhtml
+            page = mdhtml.render_page(text, f'{title} - MeSH Workbench', source)
+        except Exception:                                          # noqa: BLE001
+            return False
+
+        # Written beside the settings, not into the system temp folder: a
+        # cleaner can remove a temp file while the browser still has it open,
+        # and the same name each time means repeated opens reuse one file
+        # instead of leaving a trail of them. Named after the source document
+        # rather than the menu label, because that is what the links between
+        # the documents are rewritten to point at.
+        try:
+            from mesh_aop import paths as _paths
+            folder = Path(_paths.user_root()) / 'manual'
+            folder.mkdir(parents=True, exist_ok=True)
+            stem = re.sub(r'[^A-Za-z0-9._-]+', '_', Path(name).stem).strip('_')
+            out = folder / f'{stem or "document"}.html'
+            out.write_text(page, encoding='utf-8')
+        except Exception:                                          # noqa: BLE001
+            return False
+
+        self._render_siblings(folder, name)
+
+        try:
+            import webbrowser
+            # A real browser, not whatever claims the file type. new=2 asks for
+            # a tab in a window that is already open, so reading the manual
+            # does not spawn a browser window per visit.
+            if webbrowser.open(out.as_uri(), new=2):
+                return True
+        except Exception:                                          # noqa: BLE001
+            pass
+        return False
 
     # One reader per title, so choosing the same menu item twice raises the
     # window that is already open instead of stacking another copy of it.

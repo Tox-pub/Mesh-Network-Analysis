@@ -604,7 +604,8 @@ def build(target, out_dir, stripped=True):
     # and forty compiled wheels without stating what any of it is licensed
     # under is not a defensible thing to publish.
     # COMMAND-LINE.md travels with the notebooks: this bundle carries both, and
-    # someone reading one wants the other. The Windows portable ships neither.
+    # someone reading one wants the other. The Windows portable ships the
+    # document but not the notebooks.
     for f in ('LICENSE', 'THIRD-PARTY-NOTICES.md', 'CITATION.cff',
                  'pyproject.toml', 'README.md', 'HELP.md', 'INSTALL.md',
                  'COMMAND-LINE.md'):

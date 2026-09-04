@@ -55,6 +55,10 @@ def verify(path):
                     f'python/lib/python{PY_SERIES}/tkinter/__init__.py',
                     'app/src/mesh_aop/cli.py',
                     'app/src/mesh_workbench/app.py',
+                    # Renders the manual for the browser. Losing it is silent -
+                    # Help falls back to the in-window reader without a word.
+                    'app/src/mesh_workbench/mdhtml.py',
+                    'app/HELP.md', 'app/COMMAND-LINE.md',
                     'wheels', 'requirements.txt', 'README.txt',
                     'MeSH Workbench', 'mesh-pipeline', 'mesh-uninstall'):
             check(get(rel) is not None, f'present: {rel}')

@@ -283,6 +283,10 @@ def inventory(project_dir, config=None):
         _add(items, Path(user_results), RESULTS, 'Results folder (your profile)',
              'Your figures, workbooks and reports. Not removed unless you ask.')
         _add(items, _paths.log_dir(), CACHE, 'Run logs')
+        # The Help menu writes the manual out as HTML here before handing it to
+        # a browser. Regenerated on demand, so there is nothing to preserve.
+        _add(items, Path(_paths.user_root()) / 'manual', CACHE,
+             'Rendered manual', 'Help pages written out for the browser.')
         _add(items, _paths.config_path(root), CONFIG, 'Saved settings',
              'Your search terms, folders and NCBI credentials.')
         # Only this account's copies. Another user of the same machine keeps

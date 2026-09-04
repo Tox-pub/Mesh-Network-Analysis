@@ -253,7 +253,7 @@ def copy_app(repo, dst):
     # the folder will also find them.
     docs_dst = os.path.dirname(dst)
     for name in ('LICENSE', 'THIRD-PARTY-NOTICES.md', 'CITATION.cff',
-                 'HELP.md', 'INSTALL.md', 'README.md'):
+                 'HELP.md', 'INSTALL.md', 'README.md', 'COMMAND-LINE.md'):
         src_doc = os.path.join(repo, name)
         if os.path.exists(src_doc):
             shutil.copy2(src_doc, os.path.join(docs_dst, name))
