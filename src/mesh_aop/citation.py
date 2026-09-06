@@ -22,7 +22,7 @@ YEAR = 2026
 REPO = 'https://github.com/Tox-pub/Mesh-Network-Analysis'
 
 
-def package_version(default='3.2.0'):
+def package_version(default='3.2.10'):
     """The installed version, or the fallback.
 
     `version()` does not only raise when the package is absent - on an editable

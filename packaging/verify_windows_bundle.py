@@ -14,9 +14,9 @@ not, and every fault it would have caught has now happened at least once:
 
 Works on the portable .zip, the assembled folder, or the .msi.
 
-    python packaging/verify_windows_bundle.py <build>\\MeshWorkbench-3.2.0-win64-portable.zip
+    python packaging/verify_windows_bundle.py <build>\\MeshWorkbench-3.2.10-win64-portable.zip
     python packaging/verify_windows_bundle.py <build>\\MeshWorkbench
-    python packaging/verify_windows_bundle.py <build>\\MeSH-Workbench-3.2.0-win64.msi
+    python packaging/verify_windows_bundle.py <build>\\MeSH-Workbench-3.2.10-win64.msi
 """
 
 import argparse

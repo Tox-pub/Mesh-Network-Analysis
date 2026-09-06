@@ -31,7 +31,7 @@ later reads cost nothing.
 
 from importlib import import_module
 
-__version__ = "3.2.0"
+__version__ = "3.2.10"
 
 # Public name -> the submodule that defines it. Keeping this as data is what
 # makes the deferral possible; it is also the whole public surface in one place.

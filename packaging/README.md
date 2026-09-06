@@ -144,21 +144,21 @@ against Git LFS quotas.
    Then verify, before anything is hashed or uploaded:
 
    ```
-   python packaging/verify_windows_bundle.py <build dir>\MeshWorkbench-3.2.0-win64-portable.zip
-   python packaging/verify_unix_bundle.py    <build dir>\MeshWorkbench-3.2.0-linux-x86_64.tar.gz
+   python packaging/verify_windows_bundle.py <build dir>\MeshWorkbench-3.2.10-win64-portable.zip
+   python packaging/verify_unix_bundle.py    <build dir>\MeshWorkbench-3.2.10-linux-x86_64.tar.gz
    ```
 
 3. Hash them all, so a download can be verified:
 
    ```
-   certutil -hashfile "<build dir>\MeshWorkbench-3.2.0-win64-portable.zip" SHA256
+   certutil -hashfile "<build dir>\MeshWorkbench-3.2.10-win64-portable.zip" SHA256
    ```
 
 4. Tag the exact commit the artefacts were built from, and push the tag:
 
    ```
-   git tag -a v3.2.0 -m "MeSH Workbench 3.2.0"
-   git push origin v3.2.0
+   git tag -a v3.2.10 -m "MeSH Workbench 3.2.10"
+   git push origin v3.2.10
    ```
 
 5. On GitHub: **Releases** → **Draft a new release** → choose the tag → attach
@@ -167,7 +167,7 @@ against Git LFS quotas.
    With the `gh` CLI it is one command instead:
 
    ```
-   gh release create v3.2.0 --title "MeSH Workbench 3.2.0" --notes-file notes.md *.msi *.zip *.tar.gz
+   gh release create v3.2.10 --title "MeSH Workbench 3.2.10" --notes-file notes.md *.msi *.zip *.tar.gz
    ```
 
 6. Point the project README's download link at the new release.

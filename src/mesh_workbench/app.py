@@ -1568,7 +1568,7 @@ class Workbench(tk.Tk):
             t0 = _t.perf_counter()
             try:
                 req = urllib.request.Request(
-                    url, headers={'User-Agent': 'MeSH-Workbench/3.2.0'})
+                    url, headers={'User-Agent': 'MeSH-Workbench/3.2.10'})
                 with urllib.request.urlopen(req, timeout=8) as r:
                     r.read(64)
                 ms = (_t.perf_counter() - t0) * 1000

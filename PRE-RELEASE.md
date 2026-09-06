@@ -1,7 +1,7 @@
 # Pre-release checklist
 
 What has to be true before a build is put in front of the public. Written
-against 3.2.0; the same list applies to every release after it.
+against 3.2.10; the same list applies to every release after it.
 
 Status as of commit `31f02db` on `foxglove`:
 
@@ -36,7 +36,7 @@ is exactly the shape of the bug that shipped a 345 KB installer as a green
 build. Until there is a `verify_windows_bundle.py`, the manual check is:
 
 ```bash
-python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print([n for n in z.namelist() if 'mesh_config' in n or n.endswith('.env')] or 'clean')" MeSH-Workbench-3.2.0-win64-portable.zip
+python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print([n for n in z.namelist() if 'mesh_config' in n or n.endswith('.env')] or 'clean')" MeSH-Workbench-3.2.10-win64-portable.zip
 ```
 
 This matters more than it looks. Your NCBI e-mail and API key live in that
@@ -170,11 +170,11 @@ The version is declared in **five** places and nothing keeps them in step:
 
 | File | Line |
 | :--- | :--- |
-| `pyproject.toml` | `version = "3.2.0"` |
-| `src/mesh_aop/__init__.py` | `__version__ = "3.2.0"` |
-| `packaging/build_portable_windows.py` | `VERSION = '3.2.0'` |
+| `pyproject.toml` | `version = "3.2.10"` |
+| `src/mesh_aop/__init__.py` | `__version__ = "3.2.10"` |
+| `packaging/build_portable_windows.py` | `VERSION = '3.2.10'` |
 | `packaging/build_msi_windows.py` | the output filename |
-| `packaging/windows_msi.wxs` | `<?define AppVersion = "3.2.0" ?>` |
+| `packaging/windows_msi.wxs` | `<?define AppVersion = "3.2.10" ?>` |
 
 A mismatch here produces an installer whose Add/Remove Programs entry disagrees
 with the application's own About box, and on Windows a wrong `AppVersion`

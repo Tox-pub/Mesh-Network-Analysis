@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesh_aop_network"
-version = "3.2.0"
+version = "3.2.10"
 description = "Pipeline and desktop workbench for MeSH term AOP network generation and analysis"
 # Validated on Python 3.11-3.13; capped at <3.14 to match environment.yml and the
 # validated stack (node2vec is vendored in node2vec_embedding.py, so 3.13 is fully

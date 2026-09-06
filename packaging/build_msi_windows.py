@@ -256,7 +256,7 @@ def main():
     wix = find_wix(a.wix)
     out_dir = os.path.abspath(a.out or os.path.dirname(portable))
     os.makedirs(out_dir, exist_ok=True)
-    msi = os.path.join(out_dir, 'MeSH-Workbench-3.2.0-win64.msi')
+    msi = os.path.join(out_dir, 'MeSH-Workbench-3.2.10-win64.msi')
 
     print(f'Building MSI\n  portable : {portable}\n  compiler : {wix}')
     env = dotnet_env()

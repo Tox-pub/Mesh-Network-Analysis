@@ -33,7 +33,7 @@ def ck(ok, msg, extra=''):
 
 def fake_bundle(box, launcher, exe_rel):
     """A bundle laid out the way the packaging scripts lay one out."""
-    root = os.path.join(box, 'MeSH-Workbench-3.2.0')
+    root = os.path.join(box, 'MeSH-Workbench-3.2.10')
     os.makedirs(os.path.join(root, 'app'), exist_ok=True)
     exe = os.path.join(root, exe_rel)
     os.makedirs(os.path.dirname(exe), exist_ok=True)

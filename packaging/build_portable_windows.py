@@ -34,10 +34,13 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# Where a build may write. Decided in one place for every script in this folder,
+# so they cannot disagree about it. See build_location.py.
 import build_location                                              # noqa: E402
+
 NAME = 'MeshWorkbench'          # zip/folder stem, no spaces
 DISPLAY = 'MeSH Workbench'      # what the user sees and clicks
-VERSION = '3.2.0'   # tracks the project version in pyproject.toml
+VERSION = '3.2.10'   # tracks the project version in pyproject.toml
 PY_VER = '3.12.7'
 EMBED_URL = f'https://www.python.org/ftp/python/{PY_VER}/python-{PY_VER}-embed-amd64.zip'
 # This script lives in <repo>/packaging, so the project it packages is its parent.
@@ -52,14 +55,6 @@ VENV_DEFAULT = os.environ.get('MESH_VENV', sys.prefix)
 # install of the same version - which, when this runs inside a venv, is exactly
 # what sys.base_prefix points at. Asking Python beats naming one machine's path.
 BASE_PY_DEFAULT = os.environ.get('MESH_BASE_PYTHON', sys.base_prefix)
-
-
-# Where a build is allowed to write, decided in one place for every script here
-# - see build_location.py. It used to fall back into packaging/portable when D:
-# was missing, which is inside the cloud-synced working copy: half a gigabyte of
-# reproducible output uploaded on every build, and the reason the artefacts
-# ended up spread across four folders on two drives.
-
 
 
 # Everything the pipeline imports, plus what those need in turn. Copied wholesale

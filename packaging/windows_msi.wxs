@@ -23,7 +23,7 @@
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <?define AppName = "MeSH Workbench" ?>
-  <?define AppVersion = "3.2.0" ?>
+  <?define AppVersion = "3.2.10" ?>
 
   <Package Name="$(AppName)"
            Manufacturer="Karolinska Institutet"
