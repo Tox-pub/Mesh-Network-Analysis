@@ -37,10 +37,7 @@ is needed. What follows is for working on the source.
 
 ### Requirements
 
-* **Python 3.11–3.13** (`requires-python = ">=3.11,<3.14"`). 3.13 is supported:
-  the Node2Vec embedding is vendored in `node2vec_embedding.py`, so the
-  `node2vec` package — which pinned `numpy<2.0` and had no 3.13 wheel — is no
-  longer a dependency.
+* **Python 3.11–3.13** (`requires-python = ">=3.11,<3.14"`).
 * **Memory** — 16 GB is the ideal minimum; 32 GB or more for the database
   build and for networks past one citation generation. It will run on less.
 * **Storage** — 100 GB+ free. The NLM baseline archives are about 50 GB and
@@ -169,7 +166,7 @@ Mesh-Network-Analysis/
 │   │   ├── strata.py                   # The annotation scheme and its order
 │   │   ├── mdhtml.py                   # Renders the shipped documents as HTML
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
-│   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
+│   │   ├── node2vec_embedding.py       # Node2Vec embedding used by the dendrogram figure
 │   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
 │   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
 │   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics

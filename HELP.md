@@ -121,7 +121,6 @@ data rather than from this document. See
   - [Node/Edge Convergent Validation](#nodeedge-convergent-validation)
 - [User-Provided Files — Quick Reference](#user-provided-files--quick-reference)
 - [Troubleshooting](#troubleshooting)
-  - [Python 3.13: NumPy tries to compile and fails](#python-313-numpy-tries-to-compile-and-fails)
   - [Windows `MAX_PATH` / "No such file or directory" during install](#windows-maxpath--no-such-file-or-directory-during-install)
   - ["Activate.ps1 cannot be loaded ... running scripts is disabled"](#activateps1-cannot-be-loaded--running-scripts-is-disabled)
   - ["Access is denied" running `mesh-pipeline` / `mesh-check-env`](#access-is-denied-running-mesh-pipeline--mesh-check-env)
@@ -594,7 +593,7 @@ Every run writes two provenance artefacts into `results/`, without being asked a
 
 ### `*_run_ledger.csv` — the counts
 
-The pipeline computes a great many numbers, prints them once, and throws them away; recovering one afterwards used to mean re-running the stage that produced it. The ledger keeps them. It is a semicolon-delimited table — semicolons because MeSH headings contain commas as a matter of course (*Dermatitis, Allergic Contact*) — with five columns:
+Every stage of a run produces counts: how many articles the search returned, how many survived each filter, how many nodes and edges the network ended with. The ledger records them all, so you can look a number up afterwards instead of re-running the stage that produced it. It is a semicolon-delimited table — semicolons because MeSH headings contain commas as a matter of course (*Dermatitis, Allergic Contact*) — with five columns:
 
 | Column | Meaning |
 | :--- | :--- |
@@ -789,14 +788,6 @@ Everything a user supplies, where it goes, and how the pipeline picks it up. Mos
 
 ## Troubleshooting
 
-### Python 3.13: NumPy tries to compile and fails
-
-Symptom: during `pip install -e .` you see meson/`Unknown compiler` errors building NumPy, e.g. `Could not find ... vswhere.exe`, or `ResolutionImpossible` mentioning `numpy`.
-
-Cause: an earlier revision depended on the `node2vec` package, which pinned `numpy<2.0`; that NumPy ships **no prebuilt wheel for Python 3.13**, so pip fell back to compiling it from C source — which needs an MSVC compiler you likely don't have.
-
-Fix: **this no longer applies.** The Node2Vec embedding is vendored in `node2vec_embedding.py` and the package dependency was removed, so Python 3.13 installs cleanly. If you still hit this, you are installing from an out-of-date checkout or a stale copy of `pyproject.toml`: pull the current revision, delete the virtual environment, and reinstall.
-
 ### Windows `MAX_PATH` / "No such file or directory" during install
 
 Symptom: `pip install -e .` aborts with `OSError: [Errno 2] No such file or directory: '...\statsmodels\tsa\vector_ar\tests\JMulTi_results\...txt'` and a hint about *"Windows Long Path support"*.
@@ -921,7 +912,7 @@ Mesh-Network-Analysis/
 │   │   ├── strata.py                   # The annotation scheme and its order
 │   │   ├── mdhtml.py                   # Renders the shipped documents as HTML
 │   │   ├── network.py                  # NetworkX assembly, filtering, and centrality
-│   │   ├── node2vec_embedding.py       # Vendored Node2Vec embedding (removes the node2vec dep)
+│   │   ├── node2vec_embedding.py       # Node2Vec embedding used by the dendrogram figure
 │   │   ├── relevance.py                # Mean Relevancy Scoring (Semantic Re-ranking)
 │   │   ├── secondary_analysis.py       # Metadata hydration and targeted graph querying
 │   │   ├── stats.py                    # GLF/SA mathematical models and graph statistics
