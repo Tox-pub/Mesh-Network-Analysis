@@ -46,6 +46,8 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+import build_location                                              # noqa: E402
 NAME = 'MeSH-Workbench'
 PY_SERIES = '3.12'
 
@@ -734,13 +736,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     ap.add_argument('--target', choices=sorted(TARGETS), default='linux')
     ap.add_argument('--all', action='store_true', help='build every target')
-    ap.add_argument('--out', default=os.path.join(os.path.expanduser('~'),
-                                                  'Documents', 'mesh_workbench_build'))
+    # Defaulted to ~/Documents/mesh_workbench_build, which is why the Linux and
+    # macOS tarballs ended up on a different drive from the Windows ones.
+    ap.add_argument('--out', default=None,
+                    help=f'where to write the bundle '
+                         f'(default: {build_location.BUILD_ROOT})')
     ap.add_argument('--full-python', action='store_true',
                     help='use the unstripped interpreter (larger, with symbols)')
     ap.add_argument('--repack', action='store_true',
                     help='re-pack an already-assembled staging folder, no downloads')
     a = ap.parse_args()
+    a.out = build_location.resolve(a.out, purpose='Unix bundle')
 
     os.makedirs(a.out, exist_ok=True)
     describe_host()

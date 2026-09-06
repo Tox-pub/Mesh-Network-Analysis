@@ -33,6 +33,8 @@ import urllib.request
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import build_location                                              # noqa: E402
 NAME = 'MeshWorkbench'          # zip/folder stem, no spaces
 DISPLAY = 'MeSH Workbench'      # what the user sees and clicks
 VERSION = '3.2.0'   # tracks the project version in pyproject.toml
@@ -52,36 +54,13 @@ VENV_DEFAULT = os.environ.get('MESH_VENV', sys.prefix)
 BASE_PY_DEFAULT = os.environ.get('MESH_BASE_PYTHON', sys.base_prefix)
 
 
-def _default_build_out():
-    """Where a release is assembled.
-
-    Off the project by preference: the tree is ~460 MB, is rebuilt from scratch
-    every run, and the working copy is cloud-synced, so building in place uploads
-    half a gigabyte of reproducible output every time - .gitignore stops git, not
-    the sync client.
-
-    D: is used when it is genuinely writable. Testing only that it exists is not
-    enough; on another machine D: is as likely to be a read-only optical or
-    mapped drive, and the build would fail partway through instead of falling
-    back. Override with --out or MESH_BUILD_OUT.
-    """
-    env = os.environ.get('MESH_BUILD_OUT')
-    if env:
-        return env
-    for candidate in (r'D:\mesh_workbench_build',):
-        try:
-            os.makedirs(candidate, exist_ok=True)
-            probe = os.path.join(candidate, '.write_test')
-            with open(probe, 'w') as fh:
-                fh.write('')
-            os.remove(probe)
-            return candidate
-        except OSError:
-            continue
-    return os.path.join(HERE, 'portable')
+# Where a build is allowed to write, decided in one place for every script here
+# - see build_location.py. It used to fall back into packaging/portable when D:
+# was missing, which is inside the cloud-synced working copy: half a gigabyte of
+# reproducible output uploaded on every build, and the reason the artefacts
+# ended up spread across four folders on two drives.
 
 
-BUILD_OUT_DEFAULT = _default_build_out()
 
 # Everything the pipeline imports, plus what those need in turn. Copied wholesale
 # from the working venv; anything missing shows up immediately as an ImportError
@@ -380,10 +359,12 @@ def main():
     ap.add_argument('--venv', default=VENV_DEFAULT)
     ap.add_argument('--base-python', default=BASE_PY_DEFAULT,
                     help='full CPython install to take the Tk runtime from')
-    ap.add_argument('--out', default=os.environ.get('MESH_BUILD_OUT', BUILD_OUT_DEFAULT),
-                    help='directory to assemble the release in (default: %(default)s)')
+    ap.add_argument('--out', default=None,
+                    help=f'directory to assemble the release in '
+                         f'(default: {build_location.BUILD_ROOT})')
     ap.add_argument('--no-zip', action='store_true')
     a = ap.parse_args()
+    a.out = build_location.resolve(a.out, purpose='Windows portable build')
 
     out = os.path.join(a.out, NAME)
     if os.path.exists(out):

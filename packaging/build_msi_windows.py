@@ -29,6 +29,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import build_location                                              # noqa: E402
 WXS = os.path.join(HERE, 'windows_msi.wxs')
 
 
@@ -112,11 +114,16 @@ def dotnet_env():
 
 
 def default_portable():
+    """The assembled tree the portable build leaves behind.
+
+    Both scripts ask build_location for the same answer, so the MSI cannot be
+    built from a tree in one place while the zip was written to another.
+    """
     from importlib.util import module_from_spec, spec_from_file_location
     spec = spec_from_file_location('bp', os.path.join(HERE, 'build_portable_windows.py'))
     mod = module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return os.path.join(mod.BUILD_OUT_DEFAULT, mod.NAME)
+    return os.path.join(build_location.resolve(purpose='MSI'), mod.NAME)
 
 def check_not_stale(portable, force=False):
     """Compare the packaged app against the source it should have come from.
@@ -217,10 +224,13 @@ def main():
     ap.add_argument('--force', action='store_true',
                     help='package the portable tree even if it is older than the source')
     ap.add_argument('--portable', default=None,
-                    help='the assembled portable folder (default: the last build)')
+                    help=f'the assembled portable folder '
+                         f'(default: the last build under {build_location.BUILD_ROOT})')
     ap.add_argument('--wix', default=None, help='full path to wix.exe')
     ap.add_argument('--out', default=None,
-                    help='where to write the .msi (default: beside the portable build)')
+                    help=f'where to write the .msi '
+                         f'(default: beside the portable build, in '
+                         f'{build_location.BUILD_ROOT})')
     a = ap.parse_args()
 
     # ABSOLUTE, always. The .wxs harvests the tree with

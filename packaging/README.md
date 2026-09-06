@@ -35,10 +35,25 @@ python packaging/build_portable_windows.py
 Produces `MeshWorkbench-<version>-win64-portable.zip`, roughly 150 MB. The user
 extracts it and double-clicks **`MeSH Workbench.bat`**.
 
-Output goes to `D:\mesh_workbench_build` by default, deliberately **outside the
-project**: the tree is ~460 MB, is rebuilt from scratch every run, and the
-working copy is cloud-synced, so keeping it here would upload half a gigabyte of
-reproducible output on every build. `.gitignore` stops git, not the sync client.
+### Everything is built in one place
+
+`D:\mesh_workbench_build`. Every script here resolves it through
+`build_location.py`, so they cannot disagree.
+
+Deliberately **outside the project**: the tree is ~460 MB, is rebuilt from
+scratch every run, and the working copy is cloud-synced, so keeping it here
+would upload half a gigabyte of reproducible output on every build.
+`.gitignore` stops git, not the sync client.
+
+**If D: is not attached, the build stops.** It does not pick somewhere else.
+Each script used to decide this for itself — the portable build fell back into
+`packaging/portable`, the Unix bundles defaulted to `~/Documents`, and the MSI
+wrote beside whatever tree it was handed. The result was four folders across
+two drives holding several superseded copies of the same artefacts, and a build
+run without D: quietly writing half a gigabyte into the synced project folder.
+
+Override deliberately when you mean to: `--out <path>` for one run, or
+`MESH_BUILD_OUT` for a session. CI sets the latter, because a runner has no D:.
 
 Options: `--out` (build directory, or set `MESH_BUILD_OUT`), `--repo` (project
 directory), `--venv` (environment to take dependencies from), `--base-python`
