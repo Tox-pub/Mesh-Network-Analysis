@@ -336,6 +336,7 @@ WHAT IS IN HERE
     MeSH Workbench.bat      the launcher - this is the one to click
     Install.bat             installs it properly, if you would rather
     Create desktop shortcut.bat   puts an icon on your Desktop
+    mesh-pipeline.bat       the same pipeline without the window, for a shell
     Uninstall.bat           removes the program and its data
     python\                 Python {py}, the official build from python.org
     app\                    the application and the analysis pipeline

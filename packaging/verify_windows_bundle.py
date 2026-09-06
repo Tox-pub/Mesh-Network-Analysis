@@ -50,6 +50,10 @@ REQUIRED = (
     'COMMAND-LINE.md',
     'README.md',
     'MeSH Workbench.bat',
+    # The command line's entry point, matching mesh-pipeline in the Unix
+    # bundles. Without it the pipeline is still present and still runnable,
+    # but only by naming the interpreter and the module by hand.
+    'mesh-pipeline.bat',
     'Uninstall.bat',
 )
 

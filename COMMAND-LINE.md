@@ -22,12 +22,92 @@ one means, once, for both.
 
 ## Contents
 
+- [Running the pipeline from a downloaded build](#running-the-pipeline-from-a-downloaded-build)
 - [Setting up a development environment](#setting-up-a-development-environment)
 - [Execution Guide](#execution-guide)
 - [Repository Structure](#repository-structure)
 - [Jupyter Notebook Interface](#jupyter-notebook-interface)
 - [Programmatic API Usage](#programmatic-api-usage)
 - [Where to find everything else](#where-to-find-everything-else)
+
+## Running the pipeline from a downloaded build
+
+Every downloadable build carries its own Python. The command line requires no
+system Python, no virtual environment and no `pip install`. Nothing in the
+section after this one applies to a downloaded build; it covers installing from
+source.
+
+Each build provides a launcher named `mesh-pipeline`, placed beside the
+application in the program folder. It accepts every flag listed under
+[CLI Flags](#cli-flags) and passes them through unchanged.
+
+### Windows
+
+Extract the portable zip, or install the `.msi`. Open a shell in the program
+folder and run:
+
+```powershell
+mesh-pipeline.bat --step viz
+mesh-pipeline.bat --step all --interactive
+```
+
+From another directory, give the full path in quotes — the folder name contains
+a space:
+
+```powershell
+& "C:\path\to\MeshWorkbench\mesh-pipeline.bat" --step viz
+```
+
+**If the launcher does not run**, call the module directly. The command is
+identical in effect; the launcher adds nothing but the path lookup:
+
+```powershell
+& "C:\path\to\MeshWorkbench\python\python.exe" -m mesh_aop.cli --step viz
+```
+
+That second form also applies where policy blocks `.bat` execution, since it
+invokes the bundled interpreter rather than a script.
+
+### Linux and macOS
+
+Extract the tarball, change into the extracted folder, and run:
+
+```bash
+./mesh-pipeline --step viz
+./mesh-pipeline --step all --interactive
+```
+
+The first invocation unpacks the bundled wheels, which takes about a minute and
+requires no network. Subsequent invocations start immediately.
+
+**If the launcher reports "Permission denied"**, the executable bit was lost in
+transit — extracting on Windows or copying through a FAT32 or exFAT volume does
+this. Restore it:
+
+```bash
+chmod +x mesh-pipeline "MeSH Workbench" mesh-uninstall python/bin/python3.12
+```
+
+**If the launcher still does not run**, call the module directly. Run the
+launcher once first, or the bundled libraries will not have been unpacked:
+
+```bash
+PYTHONPATH="$PWD/app/src" ./python/bin/python3.12 -m mesh_aop.cli --step viz
+```
+
+### Startup time
+
+The pipeline loads NumPy, SciPy, pandas, scikit-learn, statsmodels and
+matplotlib before it does anything, so every invocation carries a fixed cost of
+roughly four seconds on an internal disk.
+
+Run the program from an internal disk. Measured on the same build, a command
+taking four seconds from an internal SSD took over two minutes from an external
+drive — the libraries total about 460 MB, and that volume is read on every
+start. Extracting to a USB stick is the usual cause of an apparently frozen
+command line.
+
+---
 
 ## Setting up a development environment
 

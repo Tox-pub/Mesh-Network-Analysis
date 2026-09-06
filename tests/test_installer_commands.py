@@ -124,6 +124,37 @@ for name in ('Uninstall.bat', 'Install.bat'):
            f'{name}: still clean when the path already ends in a backslash',
            f'{a2.project!r}')
 
+print('\n=== 3b. the command line has a launcher on every platform ===')
+# The Unix bundles have shipped mesh-pipeline since they existed; Windows had
+# no equivalent, so the pipeline was present and reachable only by naming the
+# interpreter and the module by hand - and COMMAND-LINE.md documented neither.
+bat = 'packaging/launchers/mesh-pipeline.bat'
+ck(os.path.exists(bat), f'{bat} exists')
+if os.path.exists(bat):
+    body = open(bat, encoding='utf-8').read()
+    ck('mesh_aop.cli' in body, 'it invokes the pipeline module')
+    ck('%*' in body, 'and passes every argument through unchanged')
+    # The COMMANDS, not the whole file: the comment explains why pythonw is
+    # wrong here, and matching that text called the launcher broken.
+    cmds = [ln.strip() for ln in body.splitlines()
+            if ln.strip() and not ln.strip().upper().startswith(('REM', '@ECHO'))]
+    ck(any('python\\python.exe" -m mesh_aop.cli' in c for c in cmds),
+       'it runs the module with the bundled interpreter', f'{cmds}')
+    ck(not any('pythonw' in c for c in cmds),
+       'python.exe, not pythonw - the pipeline writes to stdout')
+    ck('cd /d "%~dp0"' in body,
+       'it runs from its own folder, so it works from any working directory')
+    ck('exist "python\\python.exe"' in body,
+       'and says so plainly when the tree was extracted incompletely')
+
+unix = open('packaging/build_unix_bundle.py', encoding='utf-8').read()
+ck("'mesh-pipeline'" in unix, 'the Unix bundles still ship theirs')
+
+cli_doc = open('COMMAND-LINE.md', encoding='utf-8').read()
+ck('mesh-pipeline.bat' in cli_doc, 'the guide names the Windows launcher')
+ck('-m mesh_aop.cli' in cli_doc, 'and gives the fallback if it will not run')
+ck('chmod +x' in cli_doc, 'and the Unix fix for a lost executable bit')
+
 print('\n=== 4. the Inno installer is gone, and stays gone ===')
 # Setup.exe was dropped: it installed the same tree to the same place as the
 # MSI, but as an unsigned binary, which is the one thing a managed machine
