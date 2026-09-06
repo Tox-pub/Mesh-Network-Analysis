@@ -98,14 +98,25 @@ PYTHONPATH="$PWD/app/src" ./python/bin/python3.12 -m mesh_aop.cli --step viz
 ### Startup time
 
 The pipeline loads NumPy, SciPy, pandas, scikit-learn, statsmodels and
-matplotlib before it does anything, so every invocation carries a fixed cost of
-roughly four seconds on an internal disk.
+matplotlib before it does anything. About 400 MB is read at every start, so
+each invocation carries a fixed cost before the requested work begins.
 
-Run the program from an internal disk. Measured on the same build, a command
-taking four seconds from an internal SSD took over two minutes from an external
-drive — the libraries total about 460 MB, and that volume is read on every
-start. Extracting to a USB stick is the usual cause of an apparently frozen
-command line.
+Measured on one build, running the same command three ways:
+
+| Location | First run | Subsequent runs |
+| :--- | ---: | ---: |
+| Internal disk | 39s | 4s |
+| External drive | 142s | 139s |
+
+The first run on an internal disk is slow because nothing is cached yet; after
+that the operating system holds the libraries in memory and startup drops to
+about four seconds.
+
+**Install to an internal disk.** An external drive gains nothing from caching —
+Windows applies a removal-safe policy to it by default — so every invocation
+re-reads the full 400 MB and the cost never falls. A command that should take
+four seconds takes over two minutes, which reads as a frozen program rather
+than a slow one. Running from a USB stick is the usual cause.
 
 ---
 
